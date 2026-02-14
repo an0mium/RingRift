@@ -8,6 +8,8 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  // Connection pool: append ?connection_limit=10&pool_timeout=30 to DATABASE_URL
+  // or use the directUrl for migrations (bypasses pool)
 }
 
 model User {
@@ -53,6 +55,7 @@ model User {
 
 model Game {
   id              String     @id @default(cuid())
+  inviteCode      String?    @unique
   boardType       BoardType
   maxPlayers      Int
   timeControl     Json // { initialTime: number, increment: number }

@@ -19,11 +19,7 @@ import {
   getRateLimitConfig,
   __testResetRateLimiters,
   rateLimiter,
-  authLoginRateLimiter,
-  fallbackRateLimiter,
   adaptiveRateLimiter,
-  customRateLimiter,
-  userRateLimiter,
 } from '../../../src/server/middleware/rateLimiter';
 
 // Mock dependencies
@@ -48,14 +44,7 @@ const RATE_LIMIT_ENV_KEYS = [
   'RATE_LIMIT_API_DURATION',
   'RATE_LIMIT_API_AUTH_POINTS',
   'RATE_LIMIT_API_AUTH_DURATION',
-  'RATE_LIMIT_AUTH_POINTS',
-  'RATE_LIMIT_AUTH_DURATION',
-  'RATE_LIMIT_AUTH_LOGIN_POINTS',
-  'RATE_LIMIT_AUTH_LOGIN_DURATION',
   'RATE_LIMIT_AUTH_REGISTER_POINTS',
-  'RATE_LIMIT_GAME_POINTS',
-  'RATE_LIMIT_GAME_MOVES_POINTS',
-  'RATE_LIMIT_WS_POINTS',
   'RATE_LIMIT_GAME_CREATE_USER_POINTS',
   'RATE_LIMIT_GAME_CREATE_IP_POINTS',
 ];
@@ -86,11 +75,7 @@ describe('Rate Limiter Configuration', () => {
 
       expect(configs.api).toBeDefined();
       expect(configs.apiAuthenticated).toBeDefined();
-      expect(configs.auth).toBeDefined();
-      expect(configs.authLogin).toBeDefined();
       expect(configs.authRegister).toBeDefined();
-      expect(configs.game).toBeDefined();
-      expect(configs.websocket).toBeDefined();
     });
 
     it('should have valid config structure for each limiter', () => {
@@ -112,10 +97,6 @@ describe('Rate Limiter Configuration', () => {
       // API should be relatively permissive
       expect(configs.api.points).toBe(50);
       expect(configs.api.duration).toBe(60);
-
-      // Auth login should be restrictive
-      expect(configs.authLogin.points).toBe(5);
-      expect(configs.authLogin.duration).toBe(900);
 
       // Registration should be very restrictive
       expect(configs.authRegister.points).toBe(3);
@@ -224,16 +205,16 @@ describe('consumeRateLimit', () => {
   });
 
   it('should block requests that exceed limit', async () => {
-    // Use authLogin which has very low limit (5)
+    // Use authRegister which has very low limit (3)
     const key = 'test-key-block';
 
     // Consume all allowed requests
-    for (let i = 0; i < 5; i++) {
-      await consumeRateLimit('authLogin', key);
+    for (let i = 0; i < 3; i++) {
+      await consumeRateLimit('authRegister', key);
     }
 
     // Next request should be blocked
-    const result = await consumeRateLimit('authLogin', key);
+    const result = await consumeRateLimit('authRegister', key);
 
     expect(result.allowed).toBe(false);
     expect(result.retryAfter).toBeDefined();
@@ -258,14 +239,14 @@ describe('consumeRateLimit', () => {
     try {
       const key = 'test-key-bypass';
       for (let i = 0; i < 10; i++) {
-        const bypassResult = await consumeRateLimit('authLogin', key, mockReq);
+        const bypassResult = await consumeRateLimit('authRegister', key, mockReq);
         expect(bypassResult.allowed).toBe(true);
         expect(bypassResult.remaining).toBeUndefined();
       }
 
-      const normalResult = await consumeRateLimit('authLogin', key);
+      const normalResult = await consumeRateLimit('authRegister', key);
       expect(normalResult.allowed).toBe(true);
-      expect(normalResult.remaining).toBe(4);
+      expect(normalResult.remaining).toBe(2);
     } finally {
       if (originalBypassEnabled === undefined) {
         delete process.env.RATE_LIMIT_BYPASS_ENABLED;
@@ -326,93 +307,6 @@ describe('Rate Limiter Middleware', () => {
       expect(headers['X-RateLimit-Remaining']).toBeDefined();
       expect(headers['X-RateLimit-Reset']).toBeDefined();
     });
-  });
-
-  describe('authLoginRateLimiter', () => {
-    it('should have stricter limits', async () => {
-      mockReq.ip = 'unique-ip-3';
-
-      await authLoginRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-
-      expect(mockNext).toHaveBeenCalled();
-      expect(headers['X-RateLimit-Limit']).toBe('5');
-    });
-
-    it('should block after limit exceeded', async () => {
-      mockReq.ip = 'rate-limit-test-ip';
-
-      // Exhaust the limit
-      for (let i = 0; i < 5; i++) {
-        mockNext = jest.fn();
-        await authLoginRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-      }
-
-      // Next request should be blocked
-      mockNext = jest.fn();
-      await authLoginRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-
-      expect(mockNext).not.toHaveBeenCalled();
-      expect(mockRes.status).toHaveBeenCalledWith(429);
-      expect(mockRes.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          success: false,
-          error: expect.objectContaining({
-            code: 'RATE_LIMIT_EXCEEDED',
-          }),
-        })
-      );
-    });
-  });
-});
-
-describe('Fallback Rate Limiter', () => {
-  let mockReq: Partial<Request>;
-  let mockRes: Partial<Response>;
-  let mockNext: NextFunction;
-  let headers: Record<string, string>;
-
-  beforeEach(() => {
-    headers = {};
-    mockReq = {
-      ip: `fallback-test-${Date.now()}-${Math.random()}`,
-      path: '/api/test',
-    };
-    mockRes = {
-      set: jest.fn((key: string, value: string) => {
-        headers[key] = value;
-        return mockRes as Response;
-      }),
-      status: jest.fn().mockReturnThis(),
-      json: jest.fn().mockReturnThis(),
-    };
-    mockNext = jest.fn();
-  });
-
-  it('should allow first request', () => {
-    fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-
-    expect(mockNext).toHaveBeenCalled();
-  });
-
-  it('should set rate limit headers', () => {
-    fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-
-    expect(headers['X-RateLimit-Limit']).toBeDefined();
-    expect(headers['X-RateLimit-Remaining']).toBeDefined();
-  });
-
-  it('should track request counts per IP', () => {
-    const ip = `count-test-${Date.now()}`;
-    mockReq.ip = ip;
-
-    fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-    const firstRemaining = parseInt(headers['X-RateLimit-Remaining']);
-
-    mockNext = jest.fn();
-    fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-    const secondRemaining = parseInt(headers['X-RateLimit-Remaining']);
-
-    expect(secondRemaining).toBe(firstRemaining - 1);
   });
 });
 
@@ -487,12 +381,12 @@ describe('Adaptive Rate Limiter', () => {
   });
 
   it('should block when rate limit exceeded for authenticated user', async () => {
-    // Use authLogin which has low limit
-    const middleware = adaptiveRateLimiter('authLogin', 'authLogin');
+    // Use authRegister which has low limit (3)
+    const middleware = adaptiveRateLimiter('authRegister', 'authRegister');
     (mockReq as any).user = { id: 'test-user-block' };
 
-    // Exhaust the limit (5 requests)
-    for (let i = 0; i < 5; i++) {
+    // Exhaust the limit (3 requests)
+    for (let i = 0; i < 3; i++) {
       mockNext = jest.fn();
       await middleware(mockReq as Request, mockRes as Response, mockNext);
     }
@@ -503,224 +397,6 @@ describe('Adaptive Rate Limiter', () => {
 
     expect(mockNext).not.toHaveBeenCalled();
     expect(mockRes.status).toHaveBeenCalledWith(429);
-  });
-});
-
-describe('Custom Rate Limiter', () => {
-  let mockReq: Partial<Request>;
-  let mockRes: Partial<Response>;
-  let mockNext: NextFunction;
-  let headers: Record<string, string>;
-
-  beforeEach(() => {
-    initializeMemoryRateLimiters();
-    __testResetRateLimiters();
-
-    headers = {};
-    mockReq = {
-      ip: `custom-test-${Date.now()}-${Math.random()}`,
-      path: '/api/test',
-    };
-    mockRes = {
-      set: jest.fn((key: string, value: string) => {
-        headers[key] = value;
-        return mockRes as Response;
-      }),
-      status: jest.fn().mockReturnThis(),
-      json: jest.fn().mockReturnThis(),
-    };
-    mockNext = jest.fn();
-  });
-
-  it('should allow requests within custom limit', async () => {
-    const middleware = customRateLimiter(10, 60);
-    await middleware(mockReq as Request, mockRes as Response, mockNext);
-
-    expect(mockNext).toHaveBeenCalled();
-    expect(headers['X-RateLimit-Limit']).toBe('10');
-  });
-
-  it('should create independent limiters with custom limits', async () => {
-    // customRateLimiter creates a new limiter on each call, so each middleware
-    // instance is independent. This test verifies the basic functionality.
-    const middleware = customRateLimiter(3, 60);
-    const fixedIp = `custom-limit-test-${Date.now()}`;
-    mockReq.ip = fixedIp;
-
-    // First request should succeed
-    await middleware(mockReq as Request, mockRes as Response, mockNext);
-
-    expect(mockNext).toHaveBeenCalled();
-    expect(headers['X-RateLimit-Limit']).toBe('3');
-  });
-
-  it('should use custom block duration when specified', async () => {
-    // Create middleware with custom block duration
-    const middleware = customRateLimiter(2, 60, 120);
-    const fixedIp = `custom-block-test-${Date.now()}`;
-    mockReq.ip = fixedIp;
-
-    // Exhaust the limit
-    await middleware(mockReq as Request, mockRes as Response, mockNext);
-    mockNext = jest.fn();
-    await middleware(mockReq as Request, mockRes as Response, mockNext);
-
-    // Should still work after the second request
-    expect(mockNext).toHaveBeenCalled();
-  });
-});
-
-describe('User Rate Limiter', () => {
-  let mockReq: Partial<Request>;
-  let mockRes: Partial<Response>;
-  let mockNext: NextFunction;
-  let headers: Record<string, string>;
-
-  beforeEach(() => {
-    initializeMemoryRateLimiters();
-    __testResetRateLimiters();
-
-    headers = {};
-    mockReq = {
-      ip: `user-test-${Date.now()}-${Math.random()}`,
-      path: '/api/test',
-    };
-    mockRes = {
-      set: jest.fn((key: string, value: string) => {
-        headers[key] = value;
-        return mockRes as Response;
-      }),
-      status: jest.fn().mockReturnThis(),
-      json: jest.fn().mockReturnThis(),
-    };
-    mockNext = jest.fn();
-  });
-
-  it('should use user ID for authenticated requests', async () => {
-    (mockReq as any).user = { id: 'user-rate-test-123' };
-    const middleware = userRateLimiter('gameCreateUser');
-
-    await middleware(mockReq as Request, mockRes as Response, mockNext);
-
-    expect(mockNext).toHaveBeenCalled();
-    expect(headers['X-RateLimit-Limit']).toBe('20'); // gameCreateUser limit
-  });
-
-  it('should fall back to IP for unauthenticated requests', async () => {
-    const middleware = userRateLimiter('gameCreateIp');
-
-    await middleware(mockReq as Request, mockRes as Response, mockNext);
-
-    expect(mockNext).toHaveBeenCalled();
-    expect(headers['X-RateLimit-Limit']).toBe('50'); // gameCreateIp limit
-  });
-
-  it('should block when user limit exceeded', async () => {
-    // Use authLogin which has low limit (5)
-    const middleware = userRateLimiter('authLogin');
-    (mockReq as any).user = { id: 'user-block-test' };
-
-    // Exhaust the limit
-    for (let i = 0; i < 5; i++) {
-      mockNext = jest.fn();
-      await middleware(mockReq as Request, mockRes as Response, mockNext);
-    }
-
-    // Next request should be blocked
-    mockNext = jest.fn();
-    await middleware(mockReq as Request, mockRes as Response, mockNext);
-
-    expect(mockNext).not.toHaveBeenCalled();
-    expect(mockRes.status).toHaveBeenCalledWith(429);
-  });
-
-  it('should allow request for non-existent limiter with warning', async () => {
-    const middleware = userRateLimiter('nonexistent');
-
-    await middleware(mockReq as Request, mockRes as Response, mockNext);
-
-    expect(mockNext).toHaveBeenCalled();
-  });
-});
-
-describe('Fallback Rate Limiter Edge Cases', () => {
-  let mockReq: Partial<Request>;
-  let mockRes: Partial<Response>;
-  let mockNext: NextFunction;
-  let headers: Record<string, string>;
-
-  beforeEach(() => {
-    headers = {};
-    mockReq = {
-      ip: `fallback-edge-${Date.now()}-${Math.random()}`,
-      path: '/api/test',
-    };
-    mockRes = {
-      set: jest.fn((key: string, value: string) => {
-        headers[key] = value;
-        return mockRes as Response;
-      }),
-      status: jest.fn().mockReturnThis(),
-      json: jest.fn().mockReturnThis(),
-    };
-    mockNext = jest.fn();
-  });
-
-  it('should handle request with undefined IP', () => {
-    mockReq.ip = undefined;
-
-    fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-
-    expect(mockNext).toHaveBeenCalled();
-  });
-
-  it('should reset count when window expires', () => {
-    // This test verifies the window reset logic
-    const fixedIp = `window-reset-test-${Date.now()}`;
-    mockReq.ip = fixedIp;
-
-    // First request
-    fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-    const firstRemaining = parseInt(headers['X-RateLimit-Remaining']);
-
-    // Second request
-    mockNext = jest.fn();
-    fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-    const secondRemaining = parseInt(headers['X-RateLimit-Remaining']);
-
-    expect(secondRemaining).toBe(firstRemaining - 1);
-  });
-
-  it('should block when fallback limit exceeded', () => {
-    // Use a unique IP for this exhaustive test
-    const fixedIp = `fallback-exceed-test-${Date.now()}-${Math.random()}`;
-    mockReq.ip = fixedIp;
-
-    // Default fallback limit is 100 requests in 15 minutes
-    // Exhaust the limit
-    for (let i = 0; i < 100; i++) {
-      mockNext = jest.fn();
-      mockRes.status = jest.fn().mockReturnThis();
-      mockRes.json = jest.fn().mockReturnThis();
-      fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-    }
-
-    // Next request should be blocked
-    mockNext = jest.fn();
-    mockRes.status = jest.fn().mockReturnThis();
-    mockRes.json = jest.fn().mockReturnThis();
-    fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-
-    expect(mockNext).not.toHaveBeenCalled();
-    expect(mockRes.status).toHaveBeenCalledWith(429);
-    expect(mockRes.json).toHaveBeenCalledWith(
-      expect.objectContaining({
-        success: false,
-        error: expect.objectContaining({
-          code: 'RATE_LIMIT_EXCEEDED',
-        }),
-      })
-    );
   });
 });
 
@@ -732,7 +408,6 @@ describe('Environment Variable Parsing', () => {
     // Verify defaults are set correctly
     expect(configs.api.points).toBe(50);
     expect(configs.api.duration).toBe(60);
-    expect(configs.authLogin.points).toBe(5);
   });
 
   it('should include all required config keys', () => {
@@ -741,13 +416,8 @@ describe('Environment Variable Parsing', () => {
     const requiredKeys = [
       'api',
       'apiAuthenticated',
-      'auth',
-      'authLogin',
       'authRegister',
       'authPasswordReset',
-      'game',
-      'gameMoves',
-      'websocket',
       'gameCreateUser',
       'gameCreateIp',
     ];
@@ -757,145 +427,6 @@ describe('Environment Variable Parsing', () => {
       expect(configs[key].keyPrefix).toBeDefined();
       expect(configs[key].points).toBeGreaterThan(0);
     });
-  });
-});
-
-describe('Custom Rate Limiter - Functionality', () => {
-  let mockReq: Partial<Request>;
-  let mockRes: Partial<Response>;
-  let mockNext: NextFunction;
-  let headers: Record<string, string>;
-
-  beforeEach(() => {
-    initializeMemoryRateLimiters();
-    __testResetRateLimiters();
-
-    headers = {};
-    mockReq = {
-      ip: `custom-func-${Date.now()}-${Math.random()}`,
-      path: '/api/test',
-    };
-    mockRes = {
-      set: jest.fn((key: string, value: string) => {
-        headers[key] = value;
-        return mockRes as Response;
-      }),
-      status: jest.fn().mockReturnThis(),
-      json: jest.fn().mockReturnThis(),
-    };
-    mockNext = jest.fn();
-  });
-
-  it('should use default block duration when not specified', async () => {
-    // Test without blockDuration - should default to duration
-    const middleware = customRateLimiter(10, 60);
-
-    await middleware(mockReq as Request, mockRes as Response, mockNext);
-
-    expect(mockNext).toHaveBeenCalled();
-    expect(headers['X-RateLimit-Limit']).toBe('10');
-  });
-
-  it('should handle undefined IP by using unknown as key', async () => {
-    const middleware = customRateLimiter(10, 60);
-    mockReq.ip = undefined;
-
-    await middleware(mockReq as Request, mockRes as Response, mockNext);
-
-    expect(mockNext).toHaveBeenCalled();
-  });
-
-  // NOTE: customRateLimiter creates a new RateLimiterMemory instance on EACH request
-  // (inside the handler), so rate limits can't be triggered across multiple calls
-  // with the current implementation. The catch block (lines 508-526) is only
-  // reachable if rate-limiter-flexible's consume() throws, which happens when
-  // Redis is used as the store and the same key is consumed multiple times
-  // within the window. For in-memory mode, each request gets a fresh limiter.
-});
-
-describe('Fallback Rate Limiter - Rate Limit Exceeded', () => {
-  let mockReq: Partial<Request>;
-  let mockRes: Partial<Response>;
-  let mockNext: NextFunction;
-  let headers: Record<string, string>;
-
-  beforeEach(() => {
-    headers = {};
-    mockReq = {
-      ip: `fallback-exceed-${Date.now()}-${Math.random()}`,
-      path: '/api/test',
-    };
-    mockRes = {
-      set: jest.fn((key: string, value: string) => {
-        headers[key] = value;
-        return mockRes as Response;
-      }),
-      status: jest.fn().mockReturnThis(),
-      json: jest.fn().mockReturnThis(),
-    };
-    mockNext = jest.fn();
-  });
-
-  it('should block and return 429 when fallback limit exceeded', () => {
-    // Use a fixed IP to track count
-    const fixedIp = `fallback-block-test-${Date.now()}`;
-    mockReq.ip = fixedIp;
-
-    // The fallback limiter allows 100 requests per minute by default
-    // We need to exhaust that limit
-    for (let i = 0; i < 100; i++) {
-      mockNext = jest.fn();
-      fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-    }
-
-    // 101st request should be blocked
-    mockNext = jest.fn();
-    fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-
-    expect(mockNext).not.toHaveBeenCalled();
-    expect(mockRes.status).toHaveBeenCalledWith(429);
-    expect(mockRes.json).toHaveBeenCalledWith(
-      expect.objectContaining({
-        success: false,
-        error: expect.objectContaining({
-          code: 'RATE_LIMIT_EXCEEDED',
-        }),
-      })
-    );
-  });
-
-  it('should set Retry-After header when fallback limit exceeded', () => {
-    const fixedIp = `fallback-retry-${Date.now()}`;
-    mockReq.ip = fixedIp;
-
-    // Exhaust the limit
-    for (let i = 0; i < 100; i++) {
-      mockNext = jest.fn();
-      fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-    }
-
-    // Blocked request should have Retry-After header
-    mockNext = jest.fn();
-    fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-
-    expect(headers['Retry-After']).toBeDefined();
-  });
-
-  it('should set remaining to 0 when limit exceeded', () => {
-    const fixedIp = `fallback-remaining-${Date.now()}`;
-    mockReq.ip = fixedIp;
-
-    // Exhaust the limit
-    for (let i = 0; i < 100; i++) {
-      mockNext = jest.fn();
-      fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-    }
-
-    // Blocked request should show 0 remaining
-    mockNext = jest.fn();
-    fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-
-    expect(headers['X-RateLimit-Remaining']).toBe('0');
   });
 });
 
@@ -955,144 +486,6 @@ describe('Test Reset with Redis Warning', () => {
 
     // Clean up
     initializeMemoryRateLimiters();
-  });
-});
-
-describe('Fallback Rate Limiter - Time-based Edge Cases', () => {
-  let mockReq: Partial<Request>;
-  let mockRes: Partial<Response>;
-  let mockNext: NextFunction;
-  let headers: Record<string, string>;
-  const originalDateNow = Date.now;
-
-  beforeEach(() => {
-    headers = {};
-    mockReq = {
-      ip: `time-edge-${originalDateNow()}-${Math.random()}`,
-      path: '/api/test',
-    };
-    mockRes = {
-      set: jest.fn((key: string, value: string) => {
-        headers[key] = value;
-        return mockRes as Response;
-      }),
-      status: jest.fn().mockReturnThis(),
-      json: jest.fn().mockReturnThis(),
-    };
-    mockNext = jest.fn();
-  });
-
-  afterEach(() => {
-    // Restore Date.now
-    Date.now = originalDateNow;
-  });
-
-  it('should handle multiple requests from same IP', () => {
-    // This test verifies basic functionality with same IP
-    const fixedIp = `same-ip-test-${originalDateNow()}`;
-    mockReq.ip = fixedIp;
-
-    // First request
-    fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-    const firstRemaining = parseInt(headers['X-RateLimit-Remaining']);
-
-    // Second request from same IP should decrement remaining
-    mockNext = jest.fn();
-    fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-    const secondRemaining = parseInt(headers['X-RateLimit-Remaining']);
-
-    expect(mockNext).toHaveBeenCalled();
-    expect(secondRemaining).toBe(firstRemaining - 1);
-  });
-
-  it('should allow requests from different IPs independently', () => {
-    // This exercises the new entry creation path (lines 623-626)
-    const firstIp = `first-ip-${originalDateNow()}`;
-    mockReq.ip = firstIp;
-
-    fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-    expect(mockNext).toHaveBeenCalled();
-
-    // New IP should get fresh quota
-    const secondIp = `second-ip-${originalDateNow()}`;
-    mockReq.ip = secondIp;
-    mockNext = jest.fn();
-
-    fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-
-    expect(mockNext).toHaveBeenCalled();
-    // Both should have max-1 remaining since they're independent
-    expect(headers['X-RateLimit-Remaining']).toBe('99');
-  });
-
-  it('should reset count when window has expired for existing entry', () => {
-    // This tests lines 629-632 - the path where current.resetTime < windowStart
-    // Use uuid-like unique IP to avoid any Map collision
-    const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
-    const fixedIp = `window-expired-${uniqueId}`;
-    mockReq.ip = fixedIp;
-
-    const baseTime = 1000000000000; // Fixed base time for predictability
-
-    // First request at base time - use spy for proper mocking
-    const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(baseTime);
-    fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-    const firstRemaining = parseInt(headers['X-RateLimit-Remaining']);
-    expect(firstRemaining).toBe(99); // MAX_REQUESTS - 1
-
-    // Second request at same time should decrement
-    mockNext = jest.fn();
-    fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-    expect(parseInt(headers['X-RateLimit-Remaining'])).toBe(98);
-
-    // Now simulate time passing beyond the window (15 minutes = 15 * 60 * 1000 = 900000)
-    const WINDOW_SIZE = 15 * 60 * 1000;
-    // windowStart will be: (baseTime + WINDOW_SIZE + 10000) - WINDOW_SIZE = baseTime + 10000
-    // current.resetTime (baseTime) < windowStart (baseTime + 10000) should be TRUE
-    dateSpy.mockReturnValue(baseTime + WINDOW_SIZE + 10000);
-
-    // Third request after window expired should get fresh quota
-    mockNext = jest.fn();
-    fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-
-    expect(mockNext).toHaveBeenCalled();
-    // Should be back to max - 1 (fresh quota)
-    expect(parseInt(headers['X-RateLimit-Remaining'])).toBe(99);
-
-    dateSpy.mockRestore();
-  });
-
-  it('should clean up old entries during request processing', () => {
-    // This tests line 616 - requests.delete(ip) in cleanup loop
-    const baseTime = originalDateNow();
-    const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(baseTime);
-
-    // Create requests from multiple IPs
-    const ip1 = `cleanup-ip1-${baseTime}`;
-    const ip2 = `cleanup-ip2-${baseTime}`;
-
-    mockReq.ip = ip1;
-    fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-
-    mockReq.ip = ip2;
-    mockNext = jest.fn();
-    fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-
-    // Now simulate time passing beyond the window
-    const WINDOW_SIZE = 15 * 60 * 1000;
-    dateSpy.mockReturnValue(baseTime + WINDOW_SIZE + 1000);
-
-    // Request from new IP should trigger cleanup of old entries
-    const ip3 = `cleanup-ip3-${baseTime}`;
-    mockReq.ip = ip3;
-    mockNext = jest.fn();
-    fallbackRateLimiter(mockReq as Request, mockRes as Response, mockNext);
-
-    // Old entries should be cleaned up (we can't directly verify this,
-    // but the code path is exercised)
-    expect(mockNext).toHaveBeenCalled();
-
-    dateSpy.mockRestore();
   });
 });
 
@@ -1161,45 +554,5 @@ describe('createRateLimiter - Limiter Not Available', () => {
     await rateLimiter(mockReq as Request, mockRes as Response, mockNext);
 
     expect(mockNext).toHaveBeenCalled();
-  });
-});
-
-describe('userRateLimiter - Limiter Not Available', () => {
-  let mockReq: Partial<Request>;
-  let mockRes: Partial<Response>;
-  let mockNext: NextFunction;
-  let headers: Record<string, string>;
-
-  beforeEach(() => {
-    initializeMemoryRateLimiters();
-    __testResetRateLimiters();
-
-    headers = {};
-    mockReq = {
-      ip: `user-unavailable-${Date.now()}-${Math.random()}`,
-      path: '/api/test',
-    };
-    mockRes = {
-      set: jest.fn((key: string, value: string) => {
-        headers[key] = value;
-        return mockRes as Response;
-      }),
-      status: jest.fn().mockReturnThis(),
-      json: jest.fn().mockReturnThis(),
-    };
-    mockNext = jest.fn();
-  });
-
-  it('should allow request when limiter key does not exist', async () => {
-    // This tests lines 429-431
-    const { logger } = require('../../../src/server/utils/logger');
-    (logger.warn as jest.Mock).mockClear();
-
-    const middleware = userRateLimiter('nonexistent_key_12345');
-
-    await middleware(mockReq as Request, mockRes as Response, mockNext);
-
-    expect(mockNext).toHaveBeenCalled();
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('not available'));
   });
 });

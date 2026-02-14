@@ -17,10 +17,14 @@ import { httpLogger } from '../utils/logger';
 import {
   UpdateProfileSchema,
   GameListingQuerySchema,
+  GameListingQueryInput,
   UserSearchQuerySchema,
+  UserSearchQueryInput,
   LeaderboardQuerySchema,
+  LeaderboardQueryInput,
   UUIDSchema,
 } from '../../shared/validation/schemas';
+import { validateBody, validateQuery } from '../middleware/validateRequest';
 import { RatingService } from '../services/RatingService';
 import type { WebSocketServer } from '../websocket/server';
 
@@ -189,16 +193,11 @@ router.get(
  */
 router.put(
   '/profile',
+  validateBody(UpdateProfileSchema),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const userId = getAuthUserId(req);
 
-    // Validate request body with Zod schema
-    const parseResult = UpdateProfileSchema.safeParse(req.body);
-    if (!parseResult.success) {
-      const firstError = parseResult.error.issues[0];
-      throw createError(firstError?.message || 'Invalid profile data', 400, 'INVALID_PROFILE_DATA');
-    }
-    const { username, email, preferences } = parseResult.data;
+    const { username, email, preferences } = req.body;
 
     const prisma = getDatabaseClient();
     if (!prisma) {
@@ -493,15 +492,11 @@ router.get(
  */
 router.get(
   '/games',
+  validateQuery(GameListingQuerySchema),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const userId = getAuthUserId(req);
 
-    // Validate query parameters with schema
-    const queryResult = GameListingQuerySchema.safeParse(req.query);
-    if (!queryResult.success) {
-      throw createError('Invalid query parameters', 400, 'INVALID_QUERY_PARAMS');
-    }
-    const { status, limit, offset } = queryResult.data;
+    const { status, limit, offset } = req.query as unknown as GameListingQueryInput;
 
     const prisma = getDatabaseClient();
     if (!prisma) {
@@ -640,18 +635,9 @@ router.get(
 router.get(
   '/search',
   userSearchRateLimiter,
+  validateQuery(UserSearchQuerySchema),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    // Validate query parameters with schema
-    const queryResult = UserSearchQuerySchema.safeParse(req.query);
-    if (!queryResult.success) {
-      const firstError = queryResult.error.issues[0];
-      // Preserve the specific error code for missing query
-      if (firstError?.path[0] === 'q') {
-        throw createError('Search query required', 400, 'SEARCH_QUERY_REQUIRED');
-      }
-      throw createError('Invalid query parameters', 400, 'INVALID_QUERY_PARAMS');
-    }
-    const { q, limit } = queryResult.data;
+    const { q, limit } = req.query as unknown as UserSearchQueryInput;
 
     const prisma = getDatabaseClient();
     if (!prisma) {
@@ -832,13 +818,9 @@ export function formatPlayerForDisplay<T extends { username: string } | null | u
  */
 router.get(
   '/leaderboard',
+  validateQuery(LeaderboardQuerySchema),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    // Validate query parameters with schema
-    const queryResult = LeaderboardQuerySchema.safeParse(req.query);
-    if (!queryResult.success) {
-      throw createError('Invalid query parameters', 400, 'INVALID_QUERY_PARAMS');
-    }
-    const { limit, offset, boardType, timePeriod } = queryResult.data;
+    const { limit, offset, boardType, timePeriod } = req.query as unknown as LeaderboardQueryInput;
 
     const prisma = getDatabaseClient();
     if (!prisma) {

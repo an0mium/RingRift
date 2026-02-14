@@ -15,15 +15,8 @@ import { Request, Response, NextFunction } from 'express';
 import {
   initializeMemoryRateLimiters,
   rateLimiter,
-  authRateLimiter,
-  authLoginRateLimiter,
-  authRegisterRateLimiter,
-  authPasswordResetRateLimiter,
-  gameRateLimiter,
-  gameMovesRateLimiter,
   adaptiveRateLimiter,
   consumeRateLimit,
-  fallbackRateLimiter,
   setRateLimitHeaders,
   getRateLimitConfigs,
   getRateLimitConfig,
@@ -92,13 +85,8 @@ describe('Rate Limiter Configuration', () => {
 
       expect(configs).toHaveProperty('api');
       expect(configs).toHaveProperty('apiAuthenticated');
-      expect(configs).toHaveProperty('auth');
-      expect(configs).toHaveProperty('authLogin');
       expect(configs).toHaveProperty('authRegister');
       expect(configs).toHaveProperty('authPasswordReset');
-      expect(configs).toHaveProperty('game');
-      expect(configs).toHaveProperty('gameMoves');
-      expect(configs).toHaveProperty('websocket');
       expect(configs).toHaveProperty('gameCreateUser');
       expect(configs).toHaveProperty('gameCreateIp');
     });
@@ -122,9 +110,8 @@ describe('Rate Limiter Configuration', () => {
     it('should have differentiated limits based on endpoint type', () => {
       const configs = getRateLimitConfigs();
 
-      // Auth endpoints should have stricter limits than general API
-      expect(configs.auth.points).toBeLessThanOrEqual(configs.api.points);
-      expect(configs.authLogin.points).toBeLessThanOrEqual(configs.auth.points);
+      // Auth registration should have stricter limits than general API
+      expect(configs.authRegister.points).toBeLessThanOrEqual(configs.api.points);
 
       // Authenticated users should have higher limits
       expect(configs.apiAuthenticated.points).toBeGreaterThan(configs.api.points);
@@ -207,37 +194,6 @@ describe('Rate Limiter Middleware', () => {
       expect(res._body.error).toHaveProperty('code', 'RATE_LIMIT_EXCEEDED');
       expect(res._body.error).toHaveProperty('retryAfter');
       expect(res._headers).toHaveProperty('Retry-After');
-    });
-  });
-
-  describe('authLoginRateLimiter', () => {
-    it('should have stricter limits than general API', async () => {
-      const apiConfig = getRateLimitConfig('api');
-      const loginConfig = getRateLimitConfig('authLogin');
-
-      expect(loginConfig?.points).toBeLessThan(apiConfig?.points || 50);
-    });
-
-    it('should block after login limit exceeded', async () => {
-      const config = getRateLimitConfig('authLogin');
-      const maxRequests = config?.points || 5;
-      const req = createMockRequest({ path: '/api/auth/login' });
-
-      // Exhaust the limit
-      for (let i = 0; i < maxRequests; i++) {
-        const res = createMockResponse();
-        const next = createMockNext();
-        await authLoginRateLimiter(req, res, next);
-      }
-
-      // Next request should be blocked
-      const res = createMockResponse();
-      const next = createMockNext();
-      await authLoginRateLimiter(req, res, next);
-
-      expect(next).not.toHaveBeenCalled();
-      expect(res._statusCode).toBe(429);
-      expect(res._body.error.code).toBe('RATE_LIMIT_EXCEEDED');
     });
   });
 
@@ -340,45 +296,6 @@ describe('consumeRateLimit', () => {
   });
 });
 
-describe('Fallback Rate Limiter', () => {
-  it('should allow requests within limit', () => {
-    const req = createMockRequest();
-    const res = createMockResponse();
-    const next = createMockNext();
-
-    fallbackRateLimiter(req, res, next);
-
-    expect(next).toHaveBeenCalled();
-    expect(res._headers).toHaveProperty('X-RateLimit-Limit');
-    expect(res._headers).toHaveProperty('X-RateLimit-Remaining');
-    expect(res._headers).toHaveProperty('X-RateLimit-Reset');
-  });
-
-  it('should set correct rate limit response on exceeded', () => {
-    // Use unique IP to avoid cross-test pollution
-    const testIp = '10.0.0.99';
-
-    // Make 100 requests (fallback default)
-    for (let i = 0; i < 100; i++) {
-      const req = createMockRequest({ ip: testIp });
-      const res = createMockResponse();
-      const next = createMockNext();
-      fallbackRateLimiter(req, res, next);
-    }
-
-    // 101st request should be blocked
-    const req = createMockRequest({ ip: testIp });
-    const res = createMockResponse();
-    const next = createMockNext();
-    fallbackRateLimiter(req, res, next);
-
-    expect(next).not.toHaveBeenCalled();
-    expect(res._statusCode).toBe(429);
-    expect(res._body.error.code).toBe('RATE_LIMIT_EXCEEDED');
-    expect(res._headers).toHaveProperty('Retry-After');
-  });
-});
-
 describe('Different IPs get separate limits', () => {
   it('should track limits separately per IP', async () => {
     const config = getRateLimitConfig('api');
@@ -405,38 +322,6 @@ describe('Different IPs get separate limits', () => {
     const next2 = createMockNext();
     await rateLimiter(req2, res2, next2);
     expect(next2).toHaveBeenCalled();
-  });
-});
-
-describe('Error Response Format', () => {
-  it('should return proper error response structure on rate limit exceeded', async () => {
-    const config = getRateLimitConfig('authLogin');
-    const maxRequests = config?.points || 5;
-    const req = createMockRequest({ ip: '10.0.0.1', path: '/api/auth/login' });
-
-    // Exhaust the limit
-    for (let i = 0; i < maxRequests; i++) {
-      const res = createMockResponse();
-      const next = createMockNext();
-      await authLoginRateLimiter(req, res, next);
-    }
-
-    // Check error response
-    const res = createMockResponse();
-    const next = createMockNext();
-    await authLoginRateLimiter(req, res, next);
-
-    expect(res._body).toEqual(
-      expect.objectContaining({
-        success: false,
-        error: expect.objectContaining({
-          message: expect.any(String),
-          code: 'RATE_LIMIT_EXCEEDED',
-          retryAfter: expect.any(Number),
-          timestamp: expect.any(String),
-        }),
-      })
-    );
   });
 });
 
@@ -500,46 +385,6 @@ describe('Adaptive Rate Limiter - Rate Limit Exceeded Branch', () => {
   });
 });
 
-describe('Custom Rate Limiter', () => {
-  // Import for this specific test
-  const { customRateLimiter } = require('../../src/server/middleware/rateLimiter');
-
-  it('should allow requests within custom limit', async () => {
-    const middleware = customRateLimiter(5, 60); // 5 requests per 60 seconds
-    const req = createMockRequest({ ip: '10.7.7.1' });
-    const res = createMockResponse();
-    const next = createMockNext();
-
-    await middleware(req, res, next);
-
-    expect(next).toHaveBeenCalled();
-    expect(res._headers).toHaveProperty('X-RateLimit-Limit', '5');
-  });
-
-  it('should set correct custom limit in headers', async () => {
-    const middleware = customRateLimiter(10, 120, 60); // 10 requests, 2 min window, 1 min block
-    const req = createMockRequest({ ip: '10.7.7.3' });
-    const res = createMockResponse();
-    const next = createMockNext();
-
-    await middleware(req, res, next);
-
-    expect(res._headers['X-RateLimit-Limit']).toBe('10');
-    expect(parseInt(res._headers['X-RateLimit-Remaining'], 10)).toBe(9);
-  });
-
-  // Note: customRateLimiter creates a fresh RateLimiterMemory instance per middleware call
-  // when Redis is not available, meaning state doesn't persist across calls.
-  // This is by design for one-shot rate limiting scenarios.
-  // The rate limit exceeded branch is covered by the Redis-backed path in production.
-});
-
-// Note: customRateLimiter creates a new RateLimiterMemory instance per request
-// when Redis is unavailable, so state doesn't persist between calls. The
-// rate-limit-exceeded branch (lines ~430-431) can only be hit with a Redis-backed
-// limiter where the instance is shared. This is a known limitation that doesn't
-// affect production behavior.
-
 describe('Adaptive Rate Limiter - Missing Limiter', () => {
   it('should allow request when authenticated limiter key does not exist', async () => {
     // Use a non-existent limiter key
@@ -568,46 +413,6 @@ describe('Adaptive Rate Limiter - Missing Limiter', () => {
     await middleware(req, res, next);
 
     // Should allow request when limiter is not available
-    expect(next).toHaveBeenCalled();
-  });
-});
-
-describe('Fallback Rate Limiter - Window Reset', () => {
-  // Use a different mechanism to test the window reset branch
-  // The fallbackRateLimiter uses an IIFE with closure, so we need to
-  // simulate time-based window expiration indirectly
-
-  it('should reset count after window expires', () => {
-    // Use a unique IP to avoid pollution from other tests
-    const testIp = '172.16.0.99';
-
-    // First request - should be allowed
-    const req1 = createMockRequest({ ip: testIp });
-    const res1 = createMockResponse();
-    const next1 = createMockNext();
-    fallbackRateLimiter(req1, res1, next1);
-    expect(next1).toHaveBeenCalled();
-
-    // Second request on same IP - should also be allowed
-    const req2 = createMockRequest({ ip: testIp });
-    const res2 = createMockResponse();
-    const next2 = createMockNext();
-    fallbackRateLimiter(req2, res2, next2);
-    expect(next2).toHaveBeenCalled();
-
-    // Verify headers track the remaining count
-    const remaining = parseInt(res2._headers['X-RateLimit-Remaining'], 10);
-    expect(remaining).toBeLessThan(100);
-  });
-
-  it('should handle unknown IP (undefined req.ip)', () => {
-    const req = createMockRequest({ ip: undefined } as any);
-    const res = createMockResponse();
-    const next = createMockNext();
-
-    fallbackRateLimiter(req, res, next);
-
-    // Should use 'unknown' as key and continue
     expect(next).toHaveBeenCalled();
   });
 });
@@ -648,84 +453,5 @@ describe('Test Reset Function', () => {
     // Initialize again and reset - should work without errors
     initializeMemoryRateLimiters();
     expect(() => __testResetRateLimiters()).not.toThrow();
-  });
-});
-
-describe('User Rate Limiter', () => {
-  const { userRateLimiter } = require('../../src/server/middleware/rateLimiter');
-
-  it('should use user ID for authenticated users', async () => {
-    const middleware = userRateLimiter('gameCreateUser');
-    const req = createMockRequest({
-      ip: '10.8.8.1',
-      user: { id: 'user-rl-test-1' },
-    } as any);
-    const res = createMockResponse();
-    const next = createMockNext();
-
-    await middleware(req, res, next);
-
-    expect(next).toHaveBeenCalled();
-    expect(res._headers).toHaveProperty('X-RateLimit-Limit');
-  });
-
-  it('should fall back to IP for unauthenticated users', async () => {
-    const middleware = userRateLimiter('gameCreateIp');
-    const req = createMockRequest({ ip: '10.8.8.2' });
-    const res = createMockResponse();
-    const next = createMockNext();
-
-    await middleware(req, res, next);
-
-    expect(next).toHaveBeenCalled();
-    expect(res._headers).toHaveProperty('X-RateLimit-Limit');
-  });
-
-  it('should allow request when limiter key does not exist', async () => {
-    const middleware = userRateLimiter('nonexistentUserLimiter');
-    const req = createMockRequest({
-      ip: '10.8.8.3',
-      user: { id: 'user-nonexistent-test' },
-    } as any);
-    const res = createMockResponse();
-    const next = createMockNext();
-
-    await middleware(req, res, next);
-
-    // Should allow request with warning logged
-    expect(next).toHaveBeenCalled();
-  });
-
-  it('should return 429 when user-specific limit exceeded', async () => {
-    const middleware = userRateLimiter('gameCreateUser');
-    const config = getRateLimitConfig('gameCreateUser');
-    const maxRequests = config?.points || 20;
-    const testUserId = 'user-rl-exceeded-test';
-
-    // Exhaust the limit for this user
-    for (let i = 0; i < maxRequests; i++) {
-      const req = createMockRequest({
-        ip: '10.8.8.4',
-        user: { id: testUserId },
-      } as any);
-      const res = createMockResponse();
-      const next = createMockNext();
-      await middleware(req, res, next);
-    }
-
-    // Next request should be rate limited
-    const req = createMockRequest({
-      ip: '10.8.8.4',
-      path: '/api/games',
-      user: { id: testUserId },
-    } as any);
-    const res = createMockResponse();
-    const next = createMockNext();
-    await middleware(req, res, next);
-
-    expect(next).not.toHaveBeenCalled();
-    expect(res._statusCode).toBe(429);
-    expect(res._body.error.code).toBe('RATE_LIMIT_EXCEEDED');
-    expect(res._headers).toHaveProperty('Retry-After');
   });
 });

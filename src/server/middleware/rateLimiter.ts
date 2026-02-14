@@ -24,9 +24,6 @@ interface RateLimiterRejection {
   isFirstInDuration: boolean;
 }
 
-// Redis client reference
-let redisClient: RedisClientType | null = null;
-
 /**
  * Normalize IP strings so that equivalent loopback / IPv4-mapped variants do not
  * accidentally receive independent quotas (and so tests behave deterministically).
@@ -254,22 +251,6 @@ export const getRateLimitConfigs = (): Record<string, RateLimitConfig> => ({
     blockDuration: getEnvNumber('RATE_LIMIT_API_AUTH_BLOCK_DURATION', 300), // 5 min block
   },
 
-  // Authentication endpoints (most restrictive for security)
-  auth: {
-    keyPrefix: 'auth_limit',
-    points: getEnvNumber('RATE_LIMIT_AUTH_POINTS', 10), // requests
-    duration: getEnvNumber('RATE_LIMIT_AUTH_DURATION', 900), // per 15 minutes
-    blockDuration: getEnvNumber('RATE_LIMIT_AUTH_BLOCK_DURATION', 1800), // 30 min block
-  },
-
-  // Login specifically - stricter
-  authLogin: {
-    keyPrefix: 'auth_login_limit',
-    points: getEnvNumber('RATE_LIMIT_AUTH_LOGIN_POINTS', 5), // attempts
-    duration: getEnvNumber('RATE_LIMIT_AUTH_LOGIN_DURATION', 900), // per 15 minutes
-    blockDuration: getEnvNumber('RATE_LIMIT_AUTH_LOGIN_BLOCK_DURATION', 1800), // 30 min block
-  },
-
   // Registration - prevent spam account creation
   authRegister: {
     keyPrefix: 'auth_register_limit',
@@ -284,30 +265,6 @@ export const getRateLimitConfigs = (): Record<string, RateLimitConfig> => ({
     points: getEnvNumber('RATE_LIMIT_AUTH_PWD_RESET_POINTS', 3), // attempts
     duration: getEnvNumber('RATE_LIMIT_AUTH_PWD_RESET_DURATION', 3600), // per hour
     blockDuration: getEnvNumber('RATE_LIMIT_AUTH_PWD_RESET_BLOCK_DURATION', 3600), // 1 hour block
-  },
-
-  // Game actions (moderate limiting)
-  game: {
-    keyPrefix: 'game_limit',
-    points: getEnvNumber('RATE_LIMIT_GAME_POINTS', 200), // requests
-    duration: getEnvNumber('RATE_LIMIT_GAME_DURATION', 60), // per minute
-    blockDuration: getEnvNumber('RATE_LIMIT_GAME_BLOCK_DURATION', 300), // 5 min block
-  },
-
-  // Game moves - need to be higher for active gameplay
-  gameMoves: {
-    keyPrefix: 'game_moves_limit',
-    points: getEnvNumber('RATE_LIMIT_GAME_MOVES_POINTS', 100), // moves
-    duration: getEnvNumber('RATE_LIMIT_GAME_MOVES_DURATION', 60), // per minute
-    blockDuration: getEnvNumber('RATE_LIMIT_GAME_MOVES_BLOCK_DURATION', 60), // 1 min block
-  },
-
-  // WebSocket connections
-  websocket: {
-    keyPrefix: 'ws_limit',
-    points: getEnvNumber('RATE_LIMIT_WS_POINTS', 10), // connections
-    duration: getEnvNumber('RATE_LIMIT_WS_DURATION', 60), // per minute
-    blockDuration: getEnvNumber('RATE_LIMIT_WS_BLOCK_DURATION', 300), // 5 min block
   },
 
   // Game creation quotas (per-user)
@@ -413,7 +370,6 @@ let usingRedis = false;
  * Falls back to in-memory limiters if Redis is not available.
  */
 export const initializeRateLimiters = (redis: RedisClientType | null) => {
-  redisClient = redis;
   usingRedis = !!redis;
 
   const configs = getRateLimitConfigsCached();
@@ -685,13 +641,8 @@ const createRateLimiter = (
 
 // Specific rate limiter middlewares for different endpoint types
 export const rateLimiter = createRateLimiter('api');
-export const authRateLimiter = createRateLimiter('auth');
-export const authLoginRateLimiter = createRateLimiter('authLogin');
 export const authRegisterRateLimiter = createRateLimiter('authRegister');
 export const authPasswordResetRateLimiter = createRateLimiter('authPasswordReset');
-export const gameRateLimiter = createRateLimiter('game');
-export const gameMovesRateLimiter = createRateLimiter('gameMoves');
-export const websocketRateLimiter = createRateLimiter('websocket');
 
 /**
  * Rate limiter for data export endpoints (GDPR/privacy).
@@ -802,230 +753,6 @@ export const adaptiveRateLimiter = (
     }
   };
 };
-
-// Custom rate limiter for specific endpoints with runtime configuration
-export const customRateLimiter = (points: number, duration: number, blockDuration?: number) => {
-  return async (req: Request, res: Response, next: NextFunction) => {
-    // Check for load test bypass
-    if (shouldBypassRateLimit(req)) {
-      return next();
-    }
-
-    // Create limiter with appropriate storage
-    const limiter = redisClient
-      ? new RateLimiterRedis({
-          storeClient: redisClient,
-          useRedisPackage: true, // Required for node-redis v5 compatibility
-          keyPrefix: 'custom_limit',
-          points,
-          duration,
-          blockDuration: blockDuration || duration,
-        })
-      : new RateLimiterMemory({
-          keyPrefix: 'custom_limit',
-          points,
-          duration,
-          blockDuration: blockDuration || duration,
-        });
-
-    try {
-      const key = req.ip || 'unknown';
-      const rateLimiterRes = await limiter.consume(key);
-
-      // Set rate limit headers
-      const resetTimestamp = getResetTimestamp(rateLimiterRes);
-      setRateLimitHeaders(res, points, rateLimiterRes.remainingPoints, resetTimestamp);
-
-      next();
-    } catch (error: unknown) {
-      const rejRes = error as RateLimiterRejection;
-      const secs = Math.round(rejRes.msBeforeNext / 1000) || 1;
-      const resetTimestamp = Math.ceil(Date.now() / 1000 + secs);
-
-      setRateLimitHeaders(res, points, 0, resetTimestamp);
-      res.set('Retry-After', String(secs));
-
-      logger.warn('Custom rate limit exceeded', {
-        ip: req.ip,
-        path: req.path,
-        points,
-        duration,
-        retryAfter: secs,
-      });
-
-      // Record rate limit hit metric
-      getMetricsService().recordRateLimitHit(req.path, 'custom');
-
-      res.status(429).json({
-        success: false,
-        error: {
-          message: 'Too many requests, please try again later',
-          code: 'RATE_LIMIT_EXCEEDED',
-          retryAfter: secs,
-          timestamp: new Date().toISOString(),
-        },
-      });
-    }
-  };
-};
-
-/**
- * Rate limiter for user-specific actions (using user ID instead of IP).
- * Useful for per-user quotas like game creation.
- */
-export const userRateLimiter = (limiterKey: string) => {
-  return async (req: Request, res: Response, next: NextFunction) => {
-    // Check for load test bypass
-    if (shouldBypassRateLimit(req)) {
-      return next();
-    }
-
-    const limiter = rateLimiters[limiterKey];
-    const config = getRateLimitConfigsCached()[limiterKey];
-
-    if (!limiter || !config) {
-      logger.warn(`Rate limiter '${limiterKey}' not available, allowing request`);
-      return next();
-    }
-
-    const authReq = req as AuthenticatedRequest;
-    try {
-      // Use user ID if authenticated, otherwise fall back to IP
-      const key = authReq.user?.id || req.ip || 'unknown';
-      const rateLimiterRes = await limiter.consume(key);
-
-      // Set rate limit headers
-      const resetTimestamp = getResetTimestamp(rateLimiterRes);
-      setRateLimitHeaders(res, config.points, rateLimiterRes.remainingPoints, resetTimestamp);
-
-      next();
-    } catch (error: unknown) {
-      const rejRes = error as RateLimiterRejection;
-      const secs = Math.round(rejRes.msBeforeNext / 1000) || 1;
-      const resetTimestamp = Math.ceil(Date.now() / 1000 + secs);
-
-      setRateLimitHeaders(res, config.points, 0, resetTimestamp);
-      res.set('Retry-After', String(secs));
-
-      logger.warn('User rate limit exceeded', {
-        userId: authReq.user?.id,
-        ip: req.ip,
-        limiter: limiterKey,
-        path: req.path,
-        retryAfter: secs,
-      });
-
-      // Record rate limit hit metric
-      getMetricsService().recordRateLimitHit(req.path, limiterKey);
-
-      res.status(429).json({
-        success: false,
-        error: {
-          message: 'Too many requests, please try again later',
-          code: 'RATE_LIMIT_EXCEEDED',
-          retryAfter: secs,
-          timestamp: new Date().toISOString(),
-        },
-      });
-    }
-  };
-};
-
-/**
- * Fallback rate limiter when Redis is not available.
- * Implements a simple sliding window algorithm in memory.
- *
- * This is kept for backwards compatibility but the preferred approach
- * is to use initializeMemoryRateLimiters() which provides full feature parity.
- */
-export const fallbackRateLimiter = (() => {
-  const requests = new Map<string, { count: number; resetTime: number }>();
-  const WINDOW_SIZE = getEnvNumber('RATE_LIMIT_FALLBACK_WINDOW_MS', 15 * 60 * 1000); // 15 minutes
-  const MAX_REQUESTS = getEnvNumber('RATE_LIMIT_FALLBACK_MAX_REQUESTS', 100);
-  // Maximum number of IP entries to track to prevent memory exhaustion under attack.
-  // When exceeded, oldest entries are evicted even if still within the window.
-  const MAX_ENTRIES = getEnvNumber('RATE_LIMIT_FALLBACK_MAX_ENTRIES', 50000);
-
-  return (req: Request, res: Response, next: NextFunction) => {
-    const key = normalizeIpKey(req.ip);
-    const now = Date.now();
-    const windowStart = now - WINDOW_SIZE;
-
-    // Clean up old entries
-    for (const [ip, data] of requests.entries()) {
-      if (data.resetTime < windowStart) {
-        requests.delete(ip);
-      }
-    }
-
-    // Evict oldest entries if we've exceeded the maximum size to prevent
-    // memory exhaustion from IP enumeration or distributed attacks.
-    // Map maintains insertion order, so first entries are oldest.
-    if (requests.size > MAX_ENTRIES) {
-      const entriesToRemove = requests.size - MAX_ENTRIES;
-      let removed = 0;
-      for (const ip of requests.keys()) {
-        if (removed >= entriesToRemove) break;
-        requests.delete(ip);
-        removed++;
-      }
-      logger.warn('Fallback rate limiter evicted entries due to size limit', {
-        evicted: removed,
-        currentSize: requests.size,
-        maxEntries: MAX_ENTRIES,
-      });
-    }
-
-    const current = requests.get(key);
-    const resetTimestamp = Math.ceil((now + WINDOW_SIZE) / 1000);
-
-    if (!current) {
-      requests.set(key, { count: 1, resetTime: now });
-      setRateLimitHeaders(res, MAX_REQUESTS, MAX_REQUESTS - 1, resetTimestamp);
-      return next();
-    }
-
-    if (current.resetTime < windowStart) {
-      requests.set(key, { count: 1, resetTime: now });
-      setRateLimitHeaders(res, MAX_REQUESTS, MAX_REQUESTS - 1, resetTimestamp);
-      return next();
-    }
-
-    if (current.count >= MAX_REQUESTS) {
-      const retryAfter = Math.ceil((current.resetTime + WINDOW_SIZE - now) / 1000);
-      setRateLimitHeaders(
-        res,
-        MAX_REQUESTS,
-        0,
-        Math.ceil((current.resetTime + WINDOW_SIZE) / 1000)
-      );
-      res.set('Retry-After', String(retryAfter));
-
-      logger.warn('Fallback rate limit exceeded', {
-        ip: req.ip,
-        path: req.path,
-        count: current.count,
-      });
-
-      // Record rate limit hit metric
-      getMetricsService().recordRateLimitHit(req.path, 'fallback');
-
-      return res.status(429).json({
-        success: false,
-        error: {
-          message: 'Too many requests, please try again later',
-          code: 'RATE_LIMIT_EXCEEDED',
-          retryAfter,
-          timestamp: new Date().toISOString(),
-        },
-      });
-    }
-
-    current.count++;
-    setRateLimitHeaders(res, MAX_REQUESTS, MAX_REQUESTS - current.count, resetTimestamp);
-    next();
-  };
-})();
 
 /**
  * Utility to reset rate limiters for testing purposes.

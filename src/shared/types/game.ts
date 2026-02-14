@@ -924,6 +924,7 @@ export interface WinCondition {
 // Database Game interface for API compatibility
 export interface Game {
   id: string;
+  inviteCode?: string;
   boardType: BoardType;
   maxPlayers: number;
   timeControl: TimeControl;

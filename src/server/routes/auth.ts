@@ -31,6 +31,7 @@ import {
   ForgotPasswordSchema,
   ResetPasswordSchema,
 } from '../../shared/validation/schemas';
+import { validateBody } from '../middleware/validateRequest';
 import { getCacheService, CacheKeys } from '../cache/redis';
 import { config, parseDurationToSeconds } from '../config';
 
@@ -319,8 +320,9 @@ const resetLoginFailures = async (email: string): Promise<void> => {
 router.post(
   '/register',
   authRegisterRateLimiter,
+  validateBody(RegisterSchema),
   asyncHandler(async (req: Request, res: Response) => {
-    const { email, username, password } = RegisterSchema.parse(req.body);
+    const { email, username, password } = req.body;
 
     const prisma = getDatabaseClient();
     if (!prisma) {
@@ -539,8 +541,9 @@ router.post(
  */
 router.post(
   '/login',
+  validateBody(LoginSchema),
   asyncHandler(async (req: Request, res: Response) => {
-    const { email, password, rememberMe } = LoginSchema.parse(req.body);
+    const { email, password, rememberMe } = req.body;
     const normalizedEmail = email.trim().toLowerCase();
 
     // Determine token expiry based on rememberMe flag

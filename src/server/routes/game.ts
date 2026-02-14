@@ -19,10 +19,14 @@ import {
   CreateGameInput,
   GameIdParamSchema,
   GameListingQuerySchema,
+  GameListingQueryInput,
+  InviteCodeParamSchema,
   MoveSchema,
   UUIDSchema,
   type MoveInput,
 } from '../../shared/validation/schemas';
+import { validateQuery, validateParams } from '../middleware/validateRequest';
+import crypto from 'crypto';
 import { RatingService, RatingUpdateResult } from '../services/RatingService';
 import { AiOpponentsConfig, BoardType, GameStatus, GameState } from '../../shared/types/game';
 import { generateGameSeed } from '../../shared/utils/rng';
@@ -611,13 +615,9 @@ sandboxHelperRoutes.get(
  */
 router.get(
   '/',
+  validateQuery(GameListingQuerySchema),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    // Validate query parameters with schema
-    const queryResult = GameListingQuerySchema.safeParse(req.query);
-    if (!queryResult.success) {
-      throw createError('Invalid query parameters', 400, 'INVALID_QUERY_PARAMS');
-    }
-    const { status, limit, offset } = queryResult.data;
+    const { status, limit, offset } = req.query as unknown as GameListingQueryInput;
 
     const prisma = getDatabaseClient();
     if (!prisma) {
@@ -689,6 +689,223 @@ router.get(
           hasMore: offset + limit < total,
         },
       },
+    });
+  })
+);
+
+// ====================================================================
+// INVITE CODE ENDPOINTS
+// These must be registered before the /:gameId catch-all to avoid
+// Express matching "invite" as a gameId parameter.
+// ====================================================================
+
+/**
+ * @openapi
+ * /games/invite/{inviteCode}:
+ *   get:
+ *     summary: Look up a game by invite code
+ *     tags: [Games]
+ *     parameters:
+ *       - in: path
+ *         name: inviteCode
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Game info for the invite code
+ *       404:
+ *         description: Invite code not found
+ */
+router.get(
+  '/invite/:inviteCode',
+  validateParams(InviteCodeParamSchema),
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { inviteCode } = req.params;
+
+    const prisma = getDatabaseClient();
+    if (!prisma) {
+      throw createError('Database not available', 500, 'DATABASE_UNAVAILABLE');
+    }
+
+    const game = await prisma.game.findUnique({
+      where: { inviteCode },
+      include: {
+        player1: { select: { id: true, username: true, rating: true } },
+        player2: { select: { id: true, username: true, rating: true } },
+        player3: { select: { id: true, username: true, rating: true } },
+        player4: { select: { id: true, username: true, rating: true } },
+      },
+    });
+
+    if (!game) {
+      throw createError('Game not found for this invite code', 404, 'GAME_NOT_FOUND');
+    }
+
+    const playerCount = [game.player1Id, game.player2Id, game.player3Id, game.player4Id].filter(
+      Boolean
+    ).length;
+
+    res.json({
+      success: true,
+      data: {
+        game: {
+          id: game.id,
+          inviteCode: game.inviteCode,
+          boardType: game.boardType,
+          maxPlayers: game.maxPlayers,
+          status: game.status,
+          isRated: game.isRated,
+          playerCount,
+          players: [game.player1, game.player2, game.player3, game.player4].filter(Boolean),
+          createdAt: game.createdAt,
+        },
+      },
+    });
+  })
+);
+
+/**
+ * @openapi
+ * /games/invite/{inviteCode}/join:
+ *   post:
+ *     summary: Join a game via invite code
+ *     tags: [Games]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: inviteCode
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Joined game successfully
+ *       400:
+ *         description: Cannot join game
+ *       404:
+ *         description: Invite code not found
+ */
+router.post(
+  '/invite/:inviteCode/join',
+  validateParams(InviteCodeParamSchema),
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { inviteCode } = req.params;
+    const userId = getAuthUserId(req);
+
+    const prisma = getDatabaseClient();
+    if (!prisma) {
+      throw createError('Database not available', 500, 'DATABASE_UNAVAILABLE');
+    }
+
+    const game = await prisma.game.findUnique({
+      where: { inviteCode },
+      include: {
+        player1: true,
+        player2: true,
+        player3: true,
+        player4: true,
+      },
+    });
+
+    if (!game) {
+      throw createError('Game not found for this invite code', 404, 'GAME_NOT_FOUND');
+    }
+
+    if (game.status !== PrismaGameStatus.waiting) {
+      throw createError('Game is not accepting players', 400, 'GAME_NOT_JOINABLE');
+    }
+
+    // Check if user is already in the game
+    const existingPlayerIds = [
+      game.player1Id,
+      game.player2Id,
+      game.player3Id,
+      game.player4Id,
+    ].filter(Boolean);
+
+    if (existingPlayerIds.includes(userId)) {
+      // Already in the game - redirect to it rather than erroring
+      res.json({
+        success: true,
+        data: { game: { id: game.id } },
+        message: 'Already in this game',
+      });
+      return;
+    }
+
+    // Find next available player slot
+    let playerSlot: string | null = null;
+    if (!game.player2Id) playerSlot = 'player2Id';
+    else if (!game.player3Id && game.maxPlayers >= 3) playerSlot = 'player3Id';
+    else if (!game.player4Id && game.maxPlayers >= 4) playerSlot = 'player4Id';
+
+    if (!playerSlot) {
+      throw createError('Game is full', 400, 'GAME_FULL');
+    }
+
+    const updatedGame = await prisma.game.update({
+      where: { id: game.id },
+      data: {
+        [playerSlot]: userId,
+        updatedAt: new Date(),
+      },
+      include: {
+        player1: { select: { id: true, username: true, rating: true } },
+        player2: { select: { id: true, username: true, rating: true } },
+        player3: { select: { id: true, username: true, rating: true } },
+        player4: { select: { id: true, username: true, rating: true } },
+      },
+    });
+
+    const currentPlayerCount = [
+      updatedGame.player1Id,
+      updatedGame.player2Id,
+      updatedGame.player3Id,
+      updatedGame.player4Id,
+    ].filter(Boolean).length;
+
+    if (wsServerInstance) {
+      wsServerInstance.broadcastLobbyEvent('lobby:game_joined', {
+        gameId: game.id,
+        playerCount: currentPlayerCount,
+      });
+    }
+
+    // Check if game should start via engine
+    const gameEngine = activeGames.get(game.id);
+    if (gameEngine && currentPlayerCount >= 2) {
+      const startedGame = await prisma.game.update({
+        where: { id: game.id },
+        data: {
+          status: PrismaGameStatus.active,
+          startedAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      if (wsServerInstance) {
+        wsServerInstance.broadcastLobbyEvent('lobby:game_started', {
+          gameId: game.id,
+          status: startedGame.status as GameStatus,
+          startedAt: startedGame.startedAt ?? undefined,
+          playerCount: currentPlayerCount,
+        });
+      }
+    }
+
+    httpLogger.info(req, 'Player joined game via invite code', {
+      gameId: game.id,
+      inviteCode,
+      userId,
+      playerSlot,
+    });
+
+    res.json({
+      success: true,
+      data: { game: updatedGame },
+      message: 'Joined game successfully',
     });
   })
 );
@@ -1078,6 +1295,9 @@ router.post(
     // the Python AI service share a stable per-game RNG root.
     const rngSeed = typeof gameData.seed === 'number' ? gameData.seed : generateGameSeed();
 
+    // Generate a unique 8-character invite code from 6 random bytes (48 bits entropy)
+    const inviteCode = crypto.randomBytes(6).toString('base64url').slice(0, 8);
+
     // Create game in database
     const game = await prisma.game.create({
       data: {
@@ -1089,6 +1309,7 @@ router.post(
         player1Id: userId,
         status: initialStatus,
         gameState: initialGameState as Prisma.InputJsonValue,
+        inviteCode,
         // Store the per-game RNG seed explicitly; avoid undefined to satisfy
         // Prisma's `number | null` type.
         rngSeed,
@@ -1214,13 +1435,9 @@ router.post(
  */
 router.post(
   '/:gameId/join',
+  validateParams(GameIdParamSchema),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    // Validate gameId parameter
-    const paramResult = GameIdParamSchema.safeParse(req.params);
-    if (!paramResult.success) {
-      throw createError('Invalid game ID format', 400, 'INVALID_GAME_ID');
-    }
-    const { gameId } = paramResult.data;
+    const { gameId } = req.params;
     const userId = getAuthUserId(req);
     const prisma = getDatabaseClient();
     if (!prisma) {
@@ -1410,13 +1627,9 @@ router.post(
  */
 router.post(
   '/:gameId/leave',
+  validateParams(GameIdParamSchema),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    // Validate gameId parameter
-    const paramResult = GameIdParamSchema.safeParse(req.params);
-    if (!paramResult.success) {
-      throw createError('Invalid game ID format', 400, 'INVALID_GAME_ID');
-    }
-    const { gameId } = paramResult.data;
+    const { gameId } = req.params;
     const userId = getAuthUserId(req);
 
     const prisma = getDatabaseClient();
@@ -1654,13 +1867,9 @@ router.post(
  */
 router.get(
   '/:gameId/moves',
+  validateParams(GameIdParamSchema),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    // Validate gameId parameter
-    const paramResult = GameIdParamSchema.safeParse(req.params);
-    if (!paramResult.success) {
-      throw createError('Invalid game ID format', 400, 'INVALID_GAME_ID');
-    }
-    const { gameId } = paramResult.data;
+    const { gameId } = req.params;
     const userId = getAuthUserId(req);
 
     const prisma = getDatabaseClient();
@@ -2041,13 +2250,9 @@ router.post(
  */
 router.get(
   '/:gameId/history',
+  validateParams(GameIdParamSchema),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    // Validate gameId parameter
-    const paramResult = GameIdParamSchema.safeParse(req.params);
-    if (!paramResult.success) {
-      throw createError('Invalid game ID format', 400, 'INVALID_GAME_ID');
-    }
-    const { gameId } = paramResult.data;
+    const { gameId } = req.params;
     const userId = getAuthUserId(req);
 
     const prisma = getDatabaseClient();
@@ -2499,12 +2704,9 @@ router.get(
  */
 router.get(
   '/:gameId/diagnostics/session',
+  validateParams(GameIdParamSchema),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const paramResult = GameIdParamSchema.safeParse(req.params);
-    if (!paramResult.success) {
-      throw createError('Invalid game ID format', 400, 'INVALID_GAME_ID');
-    }
-    const { gameId } = paramResult.data;
+    const { gameId } = req.params;
     const userId = getAuthUserId(req);
 
     const prisma = getDatabaseClient();
@@ -2644,13 +2846,9 @@ router.get(
  */
 router.get(
   '/lobby/available',
+  validateQuery(GameListingQuerySchema),
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    // Validate query parameters
-    const queryResult = GameListingQuerySchema.safeParse(req.query);
-    if (!queryResult.success) {
-      throw createError('Invalid query parameters', 400, 'INVALID_QUERY_PARAMS');
-    }
-    const { boardType, maxPlayers, limit } = queryResult.data;
+    const { boardType, maxPlayers, limit } = req.query as unknown as GameListingQueryInput;
 
     const prisma = getDatabaseClient();
     if (!prisma) {

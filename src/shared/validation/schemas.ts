@@ -78,6 +78,17 @@ export const GameIdParamSchema = z.object({
 export type GameIdParamInput = z.infer<typeof GameIdParamSchema>;
 
 /**
+ * Invite code validation. 8-character base64url string.
+ */
+export const InviteCodeSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{8}$/, 'Invalid invite code format');
+
+export const InviteCodeParamSchema = z.object({
+  inviteCode: InviteCodeSchema,
+});
+
+/**
  * Game listing query parameters schema.
  * Used for filtering games in list/lobby endpoints.
  */

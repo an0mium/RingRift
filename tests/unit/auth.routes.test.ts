@@ -103,8 +103,6 @@ jest.mock('../../src/server/utils/logger', () => {
 
 // Stub out rate limiting so tests don't depend on Redis or global state.
 jest.mock('../../src/server/middleware/rateLimiter', () => ({
-  authRateLimiter: (_req: any, _res: any, next: any) => next(),
-  authLoginRateLimiter: (_req: any, _res: any, next: any) => next(),
   authRegisterRateLimiter: (_req: any, _res: any, next: any) => next(),
   authPasswordResetRateLimiter: (_req: any, _res: any, next: any) => next(),
   rateLimiter: (_req: any, _res: any, next: any) => next(),
