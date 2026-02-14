@@ -295,8 +295,9 @@ class TestBudgetCalculatorEdgeCases:
 
     def test_very_large_game_count(self):
         """Very large game count should use Elo-based budget."""
+        # Elo 1700 >= ELO_TIER_ULTIMATE (1600), so returns ULTIMATE tier
         budget = get_adaptive_budget_for_games(10**9, 1700)
-        assert budget == GUMBEL_BUDGET_QUALITY
+        assert budget == GUMBEL_BUDGET_ULTIMATE
 
     def test_float_elo_handled(self):
         """Float Elo values should work correctly."""

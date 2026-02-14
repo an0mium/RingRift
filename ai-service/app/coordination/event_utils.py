@@ -192,49 +192,52 @@ def parse_config_key(config_key: str) -> ParsedConfigKey | None:
     return _canonical_parse_config_key(config_key)
 
 
-def extract_config_key(event: dict[str, Any]) -> str:
+def extract_config_key(event: dict[str, Any] | Any) -> str:
     """Extract config_key from event, trying multiple field names.
 
     Args:
-        event: Event payload dictionary
+        event: Event payload dictionary or RouterEvent object.
 
     Returns:
         Config key string, or empty string if not found.
     """
-    return event.get("config_key") or event.get("config") or ""
+    payload = normalize_event_payload(event)
+    return payload.get("config_key") or payload.get("config") or ""
 
 
-def extract_model_path(event: dict[str, Any]) -> str:
+def extract_model_path(event: dict[str, Any] | Any) -> str:
     """Extract model path from event, trying multiple field names.
 
     Args:
-        event: Event payload dictionary
+        event: Event payload dictionary or RouterEvent object.
 
     Returns:
         Model path string, or empty string if not found.
     """
+    payload = normalize_event_payload(event)
     return (
-        event.get("model_path")
-        or event.get("model_id")
-        or event.get("model")
-        or event.get("config", "")
+        payload.get("model_path")
+        or payload.get("model_id")
+        or payload.get("model")
+        or payload.get("config", "")
     )
 
 
-def extract_board_type_and_players(event: dict[str, Any]) -> tuple[str, int]:
+def extract_board_type_and_players(event: dict[str, Any] | Any) -> tuple[str, int]:
     """Extract board_type and num_players from event.
 
     Tries direct fields first, then falls back to parsing config_key.
 
     Args:
-        event: Event payload dictionary
+        event: Event payload dictionary or RouterEvent object.
 
     Returns:
         Tuple of (board_type, num_players). Returns ("", 0) if extraction fails.
     """
     # Try direct fields first
-    board_type = event.get("board_type", "")
-    num_players = event.get("num_players", 0)
+    payload = normalize_event_payload(event)
+    board_type = payload.get("board_type", "")
+    num_players = payload.get("num_players", 0)
 
     if board_type and num_players:
         return board_type, num_players
@@ -506,66 +509,68 @@ class ModelMetadataEventData:
         return None
 
 
-def extract_quality_data(event: dict[str, Any]) -> QualityEventData:
+def extract_quality_data(event: dict[str, Any] | Any) -> QualityEventData:
     """Extract all relevant fields from a quality assessment event.
 
     Handles QUALITY_SCORE_UPDATED, QUALITY_FEEDBACK_ADJUSTED, and similar events.
 
     Args:
-        event: Event payload dictionary
+        event: Event payload dictionary or RouterEvent object.
 
     Returns:
         QualityEventData with all extracted fields.
     """
     config_key = extract_config_key(event)
     board_type, num_players = extract_board_type_and_players(event)
+    payload = normalize_event_payload(event)
 
     return QualityEventData(
         config_key=config_key,
         board_type=board_type,
         num_players=num_players,
-        quality_score=event.get("quality_score", 0.0) or event.get("score", 0.0),
-        quality_category=event.get("quality_category", "unknown") or event.get("category", "unknown"),
-        training_weight=event.get("training_weight", 1.0),
-        game_id=event.get("game_id"),
-        trend=event.get("trend"),
-        previous_score=event.get("previous_score") or event.get("previous_quality"),
+        quality_score=payload.get("quality_score", 0.0) or payload.get("score", 0.0),
+        quality_category=payload.get("quality_category", "unknown") or payload.get("category", "unknown"),
+        training_weight=payload.get("training_weight", 1.0),
+        game_id=payload.get("game_id"),
+        trend=payload.get("trend"),
+        previous_score=payload.get("previous_score") or payload.get("previous_quality"),
     )
 
 
-def extract_curriculum_data(event: dict[str, Any]) -> CurriculumEventData:
+def extract_curriculum_data(event: dict[str, Any] | Any) -> CurriculumEventData:
     """Extract all relevant fields from a curriculum update event.
 
     Handles CURRICULUM_REBALANCED, CURRICULUM_ADVANCED, and similar events.
 
     Args:
-        event: Event payload dictionary
+        event: Event payload dictionary or RouterEvent object.
 
     Returns:
         CurriculumEventData with all extracted fields.
     """
     config_key = extract_config_key(event)
     board_type, num_players = extract_board_type_and_players(event)
+    payload = normalize_event_payload(event)
 
     return CurriculumEventData(
         config_key=config_key,
         board_type=board_type,
         num_players=num_players,
-        old_weight=event.get("old_weight", 1.0) or event.get("previous_weight", 1.0),
-        new_weight=event.get("new_weight", 1.0) or event.get("weight", 1.0),
-        source=event.get("source", "unknown"),
-        reason=event.get("reason"),
-        affected_configs=event.get("affected_configs") or event.get("configs_affected"),
+        old_weight=payload.get("old_weight", 1.0) or payload.get("previous_weight", 1.0),
+        new_weight=payload.get("new_weight", 1.0) or payload.get("weight", 1.0),
+        source=payload.get("source", "unknown"),
+        reason=payload.get("reason"),
+        affected_configs=payload.get("affected_configs") or payload.get("configs_affected"),
     )
 
 
-def extract_model_metadata(event: dict[str, Any]) -> ModelMetadataEventData:
+def extract_model_metadata(event: dict[str, Any] | Any) -> ModelMetadataEventData:
     """Extract all relevant fields from a model lifecycle event.
 
     Handles MODEL_PROMOTED, MODEL_REGISTERED, and similar events.
 
     Args:
-        event: Event payload dictionary
+        event: Event payload dictionary or RouterEvent object.
 
     Returns:
         ModelMetadataEventData with all extracted fields.
@@ -573,16 +578,17 @@ def extract_model_metadata(event: dict[str, Any]) -> ModelMetadataEventData:
     config_key = extract_config_key(event)
     board_type, num_players = extract_board_type_and_players(event)
     model_path = extract_model_path(event)
+    payload = normalize_event_payload(event)
 
     return ModelMetadataEventData(
         config_key=config_key,
         board_type=board_type,
         num_players=num_players,
         model_path=model_path,
-        model_version=event.get("model_version", "") or event.get("version", "") or event.get("architecture", ""),
-        elo=event.get("elo", 1000.0),
-        previous_elo=event.get("previous_elo"),
-        promoted=event.get("promoted", False) or event.get("is_promoted", False),
-        promotion_reason=event.get("promotion_reason") or event.get("reason"),
-        checkpoint_path=event.get("checkpoint_path") or event.get("checkpoint"),
+        model_version=payload.get("model_version", "") or payload.get("version", "") or payload.get("architecture", ""),
+        elo=payload.get("elo", 1000.0),
+        previous_elo=payload.get("previous_elo"),
+        promoted=payload.get("promoted", False) or payload.get("is_promoted", False),
+        promotion_reason=payload.get("promotion_reason") or payload.get("reason"),
+        checkpoint_path=payload.get("checkpoint_path") or payload.get("checkpoint"),
     )

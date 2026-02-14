@@ -272,7 +272,9 @@ class UnderutilizationRecoveryHandler(HandlerBase):
         self._last_recovery_attempt = time.time()
         self._stats.total_recoveries += 1
 
-        reason = event.get("reason", "unknown")
+        from app.coordination.event_utils import normalize_event_payload
+        payload = normalize_event_payload(event)
+        reason = payload.get("reason", "unknown")
         self._stats.last_recovery_reason = reason
 
         logger.info(

@@ -224,7 +224,8 @@ class OrphanDetectionDaemon(HandlerBase):
         instead of waiting for the periodic scan.
         """
         try:
-            payload = event.get("payload", event)
+            from app.coordination.event_utils import normalize_event_payload
+            payload = normalize_event_payload(event)
             db_path = payload.get("db_path")
             node_id = payload.get("node_id")
             config_key = payload.get("config_key")

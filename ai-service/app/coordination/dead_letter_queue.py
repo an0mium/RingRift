@@ -1034,7 +1034,9 @@ if HAS_HANDLER_BASE:
 
         async def _on_delivery_failed(self, event: dict) -> None:
             """Handle event delivery failure - logged for awareness."""
-            event_type = event.get("event_type", "unknown")
+            from app.coordination.event_utils import normalize_event_payload
+            payload = normalize_event_payload(event)
+            event_type = payload.get("event_type", "unknown")
             logger.debug(f"[DLQRetryHandler] Delivery failed for {event_type}")
 
         def health_check(self) -> HBHealthCheckResult:

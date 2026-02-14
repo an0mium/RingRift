@@ -14,12 +14,8 @@ import pytest
 from app.coordination.model_performance_watchdog import (
     ModelPerformance,
     ModelPerformanceWatchdog,
-    ModelPerformanceWatchdogConfig,  # Fixed: was WatchdogConfig
     get_watchdog,
 )
-
-# Alias for backward compatibility with existing tests
-WatchdogConfig = ModelPerformanceWatchdogConfig
 
 
 # =============================================================================
@@ -59,38 +55,6 @@ class TestModelPerformance:
 
 
 # =============================================================================
-# Test WatchdogConfig
-# =============================================================================
-
-
-class TestWatchdogConfig:
-    """Tests for WatchdogConfig dataclass."""
-
-    def test_default_values(self):
-        """WatchdogConfig has expected defaults."""
-        config = WatchdogConfig()
-        assert config.min_vs_random == 0.85
-        assert config.degradation_threshold == 0.55
-        assert config.rolling_window_size == 5
-        assert config.alert_cooldown == 300.0
-
-    def test_custom_values(self):
-        """WatchdogConfig accepts custom values."""
-        config = WatchdogConfig(
-            min_vs_random=0.80,
-            min_vs_heuristic=0.65,
-            degradation_threshold=0.50,
-            rolling_window_size=10,
-            alert_cooldown=60.0,
-        )
-        assert config.min_vs_random == 0.80
-        assert config.min_vs_heuristic == 0.65
-        assert config.degradation_threshold == 0.50
-        assert config.rolling_window_size == 10
-        assert config.alert_cooldown == 60.0
-
-
-# =============================================================================
 # Test ModelPerformanceWatchdog Initialization
 # =============================================================================
 
@@ -103,13 +67,9 @@ class TestWatchdogInit:
         watchdog = ModelPerformanceWatchdog()
         assert watchdog._running is False
         assert watchdog.models == {}
-        assert watchdog.config.min_vs_random == 0.85
-
-    def test_custom_config(self):
-        """Watchdog accepts custom config."""
-        config = WatchdogConfig(rolling_window_size=10)
-        watchdog = ModelPerformanceWatchdog(config=config)
-        assert watchdog.config.rolling_window_size == 10
+        assert watchdog._degradation_threshold == 0.55
+        assert watchdog._rolling_window_size == 5
+        assert watchdog._alert_cooldown == 300.0
 
 
 # =============================================================================
@@ -131,7 +91,7 @@ class TestWatchdogLifecycle:
         with patch.object(watchdog, "_subscribe_all_events", return_value=True):
             await watchdog.start()
             assert watchdog._running is True
-            assert watchdog.is_running is True  # is_running is a property, not a method
+            assert watchdog.is_running is True  # is_running is a property
 
     @pytest.mark.asyncio
     async def test_start_is_idempotent(self, watchdog):
@@ -154,7 +114,7 @@ class TestWatchdogLifecycle:
         watchdog._running = True
         await watchdog.stop()
         assert watchdog._running is False
-        assert watchdog.is_running is False  # is_running is a property, not a method
+        assert watchdog.is_running is False  # is_running is a property
 
 
 # =============================================================================
@@ -168,8 +128,9 @@ class TestPerformanceTracking:
     @pytest.fixture
     def watchdog(self):
         """Create watchdog with small window for testing."""
-        config = WatchdogConfig(rolling_window_size=3)
-        return ModelPerformanceWatchdog(config=config)
+        w = ModelPerformanceWatchdog()
+        w._rolling_window_size = 3
+        return w
 
     @pytest.mark.asyncio
     async def test_creates_new_model_record(self, watchdog):
@@ -248,11 +209,10 @@ class TestDegradationDetection:
     @pytest.fixture
     def watchdog(self):
         """Create watchdog with specific thresholds."""
-        config = WatchdogConfig(
-            degradation_threshold=0.55,
-            alert_cooldown=0.0,  # No cooldown for testing
-        )
-        return ModelPerformanceWatchdog(config=config)
+        w = ModelPerformanceWatchdog()
+        w._degradation_threshold = 0.55
+        w._alert_cooldown = 0.0  # No cooldown for testing
+        return w
 
     @pytest.mark.asyncio
     async def test_detects_degradation(self, watchdog):
@@ -327,11 +287,9 @@ class TestAlertCooldown:
     @pytest.mark.asyncio
     async def test_respects_cooldown(self):
         """Doesn't alert during cooldown period."""
-        config = WatchdogConfig(
-            degradation_threshold=0.55,
-            alert_cooldown=300.0,  # 5 minute cooldown
-        )
-        watchdog = ModelPerformanceWatchdog(config=config)
+        watchdog = ModelPerformanceWatchdog()
+        watchdog._degradation_threshold = 0.55
+        watchdog._alert_cooldown = 300.0  # 5 minute cooldown
 
         mock_router = MagicMock()
         mock_router.publish = AsyncMock()
@@ -459,6 +417,31 @@ class TestModelSummary:
         """Summary is empty for fresh watchdog."""
         watchdog = ModelPerformanceWatchdog()
         assert watchdog.get_model_summary() == {}
+
+
+# =============================================================================
+# Test Health Check
+# =============================================================================
+
+
+class TestHealthCheck:
+    """Tests for health check reporting."""
+
+    def test_health_check_not_running(self):
+        """Health check returns unhealthy when not running."""
+        watchdog = ModelPerformanceWatchdog()
+        result = watchdog.health_check()
+
+        assert result.healthy is False
+        assert "not running" in result.message.lower()
+
+    def test_get_status(self):
+        """get_status returns expected structure."""
+        watchdog = ModelPerformanceWatchdog()
+        status = watchdog.get_status()
+
+        assert "name" in status
+        assert "running" in status
 
 
 # =============================================================================

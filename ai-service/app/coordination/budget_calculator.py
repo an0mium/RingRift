@@ -103,19 +103,24 @@ MAX_TARGET_GAMES = 500_000
 # More players = longer games = need lower budget to keep game duration sane.
 
 LARGE_BOARD_BUDGET_CAPS: dict[str, dict[str, int]] = {
-    "square19": {"bootstrap": 200, "mature": 500},   # 361 cells (raised from 100/300)
+    # Feb 2026: Raised square19 caps (200/500 → 400/800). Previous caps produced
+    # only 130 effective sims for square19_4p (200 * 0.65), which is near-random
+    # play on a 361-cell board. This caused square19_4p to regress from training
+    # on garbage data. New caps give 260 effective sims at 4p bootstrap, 520 mature.
+    "square19": {"bootstrap": 400, "mature": 800},   # 361 cells (raised from 200/500)
     "hexagonal": {"bootstrap": 64, "mature": 200},   # 469 cells
 }
 
 # Player count scaling for budget caps.
 # More players = exponentially more moves per game = need lower budget.
 # 4p hexagonal averages 1233 moves vs ~300 for 2p.
-# Feb 2026: Raised 4p from 0.5→0.65 - budget 50 was too low for meaningful
-# MCTS search on square19_4p, producing near-random training data.
+# Feb 2026: Raised 4p from 0.65→0.80. Even at 0.65, square19_4p only got
+# 130 effective sims (200 * 0.65) which produced near-random training data
+# and caused Elo regression. At 0.80 with new caps: 320 bootstrap, 640 mature.
 PLAYER_BUDGET_SCALING: dict[int, float] = {
     2: 1.0,    # 2-player: baseline
-    3: 0.67,   # 3-player: ~50% more moves per game
-    4: 0.65,   # 4-player: ~4x more moves per game (raised from 0.5)
+    3: 0.80,   # 3-player: ~50% more moves per game (raised from 0.67)
+    4: 0.80,   # 4-player: ~4x more moves per game (raised from 0.65)
 }
 
 # Game count threshold for "mature" vs "bootstrap" phase

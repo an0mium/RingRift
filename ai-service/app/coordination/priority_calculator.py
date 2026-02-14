@@ -79,10 +79,13 @@ CONFIG_PRIORITY_OVERRIDES: dict[str, int] = {
     "hexagonal_4p": 0,  # CRITICAL - 35 matches
     "square19_3p": 0,   # CRITICAL - 50 matches
     "square19_4p": 0,   # CRITICAL - 63 matches
+    # Feb 2026: Upgraded square8_2p and square19_2p to CRITICAL.
+    # square8_2p at 1910 Elo is closest to 2000 target - needs maximum resources.
+    # square19_2p at 1671 Elo is stalled due to insufficient budget allocation.
+    "square8_2p": 0,    # CRITICAL - 1910 Elo, closest to 2000 target (upgraded from HIGH)
+    "square19_2p": 0,   # CRITICAL - 1671 Elo, stalled, needs more quality data (upgraded from HIGH)
     # HIGH (1): Medium deficit, need more data
-    "square19_2p": 1,   # HIGH - 36 matches
     "hexagonal_2p": 1,  # HIGH - 77 matches
-    "square8_2p": 1,    # HIGH - 83 matches (upgraded from CRITICAL, now has data)
     # MEDIUM (2): Sufficient data but below target Elo (1600)
     "hex8_3p": 2,       # MEDIUM - 175 matches, Elo 1292
     "square8_3p": 2,    # MEDIUM - 377 matches
@@ -689,14 +692,19 @@ class PriorityCalculator:
                 pass
 
         # Exponential velocity multiplier:
-        # - velocity <= 0: multiplier = 0.6 (significant reduction)
-        # - velocity = 0.5: multiplier = 0.76
+        # Feb 2026: Inverted penalty for regressing configs. Previously, stalled
+        # and regressing configs both got 0.6x, creating a death spiral where
+        # the configs that most needed resources got the least. Now:
+        # - velocity < 0 (regressing): multiplier = 1.3 (BOOST - needs better data urgently)
+        # - velocity = 0 (stalled): multiplier = 0.85 (mild reduction, not punitive)
+        # - velocity = 0.5: multiplier = 0.76 → 0.92
         # - velocity = 2.0: multiplier = 1.0 (neutral)
         # - velocity = 5.0: multiplier = 1.22
         # - velocity = 10.0: multiplier = 1.35
-        # Formula: 0.6 + 0.4 * (1 - exp(-velocity / 2)) + 0.2 * (velocity / 10)
-        if elo_velocity <= 0:
-            velocity_multiplier = 0.6  # Stagnant/regressing configs get reduced priority
+        if elo_velocity < 0:
+            velocity_multiplier = 1.3  # Regressing configs get priority boost
+        elif elo_velocity == 0:
+            velocity_multiplier = 0.85  # Stalled configs get mild reduction
         else:
             # Exponential saturation from 0.6 toward 1.0 as velocity increases
             base_recovery = 0.4 * (1.0 - math.exp(-elo_velocity / 2.0))
@@ -704,6 +712,13 @@ class PriorityCalculator:
             linear_boost = 0.2 * min(elo_velocity / 10.0, 1.0)
             velocity_multiplier = 0.6 + base_recovery + linear_boost
         score *= velocity_multiplier
+
+        # Feb 2026: Near-target boost for configs close to 2000 Elo.
+        # The last 100 Elo points are the hardest but most valuable.
+        # Configs at 1900+ are closest to completion and deserve maximum resources.
+        if inputs.current_elo >= 1900:
+            near_target_boost = 5.0
+            score *= near_target_boost
 
         # Apply priority override (Jan 2026: Check explicit config overrides first)
         # CONFIG_PRIORITY_OVERRIDES takes precedence over inputs.priority_override

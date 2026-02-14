@@ -3,20 +3,11 @@
 Subscribes to EVALUATION_COMPLETED events and tracks rolling win rates per model.
 Emits alerts when a model's performance degrades below acceptable thresholds.
 
-Uses MonitorBase for lifecycle management, event subscription, and health checks.
-
 Usage:
     from app.coordination.model_performance_watchdog import ModelPerformanceWatchdog
 
     watchdog = ModelPerformanceWatchdog.get_instance()
     await watchdog.start()
-
-Events Subscribed:
-    - EVALUATION_COMPLETED: Triggered when gauntlet evaluation finishes
-
-Events Emitted:
-    - REGRESSION_DETECTED: Model performance dropped significantly
-    - MODEL_PROMOTED: Candidate when model exceeds thresholds (info only)
 """
 
 from __future__ import annotations
@@ -25,20 +16,16 @@ import logging
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 
-from app.config.thresholds import PROMOTION_WIN_RATE_THRESHOLD
-from app.coordination.monitor_base import MonitorBase, MonitorConfig
-
-if TYPE_CHECKING:
-    from app.coordination.protocols import HealthCheckResult
+from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
+from app.coordination.handler_base import HandlerBase
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "ModelPerformance",
     "ModelPerformanceWatchdog",
-    "ModelPerformanceWatchdogConfig",
     "get_watchdog",
     "create_model_performance_watchdog",
 ]
@@ -70,63 +57,29 @@ class ModelPerformance:
     degraded_since: float | None = None
 
 
-@dataclass
-class ModelPerformanceWatchdogConfig(MonitorConfig):
-    """Configuration for ModelPerformanceWatchdog.
-
-    Inherits from MonitorConfig for unified lifecycle management.
-    """
-    # Thresholds (from app.config.thresholds)
-    min_vs_random: float = 0.85  # Must beat RANDOM 85%+ of the time
-    min_vs_heuristic: float = PROMOTION_WIN_RATE_THRESHOLD  # Must beat HEURISTIC at promotion rate
-    degradation_threshold: float = 0.55  # Below this vs heuristic is degraded
-
-    # Rolling window
-    rolling_window_size: int = 5  # Number of recent evaluations to track
-
-    # Alert cooldown
-    alert_cooldown: float = 300.0  # Seconds between repeated alerts for same model
-
-
-class ModelPerformanceWatchdog(MonitorBase[ModelPerformanceWatchdogConfig]):
+class ModelPerformanceWatchdog(HandlerBase):
     """Watchdog that monitors model performance from evaluation events.
 
-    Uses MonitorBase for:
-    - Singleton pattern with get_instance()
-    - Lifecycle management (start/stop)
-    - Event subscription via _get_event_subscriptions()
-    - Health checks via health_check()
-
     Tracks win rates for each model and emits alerts when performance
-    degrades below acceptable thresholds. This enables:
-    - Early detection of regression
-    - Automatic rollback triggers
-    - Curriculum feedback based on model strength
-
-    Attributes:
-        config: Watchdog configuration
-        models: Dict of model performance records
+    degrades below acceptable thresholds.
     """
 
-    def __init__(self, config: ModelPerformanceWatchdogConfig | None = None):
-        super().__init__(config)
+    _event_source = "ModelPerformanceWatchdog"
+
+    def __init__(self) -> None:
+        super().__init__(
+            name="model_performance_watchdog",
+            cycle_interval=300.0,  # Event-driven, long cycle for health checks
+        )
+
+        # Thresholds
+        self._degradation_threshold = 0.55
+        self._rolling_window_size = 5
+        self._alert_cooldown = 300.0
 
         # Model performance tracking
         self.models: dict[str, ModelPerformance] = {}
         self._last_alert_time: dict[str, float] = defaultdict(float)
-
-    def _get_default_config(self) -> ModelPerformanceWatchdogConfig:
-        """Return default configuration."""
-        return ModelPerformanceWatchdogConfig(
-            # This is an event-driven monitor - no periodic cycle needed
-            # But we set a long interval for health checks
-            check_interval_seconds=300,
-            stale_threshold_seconds=3600.0,  # 1 hour - this is event-driven
-        )
-
-    def _get_daemon_name(self) -> str:
-        """Return daemon name for logging and identification."""
-        return "ModelPerformanceWatchdog"
 
     def _get_event_subscriptions(self) -> dict[str, Callable]:
         """Define event subscriptions.
@@ -139,13 +92,8 @@ class ModelPerformanceWatchdog(MonitorBase[ModelPerformanceWatchdogConfig]):
         }
 
     async def _run_cycle(self) -> None:
-        """Periodic cycle - minimal for event-driven monitor.
-
-        This daemon is primarily event-driven. The cycle just does
-        periodic housekeeping if needed.
-        """
-        # Just record the cycle for health tracking
-        self.record_cycle()
+        """Periodic cycle - minimal for event-driven monitor."""
+        pass
 
     async def _on_evaluation_completed(self, event) -> None:
         """Handle EVALUATION_COMPLETED events."""
@@ -155,7 +103,7 @@ class ModelPerformanceWatchdog(MonitorBase[ModelPerformanceWatchdogConfig]):
                 logger.debug("Skipping duplicate EVALUATION_COMPLETED event")
                 return
 
-            self.record_event()
+            self._stats.events_processed += 1
 
             payload = event.payload if hasattr(event, 'payload') else event
 
@@ -187,7 +135,7 @@ class ModelPerformanceWatchdog(MonitorBase[ModelPerformanceWatchdogConfig]):
             )
 
         except Exception as e:
-            self.record_error(e)
+            self._record_error(str(e))
             logger.error(f"Error handling evaluation event: {e}")
 
     async def _update_model_performance(
@@ -222,14 +170,14 @@ class ModelPerformanceWatchdog(MonitorBase[ModelPerformanceWatchdogConfig]):
         perf.recent_vs_heuristic.append(win_rate_vs_heuristic)
 
         # Trim to rolling window size
-        if len(perf.recent_vs_random) > self.config.rolling_window_size:
-            perf.recent_vs_random = perf.recent_vs_random[-self.config.rolling_window_size:]
-        if len(perf.recent_vs_heuristic) > self.config.rolling_window_size:
-            perf.recent_vs_heuristic = perf.recent_vs_heuristic[-self.config.rolling_window_size:]
+        if len(perf.recent_vs_random) > self._rolling_window_size:
+            perf.recent_vs_random = perf.recent_vs_random[-self._rolling_window_size:]
+        if len(perf.recent_vs_heuristic) > self._rolling_window_size:
+            perf.recent_vs_heuristic = perf.recent_vs_heuristic[-self._rolling_window_size:]
 
         # Check for degradation
         was_degraded = perf.is_degraded
-        is_degraded = win_rate_vs_heuristic < self.config.degradation_threshold
+        is_degraded = win_rate_vs_heuristic < self._degradation_threshold
 
         if is_degraded and not was_degraded:
             perf.is_degraded = True
@@ -251,7 +199,7 @@ class ModelPerformanceWatchdog(MonitorBase[ModelPerformanceWatchdogConfig]):
         now = time.time()
         last_alert = self._last_alert_time[perf.model_id]
 
-        if now - last_alert < self.config.alert_cooldown:
+        if now - last_alert < self._alert_cooldown:
             logger.debug(f"Skipping alert for {perf.model_id} due to cooldown")
             return
 
@@ -270,7 +218,7 @@ class ModelPerformanceWatchdog(MonitorBase[ModelPerformanceWatchdogConfig]):
                 "num_players": perf.num_players,
                 "win_rate_vs_heuristic": perf.win_rate_vs_heuristic,
                 "win_rate_vs_random": perf.win_rate_vs_random,
-                "threshold": self.config.degradation_threshold,
+                "threshold": self._degradation_threshold,
                 "severity": "moderate" if perf.win_rate_vs_heuristic >= 0.45 else "severe",
                 "timestamp": now,
             }
@@ -280,7 +228,7 @@ class ModelPerformanceWatchdog(MonitorBase[ModelPerformanceWatchdogConfig]):
 
             logger.warning(
                 f"Model performance degraded: {perf.model_id} "
-                f"(vs_heuristic={perf.win_rate_vs_heuristic:.2%} < {self.config.degradation_threshold:.2%})"
+                f"(vs_heuristic={perf.win_rate_vs_heuristic:.2%} < {self._degradation_threshold:.2%})"
             )
 
         except ImportError as e:
@@ -323,8 +271,6 @@ class ModelPerformanceWatchdog(MonitorBase[ModelPerformanceWatchdogConfig]):
 
         # Override healthy status if too many models degraded
         if model_count > 0 and degraded_count > model_count // 2:
-            from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
-
             return HealthCheckResult(
                 healthy=False,
                 status=CoordinatorStatus.DEGRADED,
