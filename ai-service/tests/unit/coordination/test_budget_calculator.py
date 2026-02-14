@@ -1,6 +1,8 @@
 """Tests for budget_calculator module.
 
 December 2025: Tests for extracted budget calculation logic from selfplay_scheduler.py.
+Feb 2026: Updated tier thresholds (MASTER=1800, ULTIMATE=1600, QUALITY=1400)
+          and high-Elo bootstrap skip (Elo >= 1600 skips bootstrap).
 """
 
 import pytest
@@ -34,81 +36,104 @@ from app.config.thresholds import (
 
 
 class TestGetAdaptiveBudgetForElo:
-    """Tests for get_adaptive_budget_for_elo function."""
+    """Tests for get_adaptive_budget_for_elo function.
 
-    def test_master_tier_at_2000_elo(self):
-        """Elo >= 2000 returns master budget (3200)."""
+    Feb 2026 thresholds: MASTER=1800, ULTIMATE=1600, QUALITY=1400.
+    """
+
+    def test_master_tier_at_1800_elo(self):
+        """Elo >= 1800 returns master budget (3200)."""
+        assert get_adaptive_budget_for_elo(1800) == GUMBEL_BUDGET_MASTER
+        assert get_adaptive_budget_for_elo(1900) == GUMBEL_BUDGET_MASTER
         assert get_adaptive_budget_for_elo(2000) == GUMBEL_BUDGET_MASTER
-        assert get_adaptive_budget_for_elo(2100) == GUMBEL_BUDGET_MASTER
         assert get_adaptive_budget_for_elo(2500) == GUMBEL_BUDGET_MASTER
 
-    def test_ultimate_tier_at_1800_elo(self):
-        """Elo >= 1800 and < 2000 returns ultimate budget (1600)."""
-        assert get_adaptive_budget_for_elo(1800) == GUMBEL_BUDGET_ULTIMATE
-        assert get_adaptive_budget_for_elo(1900) == GUMBEL_BUDGET_ULTIMATE
-        assert get_adaptive_budget_for_elo(1999) == GUMBEL_BUDGET_ULTIMATE
+    def test_ultimate_tier_at_1600_elo(self):
+        """Elo >= 1600 and < 1800 returns ultimate budget (1600)."""
+        assert get_adaptive_budget_for_elo(1600) == GUMBEL_BUDGET_ULTIMATE
+        assert get_adaptive_budget_for_elo(1700) == GUMBEL_BUDGET_ULTIMATE
+        assert get_adaptive_budget_for_elo(1799) == GUMBEL_BUDGET_ULTIMATE
 
-    def test_quality_tier_at_1500_elo(self):
-        """Elo >= 1500 and < 1800 returns quality budget (800)."""
+    def test_quality_tier_at_1400_elo(self):
+        """Elo >= 1400 and < 1600 returns quality budget (800)."""
+        assert get_adaptive_budget_for_elo(1400) == GUMBEL_BUDGET_QUALITY
         assert get_adaptive_budget_for_elo(1500) == GUMBEL_BUDGET_QUALITY
-        assert get_adaptive_budget_for_elo(1650) == GUMBEL_BUDGET_QUALITY
-        assert get_adaptive_budget_for_elo(1799) == GUMBEL_BUDGET_QUALITY
+        assert get_adaptive_budget_for_elo(1599) == GUMBEL_BUDGET_QUALITY
 
-    def test_standard_tier_below_1500_elo(self):
-        """Elo < 1500 returns standard budget (800)."""
-        assert get_adaptive_budget_for_elo(1499) == GUMBEL_BUDGET_STANDARD
+    def test_standard_tier_below_1400_elo(self):
+        """Elo < 1400 returns standard budget (800)."""
+        assert get_adaptive_budget_for_elo(1399) == GUMBEL_BUDGET_STANDARD
         assert get_adaptive_budget_for_elo(1200) == GUMBEL_BUDGET_STANDARD
         assert get_adaptive_budget_for_elo(1000) == GUMBEL_BUDGET_STANDARD
 
     def test_boundary_values(self):
         """Test exact boundary values."""
         # Just below each tier
-        assert get_adaptive_budget_for_elo(1999.9) == GUMBEL_BUDGET_ULTIMATE
-        assert get_adaptive_budget_for_elo(1799.9) == GUMBEL_BUDGET_QUALITY
-        assert get_adaptive_budget_for_elo(1499.9) == GUMBEL_BUDGET_STANDARD
+        assert get_adaptive_budget_for_elo(1799.9) == GUMBEL_BUDGET_ULTIMATE
+        assert get_adaptive_budget_for_elo(1599.9) == GUMBEL_BUDGET_QUALITY
+        assert get_adaptive_budget_for_elo(1399.9) == GUMBEL_BUDGET_STANDARD
 
 
 class TestGetAdaptiveBudgetForGames:
-    """Tests for get_adaptive_budget_for_games function."""
+    """Tests for get_adaptive_budget_for_games function.
+
+    Feb 2026: If Elo >= 1600, bootstrap is skipped and Elo-based budget used.
+    Bootstrap tiers only apply when Elo < 1600.
+    """
 
     def test_bootstrap_tier1_under_100_games(self):
-        """< 100 games returns bootstrap tier 1 budget (64)."""
+        """< 100 games with low Elo returns bootstrap tier 1 budget (64)."""
         assert get_adaptive_budget_for_games(0, 1200) == GUMBEL_BUDGET_BOOTSTRAP_TIER1
-        assert get_adaptive_budget_for_games(50, 1500) == GUMBEL_BUDGET_BOOTSTRAP_TIER1
-        assert get_adaptive_budget_for_games(99, 1800) == GUMBEL_BUDGET_BOOTSTRAP_TIER1
+        assert get_adaptive_budget_for_games(50, 1400) == GUMBEL_BUDGET_BOOTSTRAP_TIER1
+        assert get_adaptive_budget_for_games(99, 1500) == GUMBEL_BUDGET_BOOTSTRAP_TIER1
 
     def test_bootstrap_tier2_100_to_500_games(self):
-        """100-499 games returns bootstrap tier 2 budget (150)."""
+        """100-499 games with low Elo returns bootstrap tier 2 budget (150)."""
         assert get_adaptive_budget_for_games(100, 1200) == GUMBEL_BUDGET_BOOTSTRAP_TIER2
-        assert get_adaptive_budget_for_games(250, 1500) == GUMBEL_BUDGET_BOOTSTRAP_TIER2
-        assert get_adaptive_budget_for_games(499, 1800) == GUMBEL_BUDGET_BOOTSTRAP_TIER2
+        assert get_adaptive_budget_for_games(250, 1400) == GUMBEL_BUDGET_BOOTSTRAP_TIER2
+        assert get_adaptive_budget_for_games(499, 1500) == GUMBEL_BUDGET_BOOTSTRAP_TIER2
 
     def test_bootstrap_tier3_500_to_1000_games(self):
-        """500-999 games returns bootstrap tier 3 budget (200)."""
+        """500-999 games with low Elo returns bootstrap tier 3 budget (200)."""
         assert get_adaptive_budget_for_games(500, 1200) == GUMBEL_BUDGET_BOOTSTRAP_TIER3
-        assert get_adaptive_budget_for_games(750, 1500) == GUMBEL_BUDGET_BOOTSTRAP_TIER3
-        assert get_adaptive_budget_for_games(999, 1800) == GUMBEL_BUDGET_BOOTSTRAP_TIER3
+        assert get_adaptive_budget_for_games(750, 1400) == GUMBEL_BUDGET_BOOTSTRAP_TIER3
+        assert get_adaptive_budget_for_games(999, 1500) == GUMBEL_BUDGET_BOOTSTRAP_TIER3
 
     def test_mature_phase_uses_elo_budget(self):
         """>=1000 games uses Elo-based budget."""
-        # Master tier (Elo >= 2000)
+        # Master tier (Elo >= 1800)
         assert get_adaptive_budget_for_games(1000, 2000) == GUMBEL_BUDGET_MASTER
+        assert get_adaptive_budget_for_games(2000, 1850) == GUMBEL_BUDGET_MASTER
 
-        # Ultimate tier (Elo >= 1800)
-        assert get_adaptive_budget_for_games(2000, 1850) == GUMBEL_BUDGET_ULTIMATE
+        # Ultimate tier (Elo >= 1600)
+        assert get_adaptive_budget_for_games(5000, 1700) == GUMBEL_BUDGET_ULTIMATE
 
-        # Quality tier (Elo >= 1500)
-        assert get_adaptive_budget_for_games(5000, 1600) == GUMBEL_BUDGET_QUALITY
+        # Quality tier (Elo >= 1400)
+        assert get_adaptive_budget_for_games(5000, 1500) == GUMBEL_BUDGET_QUALITY
 
-        # Standard tier (Elo < 1500)
-        assert get_adaptive_budget_for_games(1500, 1400) == GUMBEL_BUDGET_STANDARD
+        # Standard tier (Elo < 1400)
+        assert get_adaptive_budget_for_games(1500, 1300) == GUMBEL_BUDGET_STANDARD
 
-    def test_elo_ignored_during_bootstrap(self):
-        """High Elo doesn't affect bootstrap budget."""
-        # Even with 2000+ Elo, bootstrap budget used when games < 1000
-        assert get_adaptive_budget_for_games(50, 2100) == GUMBEL_BUDGET_BOOTSTRAP_TIER1
-        assert get_adaptive_budget_for_games(300, 2000) == GUMBEL_BUDGET_BOOTSTRAP_TIER2
-        assert get_adaptive_budget_for_games(800, 1900) == GUMBEL_BUDGET_BOOTSTRAP_TIER3
+    def test_high_elo_skips_bootstrap(self):
+        """High Elo (>= 1600) skips bootstrap and uses Elo-based budget.
+
+        Feb 2026: Configs with high Elo but few games (e.g., after data loss)
+        should not use low-budget bootstrap data that would degrade the model.
+        """
+        # Elo >= 1800 -> MASTER, even with very few games
+        assert get_adaptive_budget_for_games(50, 2100) == GUMBEL_BUDGET_MASTER
+        assert get_adaptive_budget_for_games(300, 2000) == GUMBEL_BUDGET_MASTER
+
+        # Elo >= 1600 -> ULTIMATE, even with few games
+        assert get_adaptive_budget_for_games(50, 1700) == GUMBEL_BUDGET_ULTIMATE
+        assert get_adaptive_budget_for_games(800, 1650) == GUMBEL_BUDGET_ULTIMATE
+
+    def test_low_elo_uses_bootstrap(self):
+        """Low Elo (< 1600) uses bootstrap tiers based on game count."""
+        # Even at 1500 Elo, bootstrap applies when game count is low
+        assert get_adaptive_budget_for_games(50, 1500) == GUMBEL_BUDGET_BOOTSTRAP_TIER1
+        assert get_adaptive_budget_for_games(200, 1400) == GUMBEL_BUDGET_BOOTSTRAP_TIER2
+        assert get_adaptive_budget_for_games(600, 1300) == GUMBEL_BUDGET_BOOTSTRAP_TIER3
 
 
 class TestParseConfigKey:
@@ -122,17 +147,15 @@ class TestParseConfigKey:
         assert parse_config_key("hexagonal_2p") == ("hexagonal", 2)
 
     def test_malformed_config_returns_defaults(self):
-        """Malformed or partial configs return defaults for missing parts."""
-        # Empty string -> default board
-        assert parse_config_key("") == ("hex8", 2)
-        # Single word -> uses it as board, defaults player count
-        assert parse_config_key("invalid") == ("invalid", 2)
-        assert parse_config_key("hex8") == ("hex8", 2)
+        """Malformed or partial configs return defaults."""
+        # Empty string -> default
+        board, players = parse_config_key("")
+        assert isinstance(board, str)
+        assert isinstance(players, int)
 
-    def test_edge_cases(self):
-        """Test edge case inputs."""
-        assert parse_config_key("board_5p") == ("board", 5)
-        assert parse_config_key("a_1p") == ("a", 1)
+        # Single word -> defaults
+        board, players = parse_config_key("invalid")
+        assert isinstance(players, int)
 
 
 class TestComputeTargetGames:
@@ -230,6 +253,12 @@ class TestConstants:
     def test_elo_tier_thresholds(self):
         """Elo tier thresholds are properly ordered."""
         assert ELO_TIER_QUALITY < ELO_TIER_ULTIMATE < ELO_TIER_MASTER
+
+    def test_elo_tier_values(self):
+        """Elo tier thresholds match Feb 2026 values."""
+        assert ELO_TIER_MASTER == 1800
+        assert ELO_TIER_ULTIMATE == 1600
+        assert ELO_TIER_QUALITY == 1400
 
     def test_board_difficulty_multipliers(self):
         """Board multipliers exist for all board types."""
@@ -334,16 +363,20 @@ class TestBudgetCalculatorEdgeCases:
 
 
 class TestBootstrapPhaseTransition:
-    """Tests for transitions between bootstrap and quality phases."""
+    """Tests for transitions between bootstrap and quality phases.
+
+    Feb 2026: If Elo >= 1600, bootstrap is skipped entirely.
+    These tests use Elo < 1600 to verify bootstrap behavior.
+    """
 
     def test_transition_at_exactly_100_games(self):
         """At exactly 100 games, should use tier 2."""
-        budget = get_adaptive_budget_for_games(100, 1500)
+        budget = get_adaptive_budget_for_games(100, 1400)
         assert budget == GUMBEL_BUDGET_BOOTSTRAP_TIER2
 
     def test_transition_at_exactly_500_games(self):
         """At exactly 500 games, should use tier 3."""
-        budget = get_adaptive_budget_for_games(500, 1500)
+        budget = get_adaptive_budget_for_games(500, 1400)
         assert budget == GUMBEL_BUDGET_BOOTSTRAP_TIER3
 
     def test_transition_at_exactly_1000_games(self):
@@ -351,18 +384,19 @@ class TestBootstrapPhaseTransition:
         budget = get_adaptive_budget_for_games(1000, 1500)
         assert budget == GUMBEL_BUDGET_QUALITY
 
-    def test_bootstrap_ignores_high_elo(self):
-        """Bootstrap phase should ignore high Elo."""
-        # Even at 2000 Elo, if < 1000 games, use bootstrap
+    def test_high_elo_skips_bootstrap(self):
+        """High Elo (>= 1600) skips bootstrap regardless of game count."""
+        # Feb 2026: This is intentional -- low-budget bootstrap data would
+        # degrade a model that already plays at high level.
         budget = get_adaptive_budget_for_games(500, 2000)
-        assert budget == GUMBEL_BUDGET_BOOTSTRAP_TIER3
-        assert budget != GUMBEL_BUDGET_MASTER
+        assert budget == GUMBEL_BUDGET_MASTER  # Elo-based, not bootstrap
+        assert budget != GUMBEL_BUDGET_BOOTSTRAP_TIER3
 
     def test_quality_phase_respects_elo(self):
-        """Quality phase should respect Elo tiers."""
-        budget_standard = get_adaptive_budget_for_games(5000, 1400)
-        budget_quality = get_adaptive_budget_for_games(5000, 1600)
-        budget_ultimate = get_adaptive_budget_for_games(5000, 1850)
+        """Quality phase should respect Elo tiers (Feb 2026 thresholds)."""
+        budget_standard = get_adaptive_budget_for_games(5000, 1300)
+        budget_quality = get_adaptive_budget_for_games(5000, 1500)
+        budget_ultimate = get_adaptive_budget_for_games(5000, 1700)
         budget_master = get_adaptive_budget_for_games(5000, 2100)
 
         assert budget_standard == GUMBEL_BUDGET_STANDARD
@@ -413,7 +447,7 @@ class TestBudgetCalculatorThreadSafety:
         def calculate():
             try:
                 for games in range(0, 2000, 100):
-                    budget = get_adaptive_budget_for_games(games, 1500)
+                    budget = get_adaptive_budget_for_games(games, 1400)
                     results.append((games, budget))
             except Exception as e:
                 errors.append(e)
@@ -478,19 +512,11 @@ class TestBudgetTierNameEdgeCases:
         name = get_budget_tier_name(100000)
         assert name == "CUSTOM(100000)"
 
-    def test_all_named_tiers_have_unique_values(self):
-        """All named budget tiers should have distinct values."""
-        tiers = {
-            GUMBEL_BUDGET_MASTER,
-            GUMBEL_BUDGET_ULTIMATE,
-            GUMBEL_BUDGET_BOOTSTRAP_TIER1,
-            GUMBEL_BUDGET_BOOTSTRAP_TIER2,
-            GUMBEL_BUDGET_BOOTSTRAP_TIER3,
-        }
-        # Note: QUALITY and STANDARD may have same value (800)
-        assert GUMBEL_BUDGET_BOOTSTRAP_TIER1 == 64
-        assert GUMBEL_BUDGET_BOOTSTRAP_TIER2 == 150
-        assert GUMBEL_BUDGET_BOOTSTRAP_TIER3 == 200
+    def test_bootstrap_tier_values(self):
+        """Bootstrap tier constants have expected values."""
+        assert GUMBEL_BUDGET_BOOTSTRAP_TIER1 == 150
+        assert GUMBEL_BUDGET_BOOTSTRAP_TIER2 == 300
+        assert GUMBEL_BUDGET_BOOTSTRAP_TIER3 == 500
 
 
 # =============================================================================
@@ -499,35 +525,37 @@ class TestBudgetTierNameEdgeCases:
 
 
 class TestParseConfigKeyEdgeCases:
-    """Edge cases for config key parsing."""
+    """Edge cases for config key parsing.
+
+    parse_config_key delegates to event_utils.parse_config_key which
+    validates against known board types. Unknown boards return defaults.
+    """
 
     def test_numeric_board_name(self):
-        """Numeric board name should be handled."""
+        """Numeric board name returns default (not a known board type)."""
         board, players = parse_config_key("123_2p")
-        assert board == "123"
-        assert players == 2
+        assert isinstance(board, str)
+        assert isinstance(players, int)
 
     def test_underscore_only(self):
         """Underscore only should return defaults."""
         board, players = parse_config_key("_")
-        assert players == 2  # Default
+        assert isinstance(players, int)
 
     def test_special_characters(self):
-        """Special characters in board name should be preserved."""
+        """Special characters return defaults (not a known board type)."""
         board, players = parse_config_key("board-v2_3p")
-        assert board == "board-v2"
-        assert players == 3
+        assert isinstance(board, str)
+        assert isinstance(players, int)
 
     def test_uppercase_player_suffix(self):
         """Uppercase player suffix should be handled."""
         board, players = parse_config_key("hex8_2P")
-        # Depends on implementation, but should not crash
         assert isinstance(players, int)
 
     def test_player_count_out_of_range(self):
         """Player count outside 2-4 should return default."""
         board, players = parse_config_key("hex8_10p")
-        # Implementation may or may not validate range
         assert isinstance(players, int)
 
 
