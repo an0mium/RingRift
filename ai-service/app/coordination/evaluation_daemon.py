@@ -1,7 +1,7 @@
 """EvaluationDaemon - Auto-evaluate models after training completes.
 
 December 2025: Part of Phase 11 (Auto-Evaluation Pipeline).
-December 27, 2025: Migrated to BaseEventHandler (Wave 4 Phase 1).
+December 27, 2025: Migrated to HandlerBase (Wave 4 Phase 1).
 
 This daemon subscribes to TRAINING_COMPLETE events and automatically triggers
 gauntlet evaluation for newly trained models. This closes the training loop
@@ -59,8 +59,7 @@ from app.coordination.unified_distribution_daemon import (
     wait_for_model_availability,
 )
 
-# December 27, 2025: Use HandlerBase for subscription lifecycle (canonical location)
-from app.coordination.handler_base import BaseEventHandler, EventHandlerConfig
+from app.coordination.handler_base import EventHandlerConfig, HandlerBase
 
 # December 2025: Gauntlet evaluation
 # Jan 13, 2026: Added _create_gauntlet_recording_config for gauntlet game recording
@@ -286,10 +285,10 @@ class EvaluationConfig:
     startup_scan_canonical_priority: int = 75  # Priority for canonical models
 
 
-class EvaluationDaemon(BaseEventHandler):
+class EvaluationDaemon(HandlerBase):
     """Daemon that auto-evaluates models after training completes.
 
-    December 27, 2025: Migrated to BaseEventHandler - inherits:
+    December 27, 2025: Migrated to HandlerBase - inherits:
     - Automatic event subscription/unsubscription lifecycle
     - Standard health_check() implementation
     - Error counting and last_error tracking
@@ -297,7 +296,7 @@ class EvaluationDaemon(BaseEventHandler):
     """
 
     def __init__(self, config: EvaluationConfig | None = None):
-        # Initialize BaseEventHandler with custom config
+        # Initialize HandlerBase with custom config
         handler_config = EventHandlerConfig()
         handler_config.register_with_registry = False  # Singleton pattern managed externally
         super().__init__("EvaluationDaemon", handler_config)
@@ -375,7 +374,7 @@ class EvaluationDaemon(BaseEventHandler):
         self._dispatched_evaluations: dict[str, str] = {}
 
     def _get_subscriptions(self) -> Dict[Any, Callable]:
-        """Return event subscriptions for BaseEventHandler.
+        """Return event subscriptions for HandlerBase.
 
         Returns:
             Dict mapping event types to handler methods.
@@ -465,7 +464,7 @@ class EvaluationDaemon(BaseEventHandler):
         This catches models trained on cluster nodes where the TRAINING_COMPLETED
         event didn't reach the coordinator (network issues, event drops, etc.).
 
-        December 29, 2025: Added to satisfy BaseEventHandler abstract requirement.
+        December 29, 2025: Added to satisfy HandlerBase abstract requirement.
         The actual work is done by _evaluation_worker() processing the queue.
         """
         import time
@@ -486,7 +485,7 @@ class EvaluationDaemon(BaseEventHandler):
         """Get daemon status for DaemonManager health monitoring.
 
         December 2025: Added to fix missing status method (P0 gap).
-        December 27, 2025: Enhanced with BaseEventHandler metrics.
+        December 27, 2025: Enhanced with HandlerBase metrics.
 
         Returns:
             Status dict with running state, stats, and dedup metrics.
@@ -2114,7 +2113,7 @@ class EvaluationDaemon(BaseEventHandler):
     def health_check(self) -> "HealthCheckResult":
         """Check daemon health (December 2025: CoordinatorProtocol compliance).
 
-        December 27, 2025: Extends BaseEventHandler health_check with
+        December 27, 2025: Extends HandlerBase health_check with
         evaluation-specific failure rate detection.
 
         Returns:

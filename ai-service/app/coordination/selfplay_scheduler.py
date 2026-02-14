@@ -84,15 +84,12 @@ __all__ = [
 ]
 
 import asyncio
-import contextlib
 import logging
 import math
 import os
 import time
-from collections import deque
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import Any, Callable, Optional
 
 import yaml
 
@@ -102,8 +99,6 @@ from app.config.thresholds import (
     get_gpu_weight,
 )
 
-# December 2025: Constants consolidated in priority_calculator.py
-# December 29, 2025: Now also imports PriorityCalculator for delegation
 from app.coordination.priority_calculator import (
     ALL_CONFIGS,
     ClusterState,
@@ -115,104 +110,51 @@ from app.coordination.priority_calculator import (
     VOI_SAMPLE_COST_BY_BOARD,
     compute_dynamic_weights,
 )
-
-# December 2025: NodeCapability extracted to node_allocator.py
 from app.coordination.node_allocator import NodeCapability
-
-# December 2025: Budget calculation extracted to budget_calculator.py
 from app.coordination.budget_calculator import (
-    get_adaptive_budget_for_elo as _get_budget_for_elo,
-    get_adaptive_budget_for_games as _get_budget_for_games,
-    get_budget_with_intensity as _get_budget_with_intensity,  # Sprint 10
+    get_budget_with_intensity as _get_budget_with_intensity,
     compute_target_games as _compute_target,
     parse_config_key,
-    get_board_adjusted_budget,  # Jan 2026: Large board budget caps
+    get_board_adjusted_budget,
 )
 from app.coordination.protocols import HealthCheckResult
 from app.coordination.handler_base import HandlerBase
 from app.coordination.event_handler_utils import extract_config_key
-
-# January 2026 Sprint 17.4: Health monitoring extracted to mixin
 from app.coordination.selfplay_health_monitor import SelfplayHealthMonitorMixin
-
-# January 2026 Sprint 17.9: Quality signal handlers extracted to mixin
-# Note: Import directly from module, not from package, to avoid circular import
+# Import from module (not package) to avoid circular import
 from app.coordination.selfplay.quality_signal_handler import SelfplayQualitySignalMixin
-
-# January 2026 Sprint 17.9: Velocity/Elo handlers extracted to mixin
 from app.coordination.selfplay.velocity_mixin import SelfplayVelocityMixin
-
-# February 2026: Data freshness fetching extracted to mixin
 from app.coordination.selfplay.freshness_fetcher import FreshnessFetcherMixin
-
-# February 2026: Core event handlers extracted to mixin
 from app.coordination.selfplay.core_event_mixin import CoreEventHandlerMixin
-
-# February 2026: Node allocation and starvation enforcement extracted to mixin
 from app.coordination.selfplay.allocation_mixin import AllocationMixin
 
-# December 30, 2025: Extracted cache and metrics classes
 from app.coordination.config_state_cache import ConfigStateCache
 from app.coordination.scheduler_metrics import SchedulerMetricsCollector
-
-# Import interfaces for type hints (no circular dependency)
 from app.coordination.interfaces import IBackpressureMonitor
-
-# January 2026: Cluster config for selfplay_enabled check
 from app.config.cluster_config import get_cluster_nodes
-
-# January 5, 2026 (Phase 7.4): Node circuit breaker for work allocation filtering
 from app.coordination.node_circuit_breaker import get_node_circuit_registry
-
-# January 2026 Sprint 17.9: AllocationEngine extracted for testability
 from app.coordination.selfplay.allocation_engine import (
     AllocationContext,
     AllocationEngine,
     AllocationResult,
 )
-
-# January 2026 Sprint 17.9: Data provider methods extracted to mixin
 from app.coordination.selfplay.data_providers import DataProviderMixin
-
-# January 2026 Sprint 17.9: Node targeting methods extracted to mixin
 from app.coordination.selfplay.node_targeting import NodeTargetingMixin
-
-# January 2026 Sprint 17.9: Idle work injection methods extracted to mixin
 from app.coordination.selfplay.idle_injection import IdleWorkInjectionMixin
-
-# January 2026 Sprint 17.9: Architecture tracking methods extracted to mixin
 from app.coordination.selfplay.architecture_tracker_mixin import ArchitectureTrackerMixin
-
-# Note: backpressure concrete import moved to lazy loading in allocate_selfplay_batch()
-# to break circular dependency cycle (Dec 2025). The IBackpressureMonitor protocol
-# from interfaces allows type hints without importing the concrete class.
 
 logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# Configuration
+# Configuration (re-exported from coordination_defaults for backward compat)
+# For runtime tuning: export RINGRIFT_STALENESS_WEIGHT=0.40 etc.
 # =============================================================================
-# Note: ALL_CONFIGS, PRIORITY_OVERRIDE_MULTIPLIERS, PLAYER_COUNT_ALLOCATION_MULTIPLIER,
-# SAMPLES_PER_GAME_BY_BOARD, and VOI_SAMPLE_COST_BY_BOARD are imported from
-# app.coordination.priority_calculator (December 2025 consolidation)
+from app.config.coordination_defaults import SelfplayPriorityWeightDefaults, SelfplayAllocationDefaults
 
-# Priority calculation weights (BASE values - adjusted dynamically)
-# Dec 29, 2025: These are now baseline weights that get adjusted based on cluster state.
-# See _compute_dynamic_weights() for adaptive reweighting logic.
-#
-# IMPORTANT: For runtime tuning via environment variables, use SelfplayPriorityWeightDefaults
-# from app.config.coordination_defaults. Example:
-#   export RINGRIFT_STALENESS_WEIGHT=0.40  # Boost data freshness priority
-#   export RINGRIFT_ELO_VELOCITY_WEIGHT=0.15  # Reduce velocity priority
-#
-# The module-level constants below are for backward compatibility and internal use.
-# New code should import from coordination_defaults for env var support.
-from app.config.coordination_defaults import SelfplayPriorityWeightDefaults
-
-# Create singleton instance for env var resolution
 _priority_weight_defaults = SelfplayPriorityWeightDefaults()
 
+# Priority weights (base values, adjusted dynamically)
 STALENESS_WEIGHT = _priority_weight_defaults.STALENESS_WEIGHT
 ELO_VELOCITY_WEIGHT = _priority_weight_defaults.ELO_VELOCITY_WEIGHT
 TRAINING_NEED_WEIGHT = _priority_weight_defaults.TRAINING_NEED_WEIGHT
@@ -222,78 +164,43 @@ IMPROVEMENT_BOOST_WEIGHT = _priority_weight_defaults.IMPROVEMENT_BOOST_WEIGHT
 DATA_DEFICIT_WEIGHT = _priority_weight_defaults.DATA_DEFICIT_WEIGHT
 QUALITY_WEIGHT = _priority_weight_defaults.QUALITY_WEIGHT
 VOI_WEIGHT = _priority_weight_defaults.VOI_WEIGHT
-
-# =============================================================================
-# Dynamic Weight Bounds (Dec 29, 2025)
-# =============================================================================
-# Min/max bounds for dynamic weight adjustment based on cluster state
-# These prevent any single factor from dominating allocation decisions
-# Now sourced from centralized config with env var support
 DYNAMIC_WEIGHT_BOUNDS = _priority_weight_defaults.get_weight_bounds()
 
-# VOI target Elo (from coordination_defaults)
+# Dynamic weight adjustment thresholds
 VOI_ELO_TARGET = _priority_weight_defaults.VOI_ELO_TARGET
-
-# Thresholds for dynamic weight adjustment triggers (now env-configurable)
 IDLE_GPU_HIGH_THRESHOLD = _priority_weight_defaults.IDLE_GPU_HIGH_THRESHOLD
 IDLE_GPU_LOW_THRESHOLD = _priority_weight_defaults.IDLE_GPU_LOW_THRESHOLD
 TRAINING_QUEUE_HIGH_THRESHOLD = _priority_weight_defaults.TRAINING_QUEUE_HIGH_THRESHOLD
 CONFIGS_AT_TARGET_THRESHOLD = _priority_weight_defaults.CONFIGS_AT_TARGET_THRESHOLD
 ELO_HIGH_THRESHOLD = _priority_weight_defaults.ELO_HIGH_THRESHOLD
 ELO_MEDIUM_THRESHOLD = _priority_weight_defaults.ELO_MEDIUM_THRESHOLD
-
-# Target games per config for data deficit calculation
 TARGET_GAMES_FOR_2000_ELO = _priority_weight_defaults.TARGET_GAMES_FOR_2000_ELO
 LARGE_BOARD_TARGET_MULTIPLIER = _priority_weight_defaults.LARGE_BOARD_TARGET_MULTIPLIER
 
-# Dec 29, 2025: Data starvation thresholds (now env-configurable)
-# Configs with fewer games than these thresholds get priority boosts
-# Especially critical for 4-player configs which have near-zero games
-# ULTRA tier added Dec 29, 2025 for critically starved configs (< 20 games)
+# Data starvation tiers (ULTRA > EMERGENCY > CRITICAL > WARNING)
 DATA_STARVATION_ULTRA_THRESHOLD = _priority_weight_defaults.DATA_STARVATION_ULTRA_THRESHOLD
 DATA_STARVATION_EMERGENCY_THRESHOLD = _priority_weight_defaults.DATA_STARVATION_EMERGENCY_THRESHOLD
 DATA_STARVATION_CRITICAL_THRESHOLD = _priority_weight_defaults.DATA_STARVATION_CRITICAL_THRESHOLD
 DATA_STARVATION_ULTRA_MULTIPLIER = _priority_weight_defaults.DATA_STARVATION_ULTRA_MULTIPLIER
 DATA_STARVATION_EMERGENCY_MULTIPLIER = _priority_weight_defaults.DATA_STARVATION_EMERGENCY_MULTIPLIER
 DATA_STARVATION_CRITICAL_MULTIPLIER = _priority_weight_defaults.DATA_STARVATION_CRITICAL_MULTIPLIER
-
-# Data poverty tier (Dec 30, 2025): Moderate boost for configs with <5000 games
-# Bridges gap between CRITICAL (1000 games) and no boost
 DATA_POVERTY_THRESHOLD = _priority_weight_defaults.DATA_POVERTY_THRESHOLD
 DATA_POVERTY_MULTIPLIER = _priority_weight_defaults.DATA_POVERTY_MULTIPLIER
-
-# Session 17.34 (Jan 5, 2026): WARNING tier for configs with <5000 games
-# Catches configs like square8_3p (3,167 games) that are above CRITICAL but still underserved
 DATA_WARNING_THRESHOLD = _priority_weight_defaults.DATA_WARNING_THRESHOLD
 DATA_WARNING_MULTIPLIER = _priority_weight_defaults.DATA_WARNING_MULTIPLIER
 
-# Default training sample target per config
+# Staleness and allocation thresholds
 DEFAULT_TRAINING_SAMPLES_TARGET = 50000
-
-# Staleness thresholds (hours) - now env-configurable
 FRESH_DATA_THRESHOLD = _priority_weight_defaults.FRESH_DATA_THRESHOLD
 STALE_DATA_THRESHOLD = _priority_weight_defaults.STALE_DATA_THRESHOLD
 MAX_STALENESS_HOURS = _priority_weight_defaults.MAX_STALENESS_HOURS
-
-# Default allocation (December 27, 2025: Centralized in coordination_defaults.py)
-from app.config.coordination_defaults import SelfplayAllocationDefaults
-
 DEFAULT_GAMES_PER_CONFIG = SelfplayAllocationDefaults.GAMES_PER_CONFIG
 MIN_GAMES_PER_ALLOCATION = SelfplayAllocationDefaults.MIN_GAMES_PER_ALLOCATION
-
-# Resource management thresholds (for get_target_jobs_for_node)
 MIN_MEMORY_GB_FOR_TASKS = SelfplayAllocationDefaults.MIN_MEMORY_GB
 DISK_WARNING_THRESHOLD = SelfplayAllocationDefaults.DISK_WARNING_THRESHOLD
 MEMORY_WARNING_THRESHOLD = SelfplayAllocationDefaults.MEMORY_WARNING_THRESHOLD
 
-
-# January 2, 2026: DynamicWeights and ConfigPriority extracted to selfplay_priority_types.py
-# for better modularity and testability (~200 LOC extracted)
 from app.coordination.selfplay_priority_types import ConfigPriority, DynamicWeights
-
-# Note: NodeCapability is imported from app.coordination.node_allocator
-# DynamicWeights and ConfigPriority are now imported from selfplay_priority_types.py
-# (January 2, 2026 extraction - ~200 LOC moved to separate module)
 
 
 class SelfplayScheduler(
@@ -487,10 +394,14 @@ class SelfplayScheduler(
             get_quality_score_fn=self._get_config_data_quality,
             get_elo_velocity_fn=self.get_elo_velocity,
             get_cascade_priority_fn=self._get_cascade_priority,
+            data_starvation_ultra_threshold=DATA_STARVATION_ULTRA_THRESHOLD,
             data_starvation_emergency_threshold=DATA_STARVATION_EMERGENCY_THRESHOLD,
             data_starvation_critical_threshold=DATA_STARVATION_CRITICAL_THRESHOLD,
+            data_starvation_warning_threshold=DATA_WARNING_THRESHOLD,
+            data_starvation_ultra_multiplier=DATA_STARVATION_ULTRA_MULTIPLIER,
             data_starvation_emergency_multiplier=DATA_STARVATION_EMERGENCY_MULTIPLIER,
             data_starvation_critical_multiplier=DATA_STARVATION_CRITICAL_MULTIPLIER,
+            data_starvation_warning_multiplier=DATA_WARNING_MULTIPLIER,
         )
 
     def _load_priority_overrides(self) -> None:
@@ -525,12 +436,6 @@ class SelfplayScheduler(
                     return
                 except (yaml.YAMLError, OSError, KeyError, AttributeError) as e:
                     logger.warning(f"[SelfplayScheduler] Failed to load config {config_path}: {e}")
-
-    # =========================================================================
-    # Game Count Normalization - Delegated to DataProviderMixin
-    # Sprint 17.9 (Jan 2026): _get_samples_per_game_estimate, set_target_training_samples,
-    # get_games_needed, get_all_games_needed moved to selfplay/data_providers.py
-    # =========================================================================
 
     # =========================================================================
     # Priority Calculation
@@ -893,120 +798,48 @@ class SelfplayScheduler(
     def _compute_priority_score(self, priority: ConfigPriority) -> float:
         """Compute overall priority score for a configuration.
 
-        Higher score = higher priority for selfplay allocation.
-
-        December 2025: Refactored to delegate core computation to PriorityCalculator.
-        Keeps scheduler-specific handling for:
-        - Dynamic weight updates (triggers cluster state refresh)
-        - ULTRA starvation tier (more severe than PriorityCalculator's emergency)
-        - Detailed logging for starvation warnings
-        - Momentum multiplier change logging
+        Delegates to PriorityCalculator for all computation including starvation
+        tiers (ULTRA/EMERGENCY/CRITICAL/WARNING). This method handles dynamic
+        weight refresh, logging, and starvation alert emission.
         """
-        # Ensure dynamic weights are fresh and update calculator
         self._compute_dynamic_weights()
 
-        # Convert ConfigPriority to PriorityInputs for calculator
         inputs = self._config_priority_to_inputs(priority)
-
-        # Delegate core computation to PriorityCalculator
-        # This handles: staleness, velocity, curriculum, quality, VOI, data deficit,
-        # exploration boost, momentum, priority override, player count, cascade, starvation
         score = self._priority_calculator.compute_priority_score(inputs)
 
-        # ULTRA starvation tier override (more severe than PriorityCalculator's emergency)
-        # PriorityCalculator handles emergency (< 50) and critical (< 200) tiers
-        # ULTRA (< 20) is even more urgent and needs special logging
+        # Log starvation tier and emit alerts for severe cases
         game_count = priority.game_count
-        if game_count < DATA_STARVATION_ULTRA_THRESHOLD:
-            # ULTRA tier: divide out the emergency multiplier already applied by calculator,
-            # then apply ULTRA multiplier instead
-            score = score / DATA_STARVATION_EMERGENCY_MULTIPLIER * DATA_STARVATION_ULTRA_MULTIPLIER
+        tier = self._priority_calculator.get_starvation_tier(game_count)
+        if tier == "ULTRA":
             logger.warning(
                 f"[SelfplayScheduler] ULTRA STARVATION: {priority.config_key} has only "
-                f"{game_count} games (<{DATA_STARVATION_ULTRA_THRESHOLD}). "
-                f"Applying {DATA_STARVATION_ULTRA_MULTIPLIER}x priority boost. URGENT DATA NEEDED!"
+                f"{game_count} games. URGENT DATA NEEDED!"
             )
-            # Jan 5, 2026: Emit starvation event for automatic dispatch trigger
-            # Only emit once per 5 minutes to avoid flooding the event bus
             starvation_cooldown_key = f"starvation_alert_{priority.config_key}"
             last_alert = getattr(self, "_starvation_alert_times", {}).get(starvation_cooldown_key, 0)
-            if time.time() - last_alert > 300:  # 5 minute cooldown
+            if time.time() - last_alert > 300:
                 self._emit_starvation_alert(priority.config_key, game_count, "ULTRA")
                 if not hasattr(self, "_starvation_alert_times"):
                     self._starvation_alert_times: dict[str, float] = {}
                 self._starvation_alert_times[starvation_cooldown_key] = time.time()
-        elif game_count < DATA_STARVATION_EMERGENCY_THRESHOLD:
-            # Log for visibility (calculator already applied the multiplier)
+        elif tier == "EMERGENCY":
             logger.warning(
                 f"[SelfplayScheduler] EMERGENCY: {priority.config_key} has only "
-                f"{game_count} games (<{DATA_STARVATION_EMERGENCY_THRESHOLD}). "
-                f"Applying {DATA_STARVATION_EMERGENCY_MULTIPLIER}x priority boost."
+                f"{game_count} games."
             )
-        elif game_count < DATA_STARVATION_CRITICAL_THRESHOLD:
-            # Log for visibility (calculator already applied the multiplier)
+        elif tier in ("CRITICAL", "WARNING"):
             logger.info(
-                f"[SelfplayScheduler] CRITICAL: {priority.config_key} has only "
-                f"{game_count} games (<{DATA_STARVATION_CRITICAL_THRESHOLD}). "
-                f"Applying {DATA_STARVATION_CRITICAL_MULTIPLIER}x priority boost."
-            )
-        elif game_count < DATA_POVERTY_THRESHOLD:
-            # POVERTY tier (Dec 30, 2025): Moderate boost for configs with <5000 games
-            # PriorityCalculator doesn't handle this tier, so apply multiplier directly
-            score = score * DATA_POVERTY_MULTIPLIER
-            logger.info(
-                f"[SelfplayScheduler] POVERTY: {priority.config_key} has only "
-                f"{game_count} games (<{DATA_POVERTY_THRESHOLD}). "
-                f"Applying {DATA_POVERTY_MULTIPLIER}x priority boost."
-            )
-        elif game_count < DATA_WARNING_THRESHOLD:
-            # Session 17.34 (Jan 5, 2026): WARNING tier for configs with <5000 games
-            # Catches configs like square8_3p (3,167 games) that are above CRITICAL/POVERTY
-            # but still need a boost to catch up with well-represented configs
-            score = score * DATA_WARNING_MULTIPLIER
-            logger.info(
-                f"[SelfplayScheduler] WARNING: {priority.config_key} has only "
-                f"{game_count} games (<{DATA_WARNING_THRESHOLD}). "
-                f"Applying {DATA_WARNING_MULTIPLIER}x priority boost."
+                f"[SelfplayScheduler] {tier}: {priority.config_key} has only "
+                f"{game_count} games."
             )
 
-        # Log momentum multiplier changes (>10% change from baseline)
         if abs(priority.momentum_multiplier - 1.0) > 0.1:
             logger.info(
                 f"[SelfplayScheduler] Momentum multiplier applied to {priority.config_key}: "
                 f"{priority.momentum_multiplier:.2f}x"
             )
 
-        # Debug logging for priority component breakdown
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                f"[SelfplayScheduler] Priority for {priority.config_key}: "
-                f"score={score:.4f}, games={game_count}, "
-                f"momentum={priority.momentum_multiplier:.2f}x"
-            )
-
         return score
-
-    # =========================================================================
-    # Data Fetching - Delegated to FreshnessFetcherMixin
-    # Feb 2026: _get_data_freshness, _get_elo_velocities, _get_current_elos
-    # moved to selfplay/freshness_fetcher.py
-    # =========================================================================
-
-    def _get_adaptive_budget_for_elo(self, elo: float) -> int:
-        """Get Gumbel MCTS budget based on current Elo tier.
-
-        December 2025: Delegated to budget_calculator module.
-        See budget_calculator.get_adaptive_budget_for_elo() for full docs.
-        """
-        return _get_budget_for_elo(elo)
-
-    def _get_adaptive_budget_for_games(self, game_count: int, elo: float) -> int:
-        """Get Gumbel MCTS budget based on game count (prioritizes bootstrapping).
-
-        December 2025: Delegated to budget_calculator module.
-        See budget_calculator.get_adaptive_budget_for_games() for full docs.
-        """
-        return _get_budget_for_games(game_count, elo)
 
     def _get_budget_with_intensity(
         self, game_count: int, elo: float, config_key: str
@@ -1041,40 +874,14 @@ class SelfplayScheduler(
             pass
         return "normal"
 
-    def _compute_target_games(self, config: str, current_elo: float) -> int:
-        """Compute dynamic target games needed based on Elo gap and board difficulty.
-
-        December 2025: Delegated to budget_calculator module.
-        See budget_calculator.compute_target_games() for full docs.
-        """
-        return _compute_target(config, current_elo)
-
     def get_target_games_for_config(self, config: str) -> int:
-        """Get dynamic target games for a config (public accessor).
-
-        December 29, 2025: Phase 8 - Replaces static TARGET_GAMES_FOR_2000_ELO.
-        """
-        # Get current Elo from cached data
-        current_elo = 1500.0  # Default if not available
+        """Get dynamic target games for a config (public accessor)."""
+        current_elo = 1500.0
         for cfg_key, priority in self._config_priorities.items():
             if cfg_key == config:
                 current_elo = getattr(priority, 'current_elo', 1500.0)
                 break
-
-        return self._compute_target_games(config, current_elo)
-
-    # =========================================================================
-    # Data Fetching - Delegated to FreshnessFetcherMixin
-    # Feb 2026: _get_feedback_signals, _get_curriculum_weights
-    # moved to selfplay/freshness_fetcher.py
-    # =========================================================================
-
-    # =========================================================================
-    # Data Fetching - Delegated to DataProviderMixin
-    # Sprint 17.9 (Jan 2026): _fetch_quality_from_daemon, _get_config_data_quality,
-    # _get_all_config_qualities, invalidate_quality_cache, _get_cluster_game_counts,
-    # _get_cluster_game_count moved to selfplay/data_providers.py
-    # =========================================================================
+        return _compute_target(config, current_elo)
 
     def _get_cascade_priority(self, config_key: str) -> float:
         """Get cascade training priority boost for a config.
@@ -1122,8 +929,6 @@ class SelfplayScheduler(
         """
         from app.coordination.selfplay.priority_boosts import get_architecture_boosts
         return get_architecture_boosts()
-
-    # _get_game_counts moved to DataProviderMixin (Sprint 17.9)
 
     # =========================================================================
     # Node Allocation
@@ -1234,17 +1039,8 @@ class SelfplayScheduler(
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Event emission failed (non-critical): {e}")
 
-    # _is_selfplay_enabled moved to NodeTargetingMixin (Sprint 17.9)
-
     # =========================================================================
-    # Node Allocation - Delegated to AllocationMixin
-    # Feb 2026: _enforce_starvation_floor, _enforce_4p_allocation_minimums,
-    # _steal_from_donors, _allocate_to_nodes, _update_node_capabilities
-    # moved to selfplay/allocation_mixin.py
-    # =========================================================================
-
-    # =========================================================================
-    # External Boost Interface (December 2025)
+    # External Boost Interface
     # =========================================================================
 
     def boost_config_allocation(self, config_key: str, multiplier: float = 1.5) -> bool:
@@ -1484,64 +1280,6 @@ class SelfplayScheduler(
         return subs
 
     # =========================================================================
-    # Core Event Handlers - Delegated to CoreEventHandlerMixin
-    # Feb 2026: subscribe_to_events, _on_selfplay_complete, _on_training_complete,
-    # _on_promotion_complete, _on_selfplay_target_updated, _on_curriculum_rebalanced,
-    # _on_selfplay_rate_changed, _on_memory_pressure, _on_resource_constraint
-    # moved to selfplay/core_event_mixin.py
-    # =========================================================================
-    # NOTE: subscribe_to_events() is provided by CoreEventHandlerMixin
-    # NOTE: _on_selfplay_complete() is provided by CoreEventHandlerMixin
-    # NOTE: _on_training_complete() is provided by CoreEventHandlerMixin
-    # NOTE: _on_promotion_complete() is provided by CoreEventHandlerMixin
-    # NOTE: _on_selfplay_target_updated() is provided by CoreEventHandlerMixin
-    # NOTE: _on_curriculum_rebalanced() is provided by CoreEventHandlerMixin
-    # NOTE: _on_selfplay_rate_changed() is provided by CoreEventHandlerMixin
-    # NOTE: _on_memory_pressure() is provided by CoreEventHandlerMixin
-    # NOTE: _on_resource_constraint() is provided by CoreEventHandlerMixin
-
-    # [REMOVED: subscribe_to_events body - now in CoreEventHandlerMixin]
-    # [REMOVED: _on_selfplay_complete - now in CoreEventHandlerMixin]
-    # [REMOVED: _on_training_complete - now in CoreEventHandlerMixin]
-    # [REMOVED: _on_promotion_complete - now in CoreEventHandlerMixin]
-    # [REMOVED: _on_selfplay_target_updated - now in CoreEventHandlerMixin]
-    # [REMOVED: _on_curriculum_rebalanced - now in CoreEventHandlerMixin]
-    # [REMOVED: _on_selfplay_rate_changed - now in CoreEventHandlerMixin]
-    # [REMOVED: _on_memory_pressure - now in CoreEventHandlerMixin]
-    # [REMOVED: _on_resource_constraint - now in CoreEventHandlerMixin]
-
-    # =========================================================================
-    # Velocity/Exploration Event Handlers - EXTRACTED to SelfplayVelocityMixin
-    # January 2026 Sprint 17.9: Velocity handlers moved to velocity_mixin.py
-    # Mixin provides: _on_elo_velocity_changed, _on_exploration_boost,
-    #                 _on_curriculum_advanced, _on_adaptive_params_changed,
-    #                 _decay_expired_boosts
-    # =========================================================================
-
-    # =========================================================================
-    # P2P Cluster Health Event Handlers - EXTRACTED to SelfplayHealthMonitorMixin
-    # January 2026 Sprint 17.4: Health handlers moved to selfplay_health_monitor.py
-    # Mixin provides: _on_node_unhealthy, _on_node_recovered, _on_host_offline,
-    #                 _on_voter_demoted, _on_voter_promoted, _on_circuit_reset,
-    #                 _on_cluster_unhealthy, _on_cluster_healthy, _on_p2p_restarted,
-    #                 _on_backpressure_activated, _on_evaluation_backpressure,
-    #                 _on_backpressure_released, _on_node_overloaded,
-    #                 _on_progress_stall, _on_progress_recovered
-    # Also: is_node_under_backoff(), get_overloaded_nodes(), is_node_healthy(),
-    #       get_cluster_health_factor(), is_backpressure_active()
-    # =========================================================================
-
-    # =========================================================================
-    # Elo/Diversity Handlers - EXTRACTED to SelfplayVelocityMixin
-    # January 2026 Sprint 17.9: Elo handlers moved to velocity_mixin.py
-    # Mixin provides: _on_elo_updated, _emit_plateau_detected,
-    #                 _on_architecture_weights_updated, get_elo_velocity,
-    #                 initialize_elo_velocities_from_db, record_opponent,
-    #                 _compute_diversity_score, get_diversity_score,
-    #                 get_opponent_types_seen
-    # =========================================================================
-
-    # =========================================================================
     # Status & Metrics
     # =========================================================================
 
@@ -1601,19 +1339,6 @@ class SelfplayScheduler(
             game_count=game_count,
             tier=tier,
         )
-
-    # =========================================================================
-    # Idle Node Work Injection - Delegated to IdleWorkInjectionMixin
-    # Sprint 17.9 (Jan 2026): _update_node_idle_tracking, _detect_idle_nodes,
-    # _get_most_underserved_config, inject_work_for_idle_nodes
-    # moved to selfplay/idle_injection.py
-    # =========================================================================
-
-    # =========================================================================
-    # Per-Node Job Targeting - Delegated to NodeTargetingMixin
-    # Sprint 17.9 (Jan 2026): get_target_jobs_for_node, _compute_hardware_limit
-    # moved to selfplay/node_targeting.py
-    # =========================================================================
 
     def get_metrics(self) -> dict[str, Any]:
         """Get throughput metrics for monitoring.
@@ -1706,15 +1431,6 @@ class SelfplayScheduler(
             message=message,
             details=details,
         )
-
-    # =========================================================================
-    # Architecture Performance Tracking (December 29, 2025)
-    # January 2026 Sprint 17.9: Methods extracted to ArchitectureTrackerMixin
-    # - get_architecture_weights()
-    # - record_architecture_evaluation()
-    # - get_architecture_boost()
-    # - get_best_architecture()
-    # =========================================================================
 
 
 # =============================================================================

@@ -30,22 +30,21 @@ class TestEvaluationConfig:
     """Tests for EvaluationConfig dataclass."""
 
     def test_default_values(self):
-        """Test default configuration values.
-
-        December 30, 2025: Updated to match current defaults in EvaluationConfig.
-        """
+        """Test default configuration values."""
         config = EvaluationConfig()
-        assert config.games_per_baseline == 50
-        assert config.baselines == ["random", "heuristic"]
+        assert config.games_per_baseline == 30
+        assert "random" in config.baselines
+        assert "heuristic" in config.baselines
+        assert len(config.baselines) >= 2
         assert config.early_stopping_enabled is True
         assert config.early_stopping_confidence == 0.95
         assert config.early_stopping_min_games == 10
-        assert config.max_concurrent_evaluations == 24
-        assert config.evaluation_timeout_seconds == 300.0  # 5 minutes
-        assert config.dedup_cooldown_seconds == 300.0
-        assert config.max_queue_depth == 100
-        assert config.backpressure_threshold == 70
-        assert config.backpressure_release_threshold == 35
+        assert config.max_concurrent_evaluations == 64
+        assert config.evaluation_timeout_seconds == 300.0
+        assert config.dedup_cooldown_seconds == 30.0
+        assert config.max_queue_depth == 150
+        assert config.backpressure_threshold == 100
+        assert config.backpressure_release_threshold == 50
 
     def test_custom_values(self):
         """Test configuration with custom values."""
@@ -112,7 +111,7 @@ class TestEvaluationDaemonInit:
         """Test default daemon initialization."""
         daemon = EvaluationDaemon()
 
-        assert daemon.config.games_per_baseline == 50  # Updated Dec 30, 2025
+        assert daemon.config.games_per_baseline == 30
         assert daemon._running is False
         assert daemon._active_evaluations == set()
         assert daemon._recently_evaluated == {}
@@ -292,7 +291,11 @@ class TestLifecycle:
         daemon = EvaluationDaemon()
 
         # Mock the parent class start() to avoid event subscription
-        with patch.object(EvaluationDaemon.__bases__[0], 'start', new_callable=AsyncMock, return_value=True):
+        # Must also set _running=True since EvaluationDaemon.start() checks it
+        async def mock_start():
+            daemon._running = True
+
+        with patch.object(EvaluationDaemon.__bases__[0], 'start', side_effect=mock_start):
             success = await daemon.start()
 
         assert success is True

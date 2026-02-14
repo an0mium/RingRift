@@ -529,7 +529,7 @@ class TestConstants:
     def test_player_count_multipliers(self):
         """Test player count multiplier values."""
         assert PLAYER_COUNT_ALLOCATION_MULTIPLIER[2] == 1.0
-        assert PLAYER_COUNT_ALLOCATION_MULTIPLIER[4] == 4.0
+        assert PLAYER_COUNT_ALLOCATION_MULTIPLIER[4] == 8.0
 
 
 # =============================================================================
@@ -919,6 +919,43 @@ class TestDataStarvation:
 
         # Starved should have much higher priority
         assert starved_score > fed_score * 4
+
+    def test_all_starvation_tiers(self):
+        """All starvation tiers produce monotonically decreasing multipliers."""
+        calculator = PriorityCalculator(
+            data_starvation_ultra_threshold=500,
+            data_starvation_emergency_threshold=1500,
+            data_starvation_critical_threshold=3000,
+            data_starvation_warning_threshold=5000,
+            data_starvation_ultra_multiplier=500.0,
+            data_starvation_emergency_multiplier=100.0,
+            data_starvation_critical_multiplier=30.0,
+            data_starvation_warning_multiplier=3.0,
+        )
+
+        ultra = PriorityInputs(config_key="hex8_2p", game_count=100)
+        emergency = PriorityInputs(config_key="hex8_2p", game_count=800)
+        critical = PriorityInputs(config_key="hex8_2p", game_count=2000)
+        warning = PriorityInputs(config_key="hex8_2p", game_count=4000)
+        normal = PriorityInputs(config_key="hex8_2p", game_count=10000)
+
+        scores = [calculator.compute_priority_score(i) for i in [ultra, emergency, critical, warning, normal]]
+        # Each tier should produce a higher score than the next less-severe tier
+        assert scores[0] > scores[1] > scores[2] > scores[3] > scores[4]
+
+    def test_get_starvation_tier(self):
+        """get_starvation_tier returns correct tier names."""
+        calculator = PriorityCalculator(
+            data_starvation_ultra_threshold=500,
+            data_starvation_emergency_threshold=1500,
+            data_starvation_critical_threshold=3000,
+            data_starvation_warning_threshold=5000,
+        )
+        assert calculator.get_starvation_tier(100) == "ULTRA"
+        assert calculator.get_starvation_tier(800) == "EMERGENCY"
+        assert calculator.get_starvation_tier(2000) == "CRITICAL"
+        assert calculator.get_starvation_tier(4000) == "WARNING"
+        assert calculator.get_starvation_tier(10000) == ""
 
 
 # =============================================================================

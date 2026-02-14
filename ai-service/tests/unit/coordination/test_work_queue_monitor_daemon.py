@@ -121,7 +121,7 @@ class TestWorkQueueMonitorDaemon:
         status = daemon.get_status()
 
         assert "running" in status
-        assert "event_subscribed" in status  # MonitorBase uses event_subscribed
+        assert "name" in status
         assert "pending_count" in status
         assert "backpressure_active" in status
 
@@ -130,15 +130,9 @@ class TestWorkQueueMonitorDaemon:
         daemon = WorkQueueMonitorDaemon()
         result = daemon.health_check()
 
-        # MonitorBase returns healthy=True with status=STOPPED when not running
-        # (stopped is a valid state, not an error condition)
-        from app.coordination.contracts import CoordinatorStatus
-        if hasattr(result, 'healthy'):
-            assert result.healthy is True  # Stopped != unhealthy
-            assert result.status == CoordinatorStatus.STOPPED
-            assert "stopped" in result.message.lower()
-        elif isinstance(result, dict):
-            assert result.get('healthy') is True
+        assert hasattr(result, 'healthy')
+        assert result.healthy is False
+        assert "not running" in result.message.lower()
 
     @pytest.mark.asyncio
     async def test_on_work_queued(self):

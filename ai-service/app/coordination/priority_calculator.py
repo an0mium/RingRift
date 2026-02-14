@@ -569,10 +569,14 @@ class PriorityCalculator:
         get_quality_score_fn: Callable[[str], float] | None = None,
         get_elo_velocity_fn: Callable[[str], float] | None = None,
         get_cascade_priority_fn: Callable[[str], float] | None = None,
-        data_starvation_emergency_threshold: int = 50,
-        data_starvation_critical_threshold: int = 200,
-        data_starvation_emergency_multiplier: float = 5.0,
-        data_starvation_critical_multiplier: float = 2.0,
+        data_starvation_ultra_threshold: int = 500,
+        data_starvation_emergency_threshold: int = 1500,
+        data_starvation_critical_threshold: int = 3000,
+        data_starvation_warning_threshold: int = 5000,
+        data_starvation_ultra_multiplier: float = 500.0,
+        data_starvation_emergency_multiplier: float = 100.0,
+        data_starvation_critical_multiplier: float = 30.0,
+        data_starvation_warning_multiplier: float = 3.0,
     ):
         """Initialize priority calculator.
 
@@ -581,19 +585,27 @@ class PriorityCalculator:
             get_quality_score_fn: Callback to get quality score for config
             get_elo_velocity_fn: Callback to get Elo velocity for config
             get_cascade_priority_fn: Callback to get cascade priority boost
+            data_starvation_ultra_threshold: Games below which is ultra-critical
             data_starvation_emergency_threshold: Games below which is emergency
             data_starvation_critical_threshold: Games below which is critical
+            data_starvation_warning_threshold: Games below which gets warning boost
+            data_starvation_ultra_multiplier: Multiplier for ultra-critical
             data_starvation_emergency_multiplier: Multiplier for emergency
             data_starvation_critical_multiplier: Multiplier for critical
+            data_starvation_warning_multiplier: Multiplier for warning
         """
         self._weights = dynamic_weights or DynamicWeights()
         self._get_quality_score_fn = get_quality_score_fn
         self._get_elo_velocity_fn = get_elo_velocity_fn
         self._get_cascade_priority_fn = get_cascade_priority_fn
+        self._starvation_ultra = data_starvation_ultra_threshold
         self._starvation_emergency = data_starvation_emergency_threshold
         self._starvation_critical = data_starvation_critical_threshold
+        self._starvation_warning = data_starvation_warning_threshold
+        self._starvation_ultra_mult = data_starvation_ultra_multiplier
         self._starvation_emergency_mult = data_starvation_emergency_multiplier
         self._starvation_critical_mult = data_starvation_critical_multiplier
+        self._starvation_warning_mult = data_starvation_warning_multiplier
 
     def compute_priority_score(self, inputs: PriorityInputs) -> float:
         """Compute overall priority score for a configuration.
@@ -723,13 +735,33 @@ class PriorityCalculator:
                 pass
         score *= cascade_boost
 
-        # Apply data starvation multiplier
-        if inputs.game_count < self._starvation_emergency:
+        # Apply data starvation multiplier (most severe tier wins)
+        if inputs.game_count < self._starvation_ultra:
+            score *= self._starvation_ultra_mult
+        elif inputs.game_count < self._starvation_emergency:
             score *= self._starvation_emergency_mult
         elif inputs.game_count < self._starvation_critical:
             score *= self._starvation_critical_mult
+        elif inputs.game_count < self._starvation_warning:
+            score *= self._starvation_warning_mult
 
         return score
+
+    def get_starvation_tier(self, game_count: int) -> str:
+        """Return the starvation tier name for a given game count.
+
+        Returns:
+            Tier name ("ULTRA", "EMERGENCY", "CRITICAL", "WARNING") or ""
+        """
+        if game_count < self._starvation_ultra:
+            return "ULTRA"
+        if game_count < self._starvation_emergency:
+            return "EMERGENCY"
+        if game_count < self._starvation_critical:
+            return "CRITICAL"
+        if game_count < self._starvation_warning:
+            return "WARNING"
+        return ""
 
     def update_weights(self, weights: DynamicWeights) -> None:
         """Update the dynamic weights used for calculation."""

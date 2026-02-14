@@ -1,26 +1,11 @@
 """Coordinator Health Monitor Daemon - Tracks coordinator lifecycle events.
 
-December 2025: Created to address critical gap in event coordination.
-Previously, COORDINATOR_HEALTHY and COORDINATOR_UNHEALTHY events were emitted
-but had NO subscribers - making coordinator health visibility impossible.
-
-December 2025 (Phase 5): Migrated to MonitorBase to reduce ~150 LOC of duplicated
-lifecycle/subscription code.
-
-This daemon subscribes to all COORDINATOR_* events and provides:
+Subscribes to all COORDINATOR_* events and provides:
 1. Coordinator health tracking (healthy/unhealthy/degraded)
 2. Heartbeat freshness monitoring
 3. Init failure tracking
 4. Shutdown detection
 5. Cluster-wide coordinator health summary
-
-Event Subscriptions:
-- COORDINATOR_HEALTHY: Track coordinator initialization success
-- COORDINATOR_UNHEALTHY: Track coordinator initialization failure
-- COORDINATOR_HEALTH_DEGRADED: Track degraded coordinator state
-- COORDINATOR_SHUTDOWN: Track graceful shutdown
-- COORDINATOR_INIT_FAILED: Track persistent initialization failures
-- COORDINATOR_HEARTBEAT: Track liveness signals
 
 Usage:
     from app.coordination.coordinator_health_monitor_daemon import (
@@ -28,14 +13,9 @@ Usage:
         get_coordinator_health_monitor,
     )
 
-    # Start monitoring (async version)
-    monitor = await get_coordinator_health_monitor()
+    monitor = get_coordinator_health_monitor()
     await monitor.start()
 
-    # Or sync version
-    monitor = get_coordinator_health_monitor_sync()
-
-    # Get coordinator health summary
     summary = monitor.get_health_summary()
     print(f"Healthy: {summary.healthy_count}/{summary.total_count}")
 """
@@ -50,49 +30,17 @@ from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
-# Thresholds (December 27, 2025: Centralized in coordination_defaults.py)
 from app.config.coordination_defaults import CoordinatorHealthDefaults
+from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
+from app.coordination.handler_base import HandlerBase
+from app.coordination.types import CoordinatorHealthState
 
 HEARTBEAT_STALE_THRESHOLD_SECONDS = CoordinatorHealthDefaults.HEARTBEAT_STALE_THRESHOLD
 DEGRADED_COOLDOWN_SECONDS = CoordinatorHealthDefaults.DEGRADED_COOLDOWN
 INIT_FAILURE_MAX_RETRIES = CoordinatorHealthDefaults.INIT_FAILURE_MAX_RETRIES
 
-# December 2025 (Phase 5): Use MonitorBase for unified lifecycle
-from app.coordination.monitor_base import MonitorBase, MonitorConfig
-from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
-
-# December 2025: Import CoordinatorHealthState from canonical source
-from app.coordination.types import CoordinatorHealthState
-
-# CoordinatorHealthState is now imported from app.coordination.types
-# Canonical values: UNKNOWN, HEALTHY, UNHEALTHY, DEGRADED, SHUTDOWN, INIT_FAILED
-# Backward-compat alias:
+# Backward-compat alias
 CoordinatorState = CoordinatorHealthState
-
-
-# =============================================================================
-# Configuration
-# =============================================================================
-
-
-@dataclass
-class CoordinatorHealthMonitorConfig(MonitorConfig):
-    """Configuration for CoordinatorHealthMonitorDaemon.
-
-    Extends MonitorConfig with coordinator-specific settings.
-    """
-
-    # Coordinator health thresholds
-    heartbeat_stale_threshold_seconds: float = HEARTBEAT_STALE_THRESHOLD_SECONDS
-    degraded_cooldown_seconds: float = DEGRADED_COOLDOWN_SECONDS
-    init_failure_max_retries: int = INIT_FAILURE_MAX_RETRIES
-
-    # Cluster health threshold (>20% unhealthy = cluster unhealthy)
-    cluster_unhealthy_threshold_pct: float = 20.0
-
-    # Override base config defaults
-    check_interval_seconds: float = 60.0  # Check every minute
-    stale_threshold_seconds: float = 1800.0  # 30 minutes
 
 
 @dataclass
@@ -131,10 +79,8 @@ class CoordinatorHealthSummary:
     cluster_health_pct: float = 100.0
 
 
-class CoordinatorHealthMonitorDaemon(MonitorBase[CoordinatorHealthMonitorConfig]):
+class CoordinatorHealthMonitorDaemon(HandlerBase):
     """Daemon that monitors coordinator health events.
-
-    December 2025 (Phase 5): Now inherits from MonitorBase for unified lifecycle.
 
     Subscribes to all COORDINATOR_* events and tracks:
     - Coordinator health states (healthy/unhealthy/degraded)
@@ -144,9 +90,18 @@ class CoordinatorHealthMonitorDaemon(MonitorBase[CoordinatorHealthMonitorConfig]
     - Cluster-wide health summary
     """
 
-    def __init__(self, config: CoordinatorHealthMonitorConfig | None = None):
+    _event_source = "CoordinatorHealthMonitor"
+
+    def __init__(self) -> None:
         """Initialize the coordinator health monitor."""
-        super().__init__(config)
+        super().__init__(
+            name="coordinator_health_monitor",
+            cycle_interval=60.0,
+        )
+
+        # Thresholds (from CoordinatorHealthDefaults)
+        self._heartbeat_stale_threshold = HEARTBEAT_STALE_THRESHOLD_SECONDS
+        self._cluster_unhealthy_threshold_pct = 20.0
 
         # Coordinator tracking
         self._coordinators: dict[str, CoordinatorInfo] = {}
@@ -161,18 +116,6 @@ class CoordinatorHealthMonitorDaemon(MonitorBase[CoordinatorHealthMonitorConfig]
 
         # Lock for thread safety
         self._lock = asyncio.Lock()
-
-    # =========================================================================
-    # MonitorBase Abstract Methods
-    # =========================================================================
-
-    def _get_daemon_name(self) -> str:
-        """Return daemon name for logging."""
-        return "CoordinatorHealthMonitor"
-
-    def _get_default_config(self) -> CoordinatorHealthMonitorConfig:
-        """Return default configuration."""
-        return CoordinatorHealthMonitorConfig()
 
     def _get_event_subscriptions(self) -> dict[str, Callable]:
         """Return event handlers to subscribe to."""
@@ -198,7 +141,6 @@ class CoordinatorHealthMonitorDaemon(MonitorBase[CoordinatorHealthMonitorConfig]
     async def _run_cycle(self) -> None:
         """Execute one monitoring cycle - check for stale heartbeats."""
         await self._check_stale_heartbeats()
-        self.record_cycle()
 
     def _get_or_create_coordinator(self, name: str) -> CoordinatorInfo:
         """Get or create coordinator info."""
@@ -341,15 +283,11 @@ class CoordinatorHealthMonitorDaemon(MonitorBase[CoordinatorHealthMonitorConfig]
         except Exception as e:
             logger.debug(f"[CoordinatorHealthMonitor] Failed to emit cluster health event: {e}")
 
-    # =========================================================================
-    # Monitoring Logic (called by MonitorBase._run_cycle)
-    # =========================================================================
-
     async def _check_stale_heartbeats(self) -> None:
         """Check for coordinators with stale heartbeats."""
         now = time.time()
         stale_coordinators: list[str] = []
-        threshold = self.config.heartbeat_stale_threshold_seconds
+        threshold = self._heartbeat_stale_threshold
 
         async with self._lock:
             for name, info in self._coordinators.items():
@@ -374,8 +312,8 @@ class CoordinatorHealthMonitorDaemon(MonitorBase[CoordinatorHealthMonitorConfig]
         """Get summary of all coordinator health states."""
         now = time.time()
         summary = CoordinatorHealthSummary()
-        heartbeat_threshold = self.config.heartbeat_stale_threshold_seconds
-        cluster_unhealthy_threshold = self.config.cluster_unhealthy_threshold_pct
+        heartbeat_threshold = self._heartbeat_stale_threshold
+        cluster_unhealthy_threshold = self._cluster_unhealthy_threshold_pct
 
         for name, info in self._coordinators.items():
             summary.total_count += 1
@@ -424,14 +362,8 @@ class CoordinatorHealthMonitorDaemon(MonitorBase[CoordinatorHealthMonitorConfig]
         return summary
 
     def get_status(self) -> dict[str, Any]:
-        """Get daemon status for health checks.
-
-        Overrides MonitorBase.get_status() to add coordinator-specific data.
-        """
-        # Get base status from MonitorBase
+        """Get daemon status with coordinator-specific data."""
         status = super().get_status()
-
-        # Add coordinator-specific status
         summary = self.get_health_summary()
         status.update({
             "total_coordinators": summary.total_count,
@@ -453,20 +385,11 @@ class CoordinatorHealthMonitorDaemon(MonitorBase[CoordinatorHealthMonitorConfig]
         return status
 
     def health_check(self) -> HealthCheckResult:
-        """Check daemon health status.
-
-        Overrides MonitorBase.health_check() to add coordinator-specific checks.
-        """
-        # First check base health (running, error rate, stale activity)
+        """Check daemon health with coordinator-specific checks."""
         base_result = super().health_check()
-
-        # If base says not running or has critical errors, return that
-        if base_result.status == CoordinatorStatus.STOPPED:
-            return base_result
-        if base_result.status == CoordinatorStatus.ERROR:
+        if not base_result.healthy:
             return base_result
 
-        # Check coordinator-specific health
         if not self._event_subscribed:
             return HealthCheckResult(
                 healthy=False,
@@ -477,7 +400,6 @@ class CoordinatorHealthMonitorDaemon(MonitorBase[CoordinatorHealthMonitorConfig]
 
         summary = self.get_health_summary()
 
-        # Check for cluster-level issues
         if not summary.cluster_healthy:
             return HealthCheckResult(
                 healthy=False,
@@ -503,26 +425,17 @@ class CoordinatorHealthMonitorDaemon(MonitorBase[CoordinatorHealthMonitorConfig]
 
 
 # =============================================================================
-# Singleton Accessor Functions (for backward compatibility)
+# Singleton Accessor Functions
 # =============================================================================
 
 
 def get_coordinator_health_monitor() -> CoordinatorHealthMonitorDaemon:
-    """Get or create the singleton CoordinatorHealthMonitorDaemon instance.
-
-    Now uses MonitorBase.get_instance() internally.
-
-    December 29, 2025: Removed async as get_instance() is synchronous and
-    callers were not awaiting this function, causing coroutine errors.
-    """
+    """Get or create the singleton CoordinatorHealthMonitorDaemon instance."""
     return CoordinatorHealthMonitorDaemon.get_instance()
 
 
 def get_coordinator_health_monitor_sync() -> CoordinatorHealthMonitorDaemon:
-    """Get the singleton instance synchronously.
-
-    Now uses MonitorBase.get_instance() internally.
-    """
+    """Get the singleton instance synchronously."""
     return CoordinatorHealthMonitorDaemon.get_instance()
 
 
@@ -533,7 +446,6 @@ def reset_coordinator_health_monitor() -> None:
 
 __all__ = [
     "CoordinatorHealthMonitorDaemon",
-    "CoordinatorHealthMonitorConfig",
     "CoordinatorHealthSummary",
     "CoordinatorInfo",
     "CoordinatorState",
