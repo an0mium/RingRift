@@ -25,6 +25,7 @@ from app.config.thresholds import (
     DEFAULT_SATURATION_THRESHOLD,
     GPU_MEMORY_WEIGHTS,
     SELFPLAY_GAMES_PER_NODE,
+    get_gpu_cost_per_hour,
     get_gpu_saturation_threshold,
     get_gpu_weight,
     is_ephemeral_node,
@@ -147,6 +148,7 @@ class NodeCapability:
     current_load: float = 0.0  # 0-1, current utilization
     current_jobs: int = 0  # Current selfplay job count
     data_lag_seconds: float = 0.0  # Sync lag from coordinator
+    cost_per_hour: float = 0.0  # Feb 2026: USD/hour for cost-aware allocation
 
     @property
     def capacity_weight(self) -> float:
@@ -158,6 +160,32 @@ class NodeCapability:
         """Get available capacity (0-1)."""
         return max(0.0, 1.0 - self.current_load) * self.capacity_weight
 
+    @property
+    def effective_cost_per_hour(self) -> float:
+        """Get the effective cost per hour, using GPU lookup as fallback.
+
+        Feb 2026: Returns provider-reported cost if available, otherwise
+        falls back to the static GPU_COST_PER_HOUR lookup table.
+        """
+        if self.cost_per_hour > 0:
+            return self.cost_per_hour
+        return get_gpu_cost_per_hour(self.gpu_type)
+
+    @property
+    def cost_efficiency(self) -> float:
+        """Get cost efficiency score (higher = better value for money).
+
+        Feb 2026: Ratio of available capacity to hourly cost. Used to sort
+        nodes so cheaper nodes with equivalent capacity are preferred.
+
+        Returns:
+            available_capacity / cost_per_hour. Higher means more compute per dollar.
+        """
+        cost = self.effective_cost_per_hour
+        if cost <= 0:
+            return float("inf")  # Free nodes are infinitely efficient
+        return self.available_capacity / cost
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
@@ -168,8 +196,10 @@ class NodeCapability:
             "current_load": self.current_load,
             "current_jobs": self.current_jobs,
             "data_lag_seconds": self.data_lag_seconds,
+            "cost_per_hour": self.effective_cost_per_hour,
             "capacity_weight": self.capacity_weight,
             "available_capacity": self.available_capacity,
+            "cost_efficiency": self.cost_efficiency,
         }
 
 
@@ -878,8 +908,9 @@ def allocate_to_nodes(
         )
         total_games = adjusted_games
 
-    # Get available nodes sorted by capacity, excluding unhealthy and saturated
+    # Get available nodes sorted by cost efficiency then capacity
     # Session 17.35: Integrated NodeQueueTracker for load-aware allocation
+    # Feb 2026: Sort by cost efficiency (capacity/$) to prefer cheaper nodes
     tracker = get_node_queue_tracker()
     available_nodes = sorted(
         [
@@ -889,7 +920,7 @@ def allocate_to_nodes(
             and n.node_id not in unhealthy_nodes
             and not tracker.is_saturated(n.node_id)  # Skip nodes with full queues
         ],
-        key=lambda n: (-n.available_capacity, n.data_lag_seconds),
+        key=lambda n: (-n.cost_efficiency, -n.available_capacity, n.data_lag_seconds),
     )
 
     # Log if nodes were excluded due to saturation
@@ -1280,16 +1311,20 @@ def rank_nodes_by_capacity(
     node_capabilities: dict[str, NodeCapability],
     unhealthy_nodes: set[str] | None = None,
     prefer_low_lag: bool = True,
+    prefer_cost_efficiency: bool = True,
 ) -> list[NodeCapability]:
-    """Rank nodes by available capacity.
+    """Rank nodes by available capacity and cost efficiency.
+
+    Feb 2026: Added cost efficiency as primary sort key when enabled.
 
     Args:
         node_capabilities: Map of node_id to capability
         unhealthy_nodes: Nodes to exclude
         prefer_low_lag: Also sort by data lag (secondary)
+        prefer_cost_efficiency: Prefer cheaper nodes (primary)
 
     Returns:
-        List of nodes sorted by capacity (descending)
+        List of nodes sorted by cost efficiency then capacity (descending)
     """
     if unhealthy_nodes is None:
         unhealthy_nodes = set()
@@ -1298,6 +1333,8 @@ def rank_nodes_by_capacity(
         n for n in node_capabilities.values() if n.node_id not in unhealthy_nodes
     ]
 
+    if prefer_cost_efficiency:
+        return sorted(eligible, key=lambda n: (-n.cost_efficiency, -n.available_capacity, n.data_lag_seconds))
     if prefer_low_lag:
         return sorted(eligible, key=lambda n: (-n.available_capacity, n.data_lag_seconds))
     return sorted(eligible, key=lambda n: -n.available_capacity)

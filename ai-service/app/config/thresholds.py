@@ -1572,6 +1572,41 @@ MAX_CONCURRENT_GAUNTLETS_BY_GPU: dict[str, int] = {
     "CPU": 1,
 }
 
+# Estimated cost per hour by GPU type (USD)
+# Used for cost-aware allocation: prefer cheaper nodes for equivalent capacity.
+# Values are approximate market rates as of Feb 2026 across providers.
+# When provider API returns actual cost, that takes precedence.
+GPU_COST_PER_HOUR: dict[str, float] = {
+    "GH200": 0.70,     # Lambda GH200 96GB
+    "H200": 3.50,      # Premium tier
+    "H100": 2.50,      # RunPod/Nebius H100 80GB
+    "A100_80": 1.80,   # A100 80GB variant
+    "A100": 1.10,      # A100 40GB (Vultr vGPU ~$0.80)
+    "L40S": 1.20,      # Nebius L40S 48GB
+    "A10": 0.60,       # A10 24GB
+    "RTX_5090": 0.80,  # Vast.ai RTX 5090
+    "RTX_4090": 0.45,  # Vast.ai RTX 4090
+    "RTX_3090": 0.30,  # Vast.ai RTX 3090
+    "CPU": 0.05,       # Hetzner CPU-only voters
+}
+DEFAULT_GPU_COST_PER_HOUR = 0.50  # Fallback for unknown GPU types
+
+
+def get_gpu_cost_per_hour(gpu_type: str) -> float:
+    """Get estimated hourly cost for a GPU type.
+
+    Returns the cost from GPU_COST_PER_HOUR lookup, or DEFAULT_GPU_COST_PER_HOUR
+    for unknown types.
+
+    Args:
+        gpu_type: GPU type identifier (e.g., "GH200", "H100")
+
+    Returns:
+        Estimated cost in USD per hour.
+    """
+    return GPU_COST_PER_HOUR.get(gpu_type, DEFAULT_GPU_COST_PER_HOUR)
+
+
 # GPU-aware saturation thresholds for job queue management
 # Larger GPUs can handle more concurrent pending jobs before being considered saturated
 GPU_SATURATION_THRESHOLDS: dict[str, int] = {

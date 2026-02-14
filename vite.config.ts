@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
 import { visualizer } from 'rollup-plugin-visualizer';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 import path from 'path';
@@ -8,6 +9,63 @@ import path from 'path';
 export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
+    // PWA support for offline sandbox play
+    VitePWA({
+      registerType: 'autoUpdate',
+      includeAssets: ['favicon.ico', 'ringrift-icon.png', 'apple-touch-icon.png'],
+      manifest: {
+        name: 'RingRift - Multiplayer Strategy Game',
+        short_name: 'RingRift',
+        description: 'Place rings, form lines, and claim territory on dynamic board geometries.',
+        theme_color: '#0f172a',
+        background_color: '#0f172a',
+        display: 'standalone',
+        scope: '/',
+        start_url: '/sandbox',
+        icons: [
+          {
+            src: 'pwa-192x192.png',
+            sizes: '192x192',
+            type: 'image/png',
+          },
+          {
+            src: 'pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+          },
+          {
+            src: 'pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any maskable',
+          },
+        ],
+      },
+      workbox: {
+        // Cache game engine JS/CSS for offline sandbox play
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // Skip socket.io and API routes - they require network
+        navigateFallback: 'index.html',
+        navigateFallbackDenylist: [/^\/api\//, /^\/socket\.io\//],
+        runtimeCaching: [
+          {
+            // Cache Bunny Fonts for offline
+            urlPattern: /^https:\/\/fonts\.bunny\.net\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'bunny-fonts-cache',
+              expiration: {
+                maxEntries: 10,
+                maxAgeSeconds: 60 * 60 * 24 * 365, // 1 year
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+            },
+          },
+        ],
+      },
+    }),
     // Bundle analyzer - generates stats.html in dist folder
     visualizer({
       filename: 'dist/client/stats.html',

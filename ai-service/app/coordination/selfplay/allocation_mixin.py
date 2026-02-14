@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.config.thresholds import (
     SELFPLAY_GAMES_PER_NODE,
+    get_gpu_cost_per_hour,
     is_ephemeral_node,
 )
 from app.coordination.node_allocator import NodeCapability
@@ -399,7 +400,8 @@ class AllocationMixin:
                 f"training-only nodes: {training_only_nodes}"
             )
 
-        # Get available nodes sorted by capacity, excluding unhealthy and circuit-broken nodes
+        # Get available nodes sorted by cost efficiency then capacity
+        # Feb 2026: Sort by cost efficiency to prefer cheaper nodes at equivalent capacity
         available_nodes = sorted(
             [
                 n for n in self._node_capabilities.values()
@@ -408,7 +410,7 @@ class AllocationMixin:
                 and (ignore_circuit_breakers or n.node_id not in circuit_broken_nodes)
                 and n.node_id not in training_only_nodes  # Jan 2026: Exclude training-only nodes
             ],
-            key=lambda n: (-n.available_capacity, n.data_lag_seconds),
+            key=lambda n: (-n.cost_efficiency, -n.available_capacity, n.data_lag_seconds),
         )
 
         if not available_nodes:
@@ -526,6 +528,9 @@ class AllocationMixin:
                 cap.data_lag_seconds = node_status.sync_lag_seconds
                 # Dec 29 2025: Track job count for dynamic weight calculation
                 cap.current_jobs = getattr(node_status, 'selfplay_jobs', 0) or 0
+                # Feb 2026: Populate cost data from provider or GPU lookup
+                reported_cost = getattr(node_status, 'cost_per_hour', 0.0) or 0.0
+                cap.cost_per_hour = reported_cost if reported_cost > 0 else get_gpu_cost_per_hour(cap.gpu_type)
 
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Error updating node capabilities: {e}")

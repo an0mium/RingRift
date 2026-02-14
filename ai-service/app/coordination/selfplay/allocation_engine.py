@@ -245,6 +245,9 @@ class AllocationResult:
     # Applied throttle factor
     throttle_factor: float = 1.0
 
+    # Feb 2026: Cost tracking
+    estimated_cost_usd: float = 0.0
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for event payload."""
         return {
@@ -256,6 +259,7 @@ class AllocationResult:
             "timestamp": self.timestamp,
             "backpressure_active": self.backpressure_active,
             "throttle_factor": self.throttle_factor,
+            "estimated_cost_usd": round(self.estimated_cost_usd, 2),
         }
 
 
@@ -381,6 +385,9 @@ class AllocationEngine:
         for node_games in allocation.values():
             nodes_involved.update(node_games.keys())
 
+        # Feb 2026: Estimate cost based on node allocations
+        estimated_cost = self._estimate_allocation_cost(allocation)
+
         # Record metrics
         self._record_allocation(total_games)
 
@@ -393,12 +400,14 @@ class AllocationEngine:
             trigger="allocate_batch",
             backpressure_active=context.should_throttle,
             throttle_factor=context.throttle_factor,
+            estimated_cost_usd=estimated_cost,
         )
 
         # Log allocation summary
         if allocation:
+            cost_str = f", est_cost=${estimated_cost:.2f}" if estimated_cost > 0 else ""
             logger.info(
-                f"[AllocationEngine] Allocated {len(allocation)} configs: "
+                f"[AllocationEngine] Allocated {len(allocation)} configs{cost_str}: "
                 f"{', '.join(f'{k}={sum(v.values())}' for k, v in allocation.items())}"
             )
 
@@ -723,14 +732,15 @@ class AllocationEngine:
             )
             total_games = adjusted_games
 
-        # Get available nodes (excluding unhealthy)
+        # Get available nodes sorted by cost efficiency then capacity
+        # Feb 2026: Sort by cost efficiency to prefer cheaper nodes
         available_nodes = sorted(
             [
                 n for n in self._node_capabilities.values()
                 if n.available_capacity > 0.1
                 and n.node_id not in context.unhealthy_nodes
             ],
-            key=lambda n: (-n.available_capacity, n.data_lag_seconds),
+            key=lambda n: (-n.cost_efficiency, -n.available_capacity, n.data_lag_seconds),
         )
 
         if not available_nodes:
@@ -797,6 +807,46 @@ class AllocationEngine:
         return allocation
 
     # =========================================================================
+    # Cost Estimation (Feb 2026)
+    # =========================================================================
+
+    def _estimate_allocation_cost(
+        self,
+        allocation: dict[str, dict[str, int]],
+    ) -> float:
+        """Estimate the USD cost of an allocation batch.
+
+        Uses node capabilities' cost_per_hour and games-per-node rate
+        to estimate how much this batch will cost across all nodes.
+
+        The estimate assumes each node processes games at its GPU-specific rate
+        from SELFPLAY_GAMES_PER_NODE, so hours = allocated_games / games_per_hour.
+
+        Args:
+            allocation: config_key -> {node_id: games}
+
+        Returns:
+            Estimated cost in USD.
+        """
+        # Aggregate total games per node across all configs
+        node_totals: dict[str, int] = {}
+        for node_games in allocation.values():
+            for node_id, games in node_games.items():
+                node_totals[node_id] = node_totals.get(node_id, 0) + games
+
+        total_cost = 0.0
+        for node_id, total_games in node_totals.items():
+            cap = self._node_capabilities.get(node_id)
+            if cap is None:
+                continue
+            cost_per_hour = cap.effective_cost_per_hour
+            games_per_hour = SELFPLAY_GAMES_PER_NODE.get(cap.gpu_type, 500)
+            hours = total_games / max(1, games_per_hour)
+            total_cost += cost_per_hour * hours
+
+        return total_cost
+
+    # =========================================================================
     # Metrics and Events (Phase 7)
     # =========================================================================
 
@@ -826,6 +876,7 @@ class AllocationEngine:
                 "timestamp": result.timestamp,
                 "backpressure_active": result.backpressure_active,
                 "throttle_factor": result.throttle_factor,
+                "estimated_cost_usd": round(result.estimated_cost_usd, 2),
             }
 
             self._emit_event_fn("SELFPLAY_ALLOCATION_UPDATED", payload)

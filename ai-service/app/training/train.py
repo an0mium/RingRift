@@ -5282,8 +5282,8 @@ def train_model(
                             # policy_accuracy for evaluation trigger threshold check
                             "policy_accuracy": float(avg_policy_accuracy),
                             # Feb 2026: Include training data stats for generation tracking
-                            "training_samples": total_samples,
-                            "training_games": len(data_paths),
+                            "training_samples": _total_samples,
+                            "training_games": _num_data_files,
                         }
                         # Add reanalysis and distillation stats to event payload
                         if enhancements_manager is not None:
