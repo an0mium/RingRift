@@ -54,6 +54,9 @@ from app.coordination.feedback.loss_monitoring_mixin import LossMonitoringMixin
 from app.coordination.feedback.evaluation_feedback_mixin import EvaluationFeedbackMixin
 from app.coordination.feedback.regression_handling_mixin import RegressionHandlingMixin
 from app.coordination.feedback.selfplay_feedback_mixin import SelfplayFeedbackMixin
+from app.coordination.feedback.plateau_handling_mixin import PlateauHandlingMixin
+from app.coordination.feedback.quality_events_mixin import QualityEventsMixin
+from app.coordination.feedback.recovery_handling_mixin import RecoveryHandlingMixin
 from app.coordination.handler_base import HandlerBase
 from app.coordination.protocols import HealthCheckResult
 
@@ -293,7 +296,7 @@ class AdaptiveTrainingSignal:
         }
 
 
-class FeedbackLoopController(SelfplayFeedbackMixin, RegressionHandlingMixin, EvaluationFeedbackMixin, LossMonitoringMixin, TrainingCurriculumFeedbackMixin, EloVelocityAdaptationMixin, QualityFeedbackMixin, ExplorationBoostMixin, FeedbackClusterHealthMixin, HandlerBase):
+class FeedbackLoopController(SelfplayFeedbackMixin, RegressionHandlingMixin, EvaluationFeedbackMixin, LossMonitoringMixin, TrainingCurriculumFeedbackMixin, EloVelocityAdaptationMixin, QualityFeedbackMixin, ExplorationBoostMixin, FeedbackClusterHealthMixin, PlateauHandlingMixin, QualityEventsMixin, RecoveryHandlingMixin, HandlerBase):
     """Central controller orchestrating all feedback signals.
 
     Subscribes to:
@@ -794,379 +797,23 @@ class FeedbackLoopController(SelfplayFeedbackMixin, RegressionHandlingMixin, Eva
     # NOTE: _on_training_loss_anomaly and _on_training_loss_trend are now provided
     # by LossMonitoringMixin (Sprint 17.9 Phase 4 decomposition, ~120 LOC extracted)
 
-    def _on_plateau_detected(self, event: Any) -> None:
-        """Handle training plateau by boosting exploration aggressively.
+    # Sprint 18 (Feb 2026): Plateau handling methods extracted to PlateauHandlingMixin
+    # Extracted methods (~330 LOC):
+    # - _on_plateau_detected(event) - handles PLATEAU_DETECTED
+    # - _advance_curriculum_on_velocity_plateau(config_key, state)
+    # - _trigger_hyperparameter_search(config_key, state)
+    # See: app/coordination/feedback/plateau_handling_mixin.py
 
-        Dec 29, 2025: Implements exploration boost based on plateau type.
-        Jan 2026 Sprint 10: AGGRESSIVE plateau breaking for faster Elo gains.
-        - Overfitting: 2.0x exploration boost + temperature increase + quality boost
-        - Data limitation: 1.8x exploration boost + quality boost + request more games
-
-        Closes feedback loop: PLATEAU_DETECTED → exploration boost → SelfplayScheduler
-        Expected improvement: +5-10 Elo per config from faster plateau recovery.
-        """
-        try:
-            payload = event.payload if hasattr(event, "payload") else event
-
-            config_key = extract_config_key(payload)
-            plateau_type = payload.get("plateau_type", "data_limitation")
-            # Jan 2026 Sprint 10: More aggressive default boost
-            exploration_boost = payload.get("exploration_boost", 1.8)
-            train_val_gap = payload.get("train_val_gap", 0.0)
-
-            if not config_key:
-                return
-
-            state = self._get_or_create_state(config_key)
-
-            # Track plateau count for escalation
-            if not hasattr(state, "plateau_count"):
-                state.plateau_count = 0
-            state.plateau_count += 1
-            state.last_plateau_time = time.time()
-
-            # Jan 2026 Sprint 10: Scale boost with plateau count for persistent plateaus
-            plateau_multiplier = 1.0 + (state.plateau_count * 0.2)  # 1.2x, 1.4x, 1.6x...
-            plateau_multiplier = min(plateau_multiplier, 2.0)  # Cap at 2x
-
-            # Apply exploration boost (scaled by plateau count)
-            final_exploration_boost = exploration_boost * plateau_multiplier
-            state.exploration_boost = final_exploration_boost
-            state.exploration_boost_expires_at = time.time() + 3600  # 1 hour
-
-            if plateau_type == "overfitting":
-                # High train/val gap indicates overfitting - aggressive diversity boost
-                state.selfplay_temperature_boost = 1.3 + (state.plateau_count * 0.1)
-                state.selfplay_temperature_boost = min(state.selfplay_temperature_boost, 1.8)
-                logger.info(
-                    f"[FeedbackLoopController] Plateau (overfitting) for {config_key}: "
-                    f"exploration_boost={final_exploration_boost:.2f}, "
-                    f"temp_boost={state.selfplay_temperature_boost:.2f}, "
-                    f"train_val_gap={train_val_gap:.4f}, plateau_count={state.plateau_count}"
-                )
-            else:
-                # Data-limited plateau - request more high-quality games
-                state.games_multiplier = 1.5 + (state.plateau_count * 0.2)
-                state.games_multiplier = min(state.games_multiplier, 2.5)
-                logger.info(
-                    f"[FeedbackLoopController] Plateau (data limited) for {config_key}: "
-                    f"exploration_boost={final_exploration_boost:.2f}, "
-                    f"games_multiplier={state.games_multiplier:.2f}, "
-                    f"plateau_count={state.plateau_count}"
-                )
-
-            # Emit EXPLORATION_BOOST event for SelfplayScheduler
-            try:
-                from app.coordination.event_router import emit_exploration_boost
-
-                _safe_create_task(
-                    emit_exploration_boost(
-                        config_key=config_key,
-                        boost_factor=final_exploration_boost,
-                        reason="plateau",
-                        anomaly_count=state.plateau_count,  # Signal plateau severity
-                        source="FeedbackLoopController",
-                    ),
-                    context=f"emit_exploration_boost:plateau:{config_key}",
-                )
-                logger.debug(
-                    f"[FeedbackLoopController] Emitted EXPLORATION_BOOST event for {config_key}"
-                )
-            except (AttributeError, TypeError, RuntimeError) as e:
-                logger.warning(f"[FeedbackLoopController] Failed to emit EXPLORATION_BOOST: {e}")
-
-            # Jan 2026 Sprint 10: Emit TRAINING_BLOCKED_BY_QUALITY to trigger quality boost
-            # This increases Gumbel budget in SelfplayScheduler for higher quality games
-            from app.coordination.event_emission_helpers import safe_emit_event
-
-            safe_emit_event(
-                "TRAINING_BLOCKED_BY_QUALITY",
-                {
-                    "config_key": config_key,
-                    "quality_score": 0.5 - (state.plateau_count * 0.1),  # Lower score with more plateaus
-                    "threshold": 0.7,
-                    "reason": f"plateau_{plateau_type}",
-                },
-                context="FeedbackLoopController",
-                log_after=f"Triggered quality boost for {config_key} (plateau)",
-            )
-
-            # If repeated plateaus, consider triggering hyperparameter search
-            if state.plateau_count >= 3:
-                logger.warning(
-                    f"[FeedbackLoopController] Repeated plateaus ({state.plateau_count}) "
-                    f"for {config_key}, triggering aggressive hyperparameter search"
-                )
-                # Jan 2026 Sprint 10: Emit hyperparameter update request
-                self._trigger_hyperparameter_search(config_key, state)
-
-            # Jan 2026 Sprint 10: Start curriculum advancement earlier (after 1 plateau)
-            # to provide harder training data and break out of the plateau faster
-            if state.plateau_count >= 1:
-                self._advance_curriculum_on_velocity_plateau(config_key, state)
-
-        except (AttributeError, TypeError, KeyError, RuntimeError) as e:
-            logger.warning(f"[FeedbackLoopController] Error handling plateau: {e}")
-
-    def _advance_curriculum_on_velocity_plateau(
-        self, config_key: str, state: FeedbackState
-    ) -> None:
-        """Advance curriculum tier when velocity indicates persistent plateau.
-
-        Dec 29, 2025: Implements velocity-based curriculum advancement to break
-        out of training plateaus. When Elo velocity is low and we've had
-        repeated plateaus, we advance to a harder curriculum tier.
-
-        Curriculum tiers:
-        - 0: Beginner (basic positions, weaker opponents)
-        - 1: Intermediate (moderate complexity)
-        - 2: Advanced (complex positions, stronger opponents)
-        - 3: Expert (most challenging positions)
-
-        Benefits:
-        - Harder training data forces model to learn new strategies
-        - Breaks out of local optima caused by repetitive training data
-        - Provides progressive difficulty as model improves
-        """
-        try:
-            # Check velocity - only advance if we're truly plateauing
-            velocity = state.elo_velocity
-            is_low_velocity = velocity < ELO_PLATEAU_PER_HOUR and len(state.elo_history or []) >= 3
-
-            if not is_low_velocity:
-                logger.debug(
-                    f"[FeedbackLoopController] Velocity {velocity:.1f} Elo/hr not low enough "
-                    f"for curriculum advancement ({config_key})"
-                )
-                return
-
-            # Check cooldown - don't advance too frequently (min 2 hours between advances)
-            cooldown_seconds = 7200  # 2 hours
-            time_since_advance = time.time() - state.curriculum_last_advanced
-            if time_since_advance < cooldown_seconds:
-                logger.debug(
-                    f"[FeedbackLoopController] Curriculum advancement on cooldown "
-                    f"({time_since_advance:.0f}s < {cooldown_seconds}s) for {config_key}"
-                )
-                return
-
-            # Check max tier - don't exceed expert level
-            max_tier = 3
-            if state.curriculum_tier >= max_tier:
-                logger.debug(
-                    f"[FeedbackLoopController] Already at max curriculum tier "
-                    f"({state.curriculum_tier}) for {config_key}"
-                )
-                return
-
-            # Advance the curriculum tier
-            old_tier = state.curriculum_tier
-            new_tier = old_tier + 1
-            state.curriculum_tier = new_tier
-            state.curriculum_last_advanced = time.time()
-
-            # Reset plateau count after advancement
-            state.plateau_count = 0
-
-            tier_names = ["Beginner", "Intermediate", "Advanced", "Expert"]
-            logger.info(
-                f"[FeedbackLoopController] Curriculum advancement for {config_key}: "
-                f"{tier_names[old_tier]} -> {tier_names[new_tier]} "
-                f"(velocity={velocity:.1f} Elo/hr, plateaus={state.plateau_count})"
-            )
-
-            # Emit CURRICULUM_ADVANCED event for downstream consumers
-            from app.coordination.event_router import safe_emit_event
-
-            safe_emit_event(
-                "CURRICULUM_ADVANCED",
-                {
-                    "config_key": config_key,
-                    "old_tier": old_tier,
-                    "new_tier": new_tier,
-                    "trigger": "velocity_plateau",
-                    "velocity": velocity,
-                    "plateau_count": state.plateau_count,
-                    "source": "FeedbackLoopController",
-                },
-                log_after=f"[FeedbackLoopController] Emitted CURRICULUM_ADVANCED for {config_key}",
-                log_level=logging.DEBUG,
-                context="FeedbackLoopController._check_velocity_plateau",
-            )
-
-            # Also notify CurriculumFeedback to adjust weights
-            try:
-                from app.training.curriculum_feedback import get_curriculum_feedback
-
-                feedback = get_curriculum_feedback()
-                if feedback and hasattr(feedback, "set_difficulty_tier"):
-                    feedback.set_difficulty_tier(config_key, new_tier)
-                    logger.debug(
-                        f"[FeedbackLoopController] Updated CurriculumFeedback tier for {config_key}"
-                    )
-            except ImportError:
-                logger.debug("[FeedbackLoopController] curriculum_feedback not available")
-            except (AttributeError, TypeError) as cf_err:
-                logger.debug(f"[FeedbackLoopController] CurriculumFeedback error: {cf_err}")
-
-        except (AttributeError, TypeError, KeyError, RuntimeError) as e:
-            logger.warning(
-                f"[FeedbackLoopController] Error advancing curriculum for {config_key}: {e}"
-            )
-
-    def _trigger_hyperparameter_search(self, config_key: str, state: FeedbackState) -> None:
-        """Trigger hyperparameter search for persistently plateaued configs.
-
-        Jan 2026 Sprint 10: When a config has 3+ consecutive plateaus, trigger
-        aggressive hyperparameter adjustments to break out of local minima.
-
-        Adjustments:
-        - Increase learning rate by 50% temporarily (shake out of local minimum)
-        - Reduce batch size by 25% (more gradient updates)
-        - Enable cosine annealing if not already active
-        - Emit HYPERPARAMETER_UPDATED event for downstream consumers
-
-        Args:
-            config_key: Config key (e.g., "hex8_2p")
-            state: FeedbackState for the config
-        """
-        try:
-            # Calculate hyperparameter adjustments based on plateau severity
-            plateau_count = getattr(state, "plateau_count", 1)
-            lr_boost = 1.0 + (plateau_count * 0.15)  # 1.15x, 1.30x, 1.45x per plateau
-            lr_boost = min(lr_boost, 2.0)  # Cap at 2x
-
-            batch_reduction = max(0.5, 1.0 - (plateau_count * 0.08))  # 0.92, 0.84, 0.76...
-
-            logger.info(
-                f"[FeedbackLoopController] Hyperparameter search for {config_key}: "
-                f"lr_boost={lr_boost:.2f}x, batch_reduction={batch_reduction:.2f}x, "
-                f"plateau_count={plateau_count}"
-            )
-
-            # Emit HYPERPARAMETER_UPDATED event for training to pick up
-            from app.coordination.event_emission_helpers import safe_emit_event
-
-            safe_emit_event(
-                "HYPERPARAMETER_UPDATED",
-                {
-                    "config_key": config_key,
-                    "learning_rate_multiplier": lr_boost,
-                    "batch_size_multiplier": batch_reduction,
-                    "enable_cosine_annealing": True,
-                    "reason": f"plateau_count_{plateau_count}",
-                    "source": "FeedbackLoopController",
-                },
-                context="FeedbackLoopController",
-                log_after=f"Emitted HYPERPARAMETER_UPDATED for {config_key}",
-            )
-
-            # Also update state to track that we triggered hyperparam search
-            state.last_hyperparam_search = time.time()
-            state.hyperparam_search_count = getattr(state, "hyperparam_search_count", 0) + 1
-
-        except (AttributeError, TypeError, RuntimeError) as e:
-            logger.warning(
-                f"[FeedbackLoopController] Error triggering hyperparameter search: {e}"
-            )
-
-    def _on_quality_degraded_for_training(self, event: Any) -> None:
-        """Handle QUALITY_DEGRADED events to adjust training thresholds (P1.1).
-
-        When quality degrades, we want to train MORE to fix the problem.
-        This reduces the training threshold via ImprovementOptimizer.
-
-        Actions:
-        - Record low data quality score in ImprovementOptimizer
-        - This triggers faster training cycles (lower threshold)
-        - Also boost exploration to gather more diverse data
-        """
-        try:
-            payload = event.payload if hasattr(event, "payload") else {}
-
-            # Dec 2025: Source tracking loop guard - skip events we emitted
-            source = payload.get("source", "")
-            if source in ("feedback_loop_controller", "FeedbackLoopController"):
-                logger.debug("[FeedbackLoopController] Skipping self-emitted QUALITY_DEGRADED event")
-                return
-
-            config_key = extract_config_key(payload)
-            quality_score = payload.get("quality_score", 0.5)
-            threshold = payload.get("threshold", MEDIUM_QUALITY_THRESHOLD)
-
-            if not config_key:
-                return
-
-            logger.info(
-                f"[FeedbackLoopController] Quality degraded for {config_key}: "
-                f"score={quality_score:.2f} < threshold={threshold:.2f}, "
-                f"triggering training acceleration"
-            )
-
-            # Update ImprovementOptimizer to reduce training threshold
-            try:
-                from app.training.improvement_optimizer import ImprovementOptimizer
-
-                optimizer = ImprovementOptimizer.get_instance()
-                # Record low data quality - this reduces threshold_multiplier
-                optimizer.record_data_quality(
-                    config_key=config_key,
-                    data_quality_score=quality_score,
-                    parity_success_rate=quality_score,  # Use quality as proxy
-                )
-                logger.info(
-                    f"[FeedbackLoopController] Updated ImprovementOptimizer for {config_key}: "
-                    f"quality={quality_score:.2f}"
-                )
-            except ImportError:
-                logger.debug("[FeedbackLoopController] ImprovementOptimizer not available")
-
-            # Also boost exploration for this config
-            self._boost_exploration_for_stall(config_key, trend_duration_epochs=3)
-
-        except (AttributeError, TypeError, KeyError, RuntimeError) as e:
-            logger.error(f"[FeedbackLoopController] Error handling quality degraded: {e}")
-
-    def _trigger_quality_check(self, config_key: str, reason: str) -> None:
-        """Trigger a quality check for the given config.
-
-        Phase 9 (Dec 2025): Emits QUALITY_CHECK_REQUESTED event to be handled
-        by QualityMonitorDaemon, completing the feedback loop from training
-        loss anomalies to data quality verification.
-        """
-        try:
-            import asyncio
-            from app.coordination.event_router import emit_quality_check_requested
-
-            logger.info(
-                f"[FeedbackLoopController] Triggering quality check for {config_key}: {reason}"
-            )
-
-            # Determine priority based on reason
-            priority = "high" if reason in ("training_loss_anomaly", "training_loss_degrading") else "normal"
-
-            # Emit the event (handle both sync and async contexts)
-            try:
-                _safe_create_task(
-                    emit_quality_check_requested(
-                        config_key=config_key,
-                        reason=reason,
-                        source="FeedbackLoopController",
-                        priority=priority,
-                    ),
-                    context=f"emit_quality_check_requested:{config_key}",
-                )
-            except RuntimeError:
-                # No running event loop, run synchronously
-                asyncio.run(emit_quality_check_requested(
-                    config_key=config_key,
-                    reason=reason,
-                    source="FeedbackLoopController",
-                    priority=priority,
-                ))
-
-        except (AttributeError, TypeError, RuntimeError) as e:
-            logger.warning(f"[FeedbackLoopController] Error triggering quality check: {e}")
+    # Sprint 18 (Feb 2026): Quality event handlers extracted to QualityEventsMixin
+    # Extracted methods (~380 LOC):
+    # - _on_quality_degraded_for_training(event) - handles QUALITY_DEGRADED
+    # - _trigger_quality_check(config_key, reason)
+    # - _on_quality_check_failed(event) - handles QUALITY_CHECK_FAILED
+    # - _on_quality_feedback_adjusted(event) - handles QUALITY_FEEDBACK_ADJUSTED
+    # - _on_high_quality_data_available(event) - handles HIGH_QUALITY_DATA_AVAILABLE
+    # - _on_quality_score_updated(event) - handles QUALITY_SCORE_UPDATED
+    # - _emit_exploration_adjustment(config_key, quality_score, trend)
+    # See: app/coordination/feedback/quality_events_mixin.py
 
     # Sprint 17.9 (Jan 16, 2026): Exploration boost methods extracted to ExplorationBoostMixin
     # - _boost_exploration_for_anomaly()
