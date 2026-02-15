@@ -27,7 +27,8 @@ from .manager_factory import (
     reset_manager_factory,
 )
 from .node_selector import NodeSelector
-from .selfplay_scheduler import DiversityMetrics, SelfplayScheduler
+from .selfplay_scheduler import SelfplayScheduler
+from .selfplay.engine_selection import DiversityMetrics
 from .state_manager import StateManager
 from .sync_planner import SyncPlanner, SyncPlannerConfig, SyncStats
 from .training_coordinator import TrainingCoordinator
