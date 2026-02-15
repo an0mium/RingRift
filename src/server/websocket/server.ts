@@ -1952,4 +1952,12 @@ export class WebSocketServer {
     );
     logger.debug('Broadcast lobby event', { event, lobbyRoom: WebSocketServer.LOBBY_ROOM });
   }
+
+  /** Returns lightweight stats for the public /api/stats endpoint. */
+  public getPublicStats(): { playersOnline: number; activeGames: number } {
+    return {
+      playersOnline: this.userSockets.size,
+      activeGames: this.gameRooms.size,
+    };
+  }
 }

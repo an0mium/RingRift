@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { ButtonLink } from '../components/ui/ButtonLink';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { useSiteStats } from '../hooks/useSiteStats';
 import { HeroBoardIllustration } from '../components/landing/HeroBoardIllustration';
 import {
   PlaceRingsIllustration,
@@ -12,6 +13,7 @@ import {
 
 export default function LandingPage() {
   useDocumentTitle();
+  const stats = useSiteStats();
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 app-bg">
       {/* Hero */}
@@ -43,6 +45,22 @@ export default function LandingPage() {
                 </ButtonLink>
               </div>
               <p className="mt-3 text-xs text-slate-500">No account needed to start playing.</p>
+              {stats && stats.gamesPlayed > 0 && (
+                <div className="mt-4 flex items-center gap-4 text-xs text-slate-400">
+                  {stats.playersOnline > 0 && (
+                    <span className="flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      {stats.playersOnline} online
+                    </span>
+                  )}
+                  {stats.activeGames > 0 && (
+                    <span>
+                      {stats.activeGames} active {stats.activeGames === 1 ? 'game' : 'games'}
+                    </span>
+                  )}
+                  <span>{stats.gamesPlayed.toLocaleString()} games played</span>
+                </div>
+              )}
             </div>
 
             {/* Board illustration (right on desktop, bottom on mobile) */}

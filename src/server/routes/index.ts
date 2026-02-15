@@ -16,6 +16,7 @@ import { authenticate } from '../middleware/auth';
 import { clientErrorsRateLimiter } from '../middleware/rateLimiter';
 import { httpLogger } from '../utils/logger';
 import { swaggerSpec } from '../openapi/config';
+import { getDatabaseClient } from '../database/connection';
 import type { WebSocketServer } from '../websocket/server';
 
 export const setupRoutes = (wsServer: WebSocketServer): Router => {
@@ -73,6 +74,36 @@ export const setupRoutes = (wsServer: WebSocketServer): Router => {
       status: 'ok',
       timestamp: new Date().toISOString(),
     });
+  });
+
+  // Public stats endpoint (unauthenticated, 30s cache)
+  let cachedStats = { playersOnline: 0, activeGames: 0, gamesPlayed: 0, timestamp: '' };
+  let statsCacheExpiry = 0;
+  router.get('/stats', async (_req, res) => {
+    const now = Date.now();
+    if (now < statsCacheExpiry) {
+      res.json(cachedStats);
+      return;
+    }
+
+    const wsStats = wsServer.getPublicStats();
+    let gamesPlayed = 0;
+    try {
+      const db = getDatabaseClient();
+      if (!db) throw new Error('DB not available');
+      const result = await db.game.count({ where: { status: 'completed' } });
+      gamesPlayed = result;
+    } catch {
+      // DB unavailable — return 0
+    }
+
+    cachedStats = {
+      ...wsStats,
+      gamesPlayed,
+      timestamp: new Date().toISOString(),
+    };
+    statsCacheExpiry = now + 30_000; // 30s cache
+    res.json(cachedStats);
   });
 
   // Public routes
