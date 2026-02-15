@@ -19,6 +19,8 @@ const SandboxGameHost = lazy(() =>
 );
 const HelpPage = lazy(() => import('./pages/HelpPage'));
 const JoinByInvitePage = lazy(() => import('./pages/JoinByInvitePage'));
+const GameHistoryPage = lazy(() => import('./pages/GameHistoryPage'));
+const PlayerProfilePage = lazy(() => import('./pages/PlayerProfilePage'));
 
 // Auth pages are lightweight and frequently first-loaded, keep synchronous
 import HomePage from './pages/HomePage';
@@ -163,7 +165,9 @@ function App() {
               <Route path="lobby" element={<LobbyPage />} />
               <Route path="game/:gameId" element={<BackendGameHostRoute />} />
               <Route path="profile" element={<ProfilePage />} />
+              <Route path="history" element={<GameHistoryPage />} />
               <Route path="leaderboard" element={<LeaderboardPage />} />
+              <Route path="player/:userId" element={<PlayerProfilePage />} />
             </Route>
 
             {/* Catch all route */}

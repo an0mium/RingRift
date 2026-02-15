@@ -8,7 +8,9 @@ import { getDatabaseClient } from '../database/connection';
 import { WebSocketServer } from '../websocket/server';
 import { logger } from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
+import crypto from 'crypto';
 import os from 'os';
+import { generateGameSeed } from '../../shared/utils/rng';
 
 interface QueueEntry {
   id: string;
@@ -388,6 +390,12 @@ export class PersistentMatchmakingService {
       if (other.matchCreationInProgress) continue;
       if (other.preferences.boardType !== player.preferences.boardType) continue;
 
+      // Check time control range overlap (both players' ranges must intersect)
+      const tcOverlap =
+        player.preferences.timeControl.min <= other.preferences.timeControl.max &&
+        other.preferences.timeControl.min <= player.preferences.timeControl.max;
+      if (!tcOverlap) continue;
+
       const otherWaitTime = now - other.joinedAt.getTime();
       const otherExpansion = Math.floor(otherWaitTime / this.MATCH_CHECK_INTERVAL_MS);
       const otherBuffer = this.RATING_EXPANSION_RATE * otherExpansion;
@@ -434,6 +442,10 @@ export class PersistentMatchmakingService {
         },
       });
 
+      // Generate per-game RNG seed and invite code
+      const rngSeed = generateGameSeed();
+      const inviteCode = crypto.randomBytes(6).toString('base64url').slice(0, 8);
+
       // Create game in DB
       const game = await prisma.game.create({
         data: {
@@ -451,6 +463,8 @@ export class PersistentMatchmakingService {
           status: GameStatus.active,
           startedAt: new Date(),
           gameState: {},
+          rngSeed,
+          inviteCode,
         },
         include: {
           player1: { select: { id: true, username: true, rating: true } },

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { userApi } from '../services/api';
 import { User } from '../../shared/types/user';
@@ -93,7 +94,14 @@ export default function LeaderboardPage() {
                     tabIndex={0}
                   >
                     <td className="px-6 py-4 text-center">{rankBadge}</td>
-                    <td className="px-6 py-4 font-medium text-white">{user.username}</td>
+                    <td className="px-6 py-4 font-medium">
+                      <Link
+                        to={`/player/${user.id}`}
+                        className="text-white hover:text-emerald-400 transition-colors"
+                      >
+                        {user.username}
+                      </Link>
+                    </td>
                     <td className="px-6 py-4 text-right font-mono text-emerald-400 font-bold">
                       {user.rating ?? 1500}
                     </td>

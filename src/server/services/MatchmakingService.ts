@@ -8,6 +8,8 @@ import { getDatabaseClient } from '../database/connection';
 import { WebSocketServer } from '../websocket/server';
 import { logger } from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
+import crypto from 'crypto';
+import { generateGameSeed } from '../../shared/utils/rng';
 
 interface QueueEntry {
   userId: string;
@@ -187,9 +189,11 @@ export class MatchmakingService {
       // Check board type compatibility
       if (other.preferences.boardType !== player.preferences.boardType) return false;
 
-      // Check time control compatibility (simplified: exact match on type/range)
-      // In a real system, we'd check if ranges overlap
-      // For now, assume preferences match if board type matches
+      // Check time control range overlap (both players' ranges must intersect)
+      const tcOverlap =
+        player.preferences.timeControl.min <= other.preferences.timeControl.max &&
+        other.preferences.timeControl.min <= player.preferences.timeControl.max;
+      if (!tcOverlap) return false;
 
       // Check rating compatibility (bidirectional)
       const otherWaitTime = now - other.joinedAt.getTime();
@@ -224,16 +228,17 @@ export class MatchmakingService {
       const prisma = getDatabaseClient();
       if (!prisma) throw new Error('Database not available');
 
+      // Generate per-game RNG seed and invite code
+      const rngSeed = generateGameSeed();
+      const inviteCode = crypto.randomBytes(6).toString('base64url').slice(0, 8);
+
       // Create game in DB
-      // Note: This duplicates some logic from game routes, ideally should be shared
       const game = await prisma.game.create({
         data: {
           boardType: player1.preferences.boardType as PrismaBoardType,
           maxPlayers: 2,
-          // Use player1's time control preferences as baseline (or average)
-          // For simplicity, using fixed values or player1's min
           timeControl: {
-            type: 'rapid', // simplified
+            type: 'rapid',
             initialTime: player1.preferences.timeControl.min,
             increment: 0,
           },
@@ -241,9 +246,11 @@ export class MatchmakingService {
           allowSpectators: true,
           player1Id: player1.userId,
           player2Id: player2.userId,
-          status: GameStatus.active, // Start immediately
+          status: GameStatus.active,
           startedAt: new Date(),
-          gameState: {}, // Initial empty state
+          gameState: {},
+          rngSeed,
+          inviteCode,
         },
         include: {
           player1: { select: { id: true, username: true, rating: true } },

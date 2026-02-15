@@ -512,6 +512,38 @@ export const userApi = {
     const response = await api.get('/users/stats');
     return response.data;
   },
+
+  async getPublicProfile(userId: string): Promise<{
+    user: {
+      id: string;
+      username: string;
+      rating: number;
+      gamesPlayed: number;
+      gamesWon: number;
+      winRate: number;
+      isProvisional: boolean;
+      memberSince: string;
+    };
+    recentGames: Array<{
+      id: string;
+      boardType: string;
+      winnerId: string | null;
+      endedAt: string | null;
+      maxPlayers: number;
+      player1: { id: string; username: string } | null;
+      player2: { id: string; username: string } | null;
+      player3: { id: string; username: string } | null;
+      player4: { id: string; username: string } | null;
+    }>;
+    ratingHistory: Array<{
+      date: string;
+      rating: number;
+      change: number;
+    }>;
+  }> {
+    const response = await api.get(`/users/${userId}/public-profile`);
+    return response.data.data;
+  },
 };
 
 export default api;

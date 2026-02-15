@@ -1295,8 +1295,24 @@ router.post(
     // the Python AI service share a stable per-game RNG root.
     const rngSeed = typeof gameData.seed === 'number' ? gameData.seed : generateGameSeed();
 
-    // Generate a unique 8-character invite code from 6 random bytes (48 bits entropy)
-    const inviteCode = crypto.randomBytes(6).toString('base64url').slice(0, 8);
+    // Generate a unique 8-character invite code from 6 random bytes (48 bits entropy).
+    // Retry on the astronomically unlikely collision with an existing code.
+    let inviteCode: string;
+    for (let attempt = 0; ; attempt++) {
+      inviteCode = crypto.randomBytes(6).toString('base64url').slice(0, 8);
+      const existing = await prisma.game.findUnique({
+        where: { inviteCode },
+        select: { id: true },
+      });
+      if (!existing) break;
+      if (attempt >= 5) {
+        throw createError(
+          'Failed to generate unique invite code',
+          500,
+          'INVITE_CODE_GENERATION_FAILED'
+        );
+      }
+    }
 
     // Create game in database
     const game = await prisma.game.create({

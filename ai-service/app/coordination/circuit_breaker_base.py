@@ -664,6 +664,13 @@ class CircuitBreakerBase(ABC):
                         circuit.opened_at = None
                         circuit.half_open_at = None
                         circuit.jitter_offset = 0.0
+                        # Reset escalation fields on OperationCircuitData
+                        # to prevent re-escalation on next failure
+                        if isinstance(circuit, OperationCircuitData):
+                            circuit.escalation_tier = 0
+                            circuit.escalation_entered_at = None
+                            circuit.last_probe_at = None
+                            circuit.consecutive_successful_probes = 0
                         decayed.append(target)
                         self._notify_state_change(target, old_state, CircuitState.CLOSED)
                         logger.info(
