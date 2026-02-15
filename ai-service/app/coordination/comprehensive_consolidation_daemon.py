@@ -232,6 +232,11 @@ class ComprehensiveConsolidationDaemon(HandlerBase):
 
     async def _run_cycle(self) -> None:
         """Run one consolidation cycle (scheduled sweep)."""
+        # February 2026: Block when coordinator is low on RAM/disk
+        from app.utils.resource_guard import coordinator_resource_gate
+        if not coordinator_resource_gate("COMPREHENSIVE_CONSOLIDATION"):
+            return
+
         await self._run_comprehensive_sweep()
 
     async def _subscribe_to_events(self) -> None:

@@ -1090,6 +1090,11 @@ class AutoSyncDaemon(
         Returns:
             Number of games synced (0 if skipped or no data).
         """
+        # February 2026: Block when coordinator is low on RAM/disk
+        from app.utils.resource_guard import coordinator_resource_gate
+        if not coordinator_resource_gate("AUTO_SYNC"):
+            return 0
+
         # C5 fix: Try to acquire local lock (non-blocking to prevent deadlock)
         if self._sync_cycle_lock.locked():
             logger.debug("[AutoSyncDaemon] Skipping sync cycle - another cycle in progress")

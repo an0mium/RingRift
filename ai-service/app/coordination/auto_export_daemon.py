@@ -915,6 +915,15 @@ class AutoExportDaemon(HandlerBase):
             state.export_in_progress = True
 
             try:
+                # February 2026: Block export when coordinator is low on RAM/disk
+                from app.utils.resource_guard import coordinator_resource_gate
+                if not coordinator_resource_gate("NPZ_EXPORT"):
+                    logger.info(
+                        f"[AutoExportDaemon] Skipping export for {config_key}: "
+                        "coordinator resource gate blocked (low RAM or disk)"
+                    )
+                    return False
+
                 # Sprint 8 (Jan 2, 2026): Validate export readiness before starting
                 valid, validation_msg = await self._validate_export_readiness(config_key, state)
                 if not valid:

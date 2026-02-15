@@ -201,6 +201,11 @@ class ClusterConsolidationDaemon(HandlerBase):
         if self._daemon_config.coordinator_only and not self._is_coordinator_node():
             return
 
+        # February 2026: Block when coordinator is low on RAM/disk
+        from app.utils.resource_guard import coordinator_resource_gate
+        if not coordinator_resource_gate("CLUSTER_CONSOLIDATION"):
+            return
+
         await self._run_sync_cycle()
 
     def _is_coordinator_node(self) -> bool:

@@ -179,6 +179,11 @@ class UnifiedBackupDaemon(HandlerBase):
 
     async def _run_cycle(self) -> None:
         """Main backup cycle - discover and backup all databases."""
+        # February 2026: Block when coordinator is low on RAM/disk
+        from app.utils.resource_guard import coordinator_resource_gate
+        if not coordinator_resource_gate("UNIFIED_BACKUP"):
+            return
+
         try:
             await self.backup_all_databases()
         except Exception as e:

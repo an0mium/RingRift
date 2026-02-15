@@ -348,6 +348,11 @@ class DataConsolidationDaemon(HandlerBase):
         December 2025: Parallelized for 2-3x speedup on multi-config consolidation.
         Uses semaphore to limit concurrent consolidations (default: 3).
         """
+        # February 2026: Block when coordinator is low on RAM/disk
+        from app.utils.resource_guard import coordinator_resource_gate
+        if not coordinator_resource_gate("DATA_CONSOLIDATION"):
+            return
+
         async with self._lock:
             if not self._pending_configs:
                 return

@@ -81,6 +81,7 @@ __all__ = [
     "ResourceLimits",
     "adjust_oom_score",
     "can_proceed",
+    "coordinator_resource_gate",
     "check_cpu",
     "check_disk_and_cleanup",
     "check_disk_for_write",
@@ -1369,6 +1370,75 @@ def wait_for_resources(
 
     logger.warning(f"Resource wait timed out after {timeout}s")
     return False
+
+
+# ============================================
+# Coordinator Resource Gate
+# ============================================
+
+# February 2026: Coordinator machines run 45+ daemons simultaneously and are
+# especially vulnerable to OOM / swap exhaustion.  Heavy operations (DB merges,
+# NPZ exports, rsync transfers, backups) must NOT start when physical memory or
+# disk headroom is below a safe threshold.  The default is 30 % free for both
+# (configurable via environment variables).
+
+_COORD_MIN_FREE_RAM_PCT = float(
+    os.environ.get("RINGRIFT_COORDINATOR_MIN_FREE_RAM_PERCENT", "30")
+)
+_COORD_MIN_FREE_DISK_PCT = float(
+    os.environ.get("RINGRIFT_COORDINATOR_MIN_FREE_DISK_PERCENT", "30")
+)
+
+
+def coordinator_resource_gate(operation: str) -> bool:
+    """Return True if a heavy operation may proceed on a coordinator node.
+
+    Checks:
+        1. Physical RAM free >= RINGRIFT_COORDINATOR_MIN_FREE_RAM_PERCENT  (default 30 %)
+        2. Disk free >= RINGRIFT_COORDINATOR_MIN_FREE_DISK_PERCENT  (default 30 %)
+
+    The check is ONLY enforced when RINGRIFT_IS_COORDINATOR=true.  On worker
+    nodes the function always returns True so callers don't need separate
+    branching logic.
+
+    Args:
+        operation: Human-readable label for logging (e.g. "NPZ_EXPORT",
+                   "CLUSTER_CONSOLIDATION").
+
+    Returns:
+        True if the operation may proceed, False if it should be skipped.
+    """
+    # Only enforce on coordinator nodes
+    if os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() != "true":
+        return True
+
+    # --- RAM check ---
+    mem_used_pct, mem_avail_gb, mem_total_gb = get_memory_usage()
+    mem_free_pct = 100.0 - mem_used_pct
+    if mem_free_pct < _COORD_MIN_FREE_RAM_PCT:
+        logger.warning(
+            f"[coordinator_resource_gate] BLOCKED {operation}: "
+            f"RAM free {mem_free_pct:.1f}% < {_COORD_MIN_FREE_RAM_PCT:.0f}% "
+            f"({mem_avail_gb:.1f} GB / {mem_total_gb:.1f} GB available)"
+        )
+        return False
+
+    # --- Disk check ---
+    disk_used_pct, disk_avail_gb, disk_total_gb = get_disk_usage()
+    disk_free_pct = 100.0 - disk_used_pct
+    if disk_free_pct < _COORD_MIN_FREE_DISK_PCT:
+        logger.warning(
+            f"[coordinator_resource_gate] BLOCKED {operation}: "
+            f"disk free {disk_free_pct:.1f}% < {_COORD_MIN_FREE_DISK_PCT:.0f}% "
+            f"({disk_avail_gb:.1f} GB / {disk_total_gb:.1f} GB available)"
+        )
+        return False
+
+    logger.debug(
+        f"[coordinator_resource_gate] ALLOWED {operation}: "
+        f"RAM free {mem_free_pct:.1f}%, disk free {disk_free_pct:.1f}%"
+    )
+    return True
 
 
 # ============================================
