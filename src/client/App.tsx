@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import { useAuth } from './contexts/AuthContext';
 import { AccessibilityProvider } from './contexts/AccessibilityContext';
 import { SoundProvider } from './contexts/SoundContext';
+import { ThemeProvider } from './contexts/ThemeContext';
 import Layout from './components/Layout';
 import LoadingSpinner from './components/LoadingSpinner';
 
@@ -116,67 +117,69 @@ function App() {
   }
 
   return (
-    <AccessibilityProvider>
-      <SoundProvider>
-        <Toaster
-          position="top-center"
-          toastOptions={{
-            style: {
-              background: '#1e293b',
-              color: '#fff',
-              border: '1px solid #334155',
-            },
-          }}
-        />
-        <Suspense fallback={<PageLoader />}>
-          <Routes>
-            {/* Public landing page for unauthenticated visitors */}
-            {!user && <Route path="/" element={<LandingPage />} />}
+    <ThemeProvider>
+      <AccessibilityProvider>
+        <SoundProvider>
+          <Toaster
+            position="top-center"
+            toastOptions={{
+              style: {
+                background: '#1e293b',
+                color: '#fff',
+                border: '1px solid #334155',
+              },
+            }}
+          />
+          <Suspense fallback={<PageLoader />}>
+            <Routes>
+              {/* Public landing page for unauthenticated visitors */}
+              {!user && <Route path="/" element={<LandingPage />} />}
 
-            {/* Public routes */}
-            <Route path="/login" element={!user ? <LoginPage /> : <Navigate to="/" />} />
-            <Route path="/register" element={!user ? <RegisterPage /> : <Navigate to="/" />} />
-            <Route
-              path="/forgot-password"
-              element={!user ? <ForgotPasswordPage /> : <Navigate to="/" />}
-            />
-            <Route
-              path="/reset-password"
-              element={!user ? <ResetPasswordPage /> : <Navigate to="/" />}
-            />
-            {/* Public sandbox route (no auth required) */}
-            <Route path="/sandbox" element={<SandboxGameHost />} />
-            <Route path="/help" element={<HelpPage />} />
-            <Route path="/help/:topic" element={<HelpPage />} />
-            {/* Public invite link - resolves code and joins game */}
-            <Route path="/join/:inviteCode" element={<JoinByInvitePage />} />
-            {/* Public spectator route (read-only, backend host) */}
-            <Route path="/spectate/:gameId" element={<BackendGameHostRoute />} />
+              {/* Public routes */}
+              <Route path="/login" element={!user ? <LoginPage /> : <Navigate to="/" />} />
+              <Route path="/register" element={!user ? <RegisterPage /> : <Navigate to="/" />} />
+              <Route
+                path="/forgot-password"
+                element={!user ? <ForgotPasswordPage /> : <Navigate to="/" />}
+              />
+              <Route
+                path="/reset-password"
+                element={!user ? <ResetPasswordPage /> : <Navigate to="/" />}
+              />
+              {/* Public sandbox route (no auth required) */}
+              <Route path="/sandbox" element={<SandboxGameHost />} />
+              <Route path="/help" element={<HelpPage />} />
+              <Route path="/help/:topic" element={<HelpPage />} />
+              {/* Public invite link - resolves code and joins game */}
+              <Route path="/join/:inviteCode" element={<JoinByInvitePage />} />
+              {/* Public spectator route (read-only, backend host) */}
+              <Route path="/spectate/:gameId" element={<BackendGameHostRoute />} />
 
-            {/* Protected routes - wrapped in ProtectedRoute for graceful auth transition */}
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <Layout />
-                </ProtectedRoute>
-              }
-            >
-              <Route index element={<HomePage />} />
-              <Route path="lobby" element={<LobbyPage />} />
-              <Route path="game/:gameId" element={<BackendGameHostRoute />} />
-              <Route path="profile" element={<ProfilePage />} />
-              <Route path="history" element={<GameHistoryPage />} />
-              <Route path="leaderboard" element={<LeaderboardPage />} />
-              <Route path="player/:userId" element={<PlayerProfilePage />} />
-            </Route>
+              {/* Protected routes - wrapped in ProtectedRoute for graceful auth transition */}
+              <Route
+                path="/"
+                element={
+                  <ProtectedRoute>
+                    <Layout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<HomePage />} />
+                <Route path="lobby" element={<LobbyPage />} />
+                <Route path="game/:gameId" element={<BackendGameHostRoute />} />
+                <Route path="profile" element={<ProfilePage />} />
+                <Route path="history" element={<GameHistoryPage />} />
+                <Route path="leaderboard" element={<LeaderboardPage />} />
+                <Route path="player/:userId" element={<PlayerProfilePage />} />
+              </Route>
 
-            {/* Catch all route */}
-            <Route path="*" element={<NotFoundPage />} />
-          </Routes>
-        </Suspense>
-      </SoundProvider>
-    </AccessibilityProvider>
+              {/* Catch all route */}
+              <Route path="*" element={<NotFoundPage />} />
+            </Routes>
+          </Suspense>
+        </SoundProvider>
+      </AccessibilityProvider>
+    </ThemeProvider>
   );
 }
 

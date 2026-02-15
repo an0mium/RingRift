@@ -109,6 +109,11 @@ model Game {
   @@index([status])
   @@index([createdAt])
   @@index([status, createdAt])
+  // Player lookups (getUserGames OR filter on player1Id..player4Id)
+  @@index([player1Id])
+  @@index([player2Id])
+  @@index([player3Id])
+  @@index([player4Id])
   @@map("games")
 }
 

@@ -8,6 +8,7 @@
 import { useRef } from 'react';
 import { AccessibilitySettingsPanel } from './AccessibilitySettingsPanel';
 import { SoundSettingsPanel } from './SoundSettingsPanel';
+import { ThemeSettingsPanel } from './ThemeSettingsPanel';
 import { Dialog } from './ui/Dialog';
 
 interface SettingsModalProps {
@@ -51,6 +52,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
       {/* Content */}
       <div className="p-4 space-y-6">
+        <ThemeSettingsPanel />
+        <hr className="border-slate-700" />
         <SoundSettingsPanel />
         <hr className="border-slate-700" />
         <AccessibilitySettingsPanel onSettingsChange={() => {}} />

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { userApi } from '../services/api';
 import { User } from '../../shared/types/user';
+import LoadingSpinner from '../components/LoadingSpinner';
 import { LeaderboardSkeleton } from '../components/Skeleton';
 
 interface SearchResult {

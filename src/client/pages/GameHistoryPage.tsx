@@ -7,6 +7,46 @@ import { GameHistorySkeleton } from '../components/Skeleton';
 import { formatVictoryReason } from '../adapters/gameViewModels';
 import type { BoardType } from '../../shared/types/game';
 
+function downloadFile(content: string, filename: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function exportGames(games: GameSummary[], userId: string | undefined, format: 'csv' | 'json') {
+  const rows = games.map((g) => ({
+    date: new Date(g.createdAt).toISOString(),
+    board: BOARD_LABELS[g.boardType] ?? g.boardType,
+    players: g.playerCount ?? g.maxPlayers,
+    result: g.winnerId === userId ? 'Win' : !g.winnerId ? 'Draw' : 'Loss',
+    outcome: g.outcome || '',
+    moves: g.moveCount,
+    rated: g.isRated ? 'Yes' : 'No',
+    gameId: g.id,
+  }));
+
+  if (format === 'json') {
+    downloadFile(JSON.stringify(rows, null, 2), 'ringrift-games.json', 'application/json');
+  } else {
+    const headers = Object.keys(rows[0] || {});
+    const csv = [
+      headers.join(','),
+      ...rows.map((r) =>
+        headers
+          .map((h) => `"${String((r as Record<string, unknown>)[h] ?? '').replace(/"/g, '""')}"`)
+          .join(',')
+      ),
+    ].join('\n');
+    downloadFile(csv, 'ringrift-games.csv', 'text/csv');
+  }
+}
+
 const PAGE_SIZE = 20;
 
 const BOARD_LABELS: Record<string, string> = {
@@ -76,12 +116,32 @@ export default function GameHistoryPage() {
     <div className="container mx-auto px-4 py-8 max-w-4xl">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-white">Game History</h1>
-        <Link
-          to="/profile"
-          className="text-sm text-slate-400 hover:text-slate-200 transition-colors"
-        >
-          Back to Profile
-        </Link>
+        <div className="flex items-center gap-3">
+          {filtered.length > 0 && (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => exportGames(filtered, user?.id, 'csv')}
+                className="text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded border border-slate-700 hover:border-slate-600 transition-colors"
+              >
+                CSV
+              </button>
+              <button
+                type="button"
+                onClick={() => exportGames(filtered, user?.id, 'json')}
+                className="text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded border border-slate-700 hover:border-slate-600 transition-colors"
+              >
+                JSON
+              </button>
+            </div>
+          )}
+          <Link
+            to="/profile"
+            className="text-sm text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            Back to Profile
+          </Link>
+        </div>
       </div>
 
       {/* Filters */}

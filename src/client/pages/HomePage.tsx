@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { gameApi, GameSummary } from '../services/api';
+import { WelcomeBanner } from '../components/WelcomeBanner';
 
 function ChallengeLink() {
   const [copied, setCopied] = useState(false);
@@ -303,16 +304,7 @@ export default function HomePage() {
         </section>
       )}
 
-      {user && !gamesLoading && recentGames.length === 0 && (
-        <section className="text-center py-4">
-          <p className="text-sm text-slate-500">
-            No games yet.{' '}
-            <Link to="/lobby" className="text-emerald-400 hover:text-emerald-300">
-              Play your first game!
-            </Link>
-          </p>
-        </section>
-      )}
+      {user && !gamesLoading && recentGames.length === 0 && <WelcomeBanner />}
     </div>
   );
 }
