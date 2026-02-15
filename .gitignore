@@ -17,6 +17,11 @@ pnpm-debug.log*
 .env
 .env.local
 .env.production
+.env.bak
+.env.pre-rotation-*
+
+# Runtime data
+*.dht.dat
 
 # Cluster configuration (contains IPs, keys, credentials)
 cluster-config.yaml
