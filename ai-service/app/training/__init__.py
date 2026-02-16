@@ -691,6 +691,7 @@ try:
         get_participant_category,
         extract_nn_id,
         extract_ai_type,
+        normalize_nn_id,
         STANDARD_ALGORITHM_CONFIGS,
         ParticipantCategory,
     )

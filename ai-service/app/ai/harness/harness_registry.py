@@ -368,9 +368,9 @@ def _generate_model_id(
     path = Path(model_path)
     stem = path.stem
 
-    # Try to parse canonical naming
+    # Try to parse canonical naming → ringrift_best_* for stable Elo tracking
     if "canonical_" in stem:
-        return stem.replace("canonical_", "ringrift_")
+        return stem.replace("canonical_", "ringrift_best_")
 
     # Fall back to filename
     return stem

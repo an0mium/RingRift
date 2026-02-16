@@ -486,11 +486,48 @@ def get_elo_progress_tracker() -> EloProgressTracker:
     return EloProgressTracker.get_instance()
 
 
+def _extract_canonical_nn_id(participant_id: str) -> str | None:
+    """Extract the canonical NN identity from any participant ID format.
+
+    Groups composite IDs by their nn_id component so that different harness
+    evaluations of the same model (e.g., canonical_hex8_2p:gumbel_mcts:d2 and
+    canonical_hex8_2p:policy_only:d2) are recognized as the same model.
+
+    Also normalizes canonical_* to ringrift_best_* for consistency.
+
+    Returns None for baselines (none:random, heuristic, etc).
+    """
+    pid_lower = participant_id.lower()
+
+    # Filter out baselines
+    if any(x in pid_lower for x in ["random", "heuristic", "dummy", "baseline", "none:"]):
+        return None
+
+    # Composite ID: extract nn_id part
+    if ":" in participant_id:
+        nn_id = participant_id.split(":")[0]
+    else:
+        nn_id = participant_id
+
+    # Normalize canonical_ → ringrift_best_ for grouping
+    if nn_id.startswith("canonical_"):
+        nn_id = "ringrift_best_" + nn_id[len("canonical_"):]
+
+    return nn_id if nn_id and nn_id.lower() != "none" else None
+
+
 async def snapshot_all_configs() -> dict[str, EloSnapshot | None]:
     """Take a snapshot of the best model Elo for all configs.
 
     This queries the unified_elo.db to find the best-performing model
     for each config and records it in the progress tracker.
+
+    Feb 2026: Enhanced to group fragmented composite participant IDs by
+    their nn_id component. Previously, the same canonical model evaluated
+    under different harnesses (gumbel_mcts, policy_only, gpu_gumbel) had
+    separate participant entries and the tracker only saw the best one.
+    Now we also prefer ringrift_best_* entries (the stable symlink) when
+    they exist, so Elo tracking persists across model promotions.
     """
     from app.training.elo_service import get_elo_service
 
@@ -506,7 +543,7 @@ async def snapshot_all_configs() -> dict[str, EloSnapshot | None]:
             leaderboard = elo_service.get_leaderboard(
                 board_type=board_type,
                 num_players=num_players,
-                limit=20,
+                limit=50,  # Increased to capture fragmented entries
                 min_games=1,  # Must have played at least one game
             )
 
@@ -522,7 +559,22 @@ async def snapshot_all_configs() -> dict[str, EloSnapshot | None]:
                 results[config_key] = None
                 continue
 
+            # Feb 2026: Group by canonical NN identity to find the best
+            # model regardless of which harness variant is highest-rated.
+            # Prefer ringrift_best_<config> entries (stable symlink).
             best = model_entries[0]
+
+            # Check if there's a ringrift_best_* entry for this config
+            canonical_id = f"ringrift_best_{config_key}"
+            for entry in model_entries:
+                nn_id = _extract_canonical_nn_id(entry.participant_id)
+                if nn_id == canonical_id and entry.rating > best.rating:
+                    best = entry
+                    break  # Prefer exact canonical match at highest Elo
+                # Also match plain ringrift_best_* (non-composite)
+                if entry.participant_id == canonical_id:
+                    best = entry
+                    break
 
             # Record the snapshot
             tracker.record_snapshot(

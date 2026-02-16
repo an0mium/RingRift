@@ -454,8 +454,9 @@ def make_composite_participant_id(
         >>> make_composite_participant_id("ringrift_v5", "gumbel_mcts", {"budget": 200})
         "ringrift_v5:gumbel_mcts:b200"
     """
-    # Normalize nn_id
-    nn_part = nn_id if nn_id and nn_id.lower() != "none" else "none"
+    # Normalize nn_id: canonical_* → ringrift_best_* for stable Elo tracking
+    normalized = normalize_nn_id(nn_id)
+    nn_part = normalized if normalized and normalized.lower() != "none" else "none"
 
     # Get config, defaulting to standard
     actual_config = config or STANDARD_ALGORITHM_CONFIGS.get(ai_type, {})
@@ -706,6 +707,31 @@ def get_algorithm_variants(
         make_composite_participant_id(nn_id, ai_type)
         for nn_id in nn_ids
     ]
+
+
+def normalize_nn_id(nn_id: str | None) -> str | None:
+    """Normalize model stem to canonical participant ID format.
+
+    Converts 'canonical_square8_2p' to 'ringrift_best_square8_2p' so that
+    Elo ratings accumulate under a single stable participant ID across model
+    promotions (the ringrift_best_*.pth symlink always points to the current
+    canonical model).
+
+    Feb 2026: Without this, evaluation_daemon creates composite IDs like
+    'canonical_square8_2p:gumbel_mcts:d2' which fragment Elo tracking -
+    each model snapshot gets a different participant_id.
+
+    Args:
+        nn_id: Neural network identifier (model stem)
+
+    Returns:
+        Normalized nn_id with 'canonical_' replaced by 'ringrift_best_'
+    """
+    if not nn_id:
+        return nn_id
+    if nn_id.startswith("canonical_"):
+        return "ringrift_best_" + nn_id[len("canonical_"):]
+    return nn_id
 
 
 def extract_nn_id(participant_id: str) -> str | None:
