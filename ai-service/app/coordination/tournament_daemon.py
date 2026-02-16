@@ -139,8 +139,12 @@ class TournamentDaemonConfig:
     enable_periodic_multi_harness: bool = True
     periodic_multi_harness_interval_seconds: float = 3600.0 * 2  # Every 2 hours
     # Priority configs to evaluate first (most important for training)
+    # Feb 2026: Include ALL 12 configs to prevent evaluation starvation
     multi_harness_priority_configs: list[str] = field(default_factory=lambda: [
-        "hex8_2p", "square8_2p", "hex8_4p", "square8_4p",
+        "hex8_2p", "hex8_3p", "hex8_4p",
+        "square8_2p", "square8_3p", "square8_4p",
+        "square19_2p", "square19_3p", "square19_4p",
+        "hexagonal_2p", "hexagonal_3p", "hexagonal_4p",
     ])
 
     # Jan 2026: Stale evaluation detection - re-evaluate models with old ratings
@@ -154,9 +158,12 @@ class TournamentDaemonConfig:
     cross_config_interval_seconds: float = 3600.0 * 6  # Every 6 hours
     cross_config_games_per_matchup: int = 10
     # Board family groups for cross-config comparison
+    # Feb 2026: Include all 4 board families
     cross_config_families: list[list[str]] = field(default_factory=lambda: [
         ["hex8_2p", "hex8_3p", "hex8_4p"],  # Hex family
         ["square8_2p", "square8_3p", "square8_4p"],  # Square8 family
+        ["square19_2p", "square19_3p", "square19_4p"],  # Square19 family
+        ["hexagonal_2p", "hexagonal_3p", "hexagonal_4p"],  # Hexagonal family
     ])
 
     # Jan 2026: Top-N round-robin tournaments - all top models play each other
@@ -167,8 +174,12 @@ class TournamentDaemonConfig:
     topn_roundrobin_games_per_matchup: int = 10  # 10 games per pairing
     topn_roundrobin_min_elo_games: int = 5  # Minimum games to be considered "rated"
     # Configs to run round-robin on (empty = all available configs)
+    # Feb 2026: Include all 12 configs to prevent evaluation starvation
     topn_roundrobin_configs: list[str] = field(default_factory=lambda: [
-        "hex8_2p", "hex8_4p", "square8_2p", "square8_4p",
+        "hex8_2p", "hex8_3p", "hex8_4p",
+        "square8_2p", "square8_3p", "square8_4p",
+        "square19_2p", "square19_3p", "square19_4p",
+        "hexagonal_2p", "hexagonal_3p", "hexagonal_4p",
     ])
 
     # Concurrency
@@ -2093,7 +2104,8 @@ class TournamentDaemon(HandlerBase):
                 config_key = make_config_key(board_type, num_players)
 
                 # Prioritize configured configs, but still run others
-                if config_key not in priority_configs and results["configs_evaluated"] >= 4:
+                # Feb 2026: Raised cap from 4 to 12 to evaluate all configs
+                if config_key not in priority_configs and results["configs_evaluated"] >= 12:
                     continue  # Limit non-priority configs per cycle
 
                 try:
