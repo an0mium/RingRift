@@ -2085,13 +2085,20 @@ class EloService:
         limit: int = 50,
         min_games: int = 0
     ) -> list[LeaderboardEntry]:
-        """Get the Elo leaderboard for a configuration."""
+        """Get the Elo leaderboard for a configuration.
+
+        Feb 2026: Changed INNER JOIN to LEFT JOIN because elo_ratings entries
+        synced from remote nodes often lack matching participants records.
+        The INNER JOIN silently dropped all orphaned entries, causing configs
+        like square8_2p and square19_2p to show 0 leaderboard entries despite
+        having 28+ rated participants in elo_ratings.
+        """
         conn = self._get_connection()
         cursor = conn.execute("""
             SELECT
                 e.participant_id,
-                p.participant_id AS name,
-                p.ai_type,
+                COALESCE(p.participant_id, e.participant_id) AS name,
+                COALESCE(p.ai_type, 'unknown') AS ai_type,
                 e.rating,
                 e.games_played,
                 e.wins,
@@ -2099,7 +2106,7 @@ class EloService:
                 e.draws,
                 e.last_update
             FROM elo_ratings e
-            JOIN participants p ON e.participant_id = p.participant_id
+            LEFT JOIN participants p ON e.participant_id = p.participant_id
             WHERE e.board_type = ? AND e.num_players = ? AND e.games_played >= ?
             ORDER BY e.rating DESC
             LIMIT ?
@@ -2592,8 +2599,8 @@ class EloService:
         query = """
             SELECT
                 e.participant_id,
-                p.nn_model_id,
-                p.ai_algorithm,
+                COALESCE(p.nn_model_id, e.participant_id) AS nn_model_id,
+                COALESCE(p.ai_algorithm, 'unknown') AS ai_algorithm,
                 e.rating,
                 e.games_played,
                 e.wins,
@@ -2601,7 +2608,7 @@ class EloService:
                 e.draws,
                 e.last_update
             FROM elo_ratings e
-            JOIN participants p ON e.participant_id = p.participant_id
+            LEFT JOIN participants p ON e.participant_id = p.participant_id
             WHERE e.board_type = ? AND e.num_players = ? AND e.games_played >= ?
         """
         params: list[Any] = [board_type, num_players, min_games]
