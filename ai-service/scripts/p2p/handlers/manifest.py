@@ -654,10 +654,60 @@ class ManifestHandlersMixin(BaseP2PHandler):
             logger.exception("[ManifestHandlers] Error in handle_cluster_data_summary")
             return web.json_response({"error": str(e)}, status=500)
 
+    def _collect_local_game_counts_sync(self) -> dict[str, int]:
+        """Synchronous helper: scan local canonical databases for game counts.
+
+        Feb 2026: Extracted to run in asyncio.to_thread() to prevent
+        event loop blocking (was causing 87s blocks from SQLite I/O).
+        """
+        counts: dict[str, int] = {}
+        try:
+            from app.utils.game_discovery import GameDiscovery
+            discovery = GameDiscovery()
+
+            for db_info in discovery.find_all_databases():
+                if "canonical" not in db_info.path.name:
+                    continue
+                config_key = f"{db_info.board_type}_{db_info.num_players}p"
+                counts[config_key] = counts.get(config_key, 0) + db_info.game_count
+        except Exception as e:
+            logger.warning(f"[ManifestHandlers] Error getting local counts: {e}")
+        return counts
+
+    def _collect_p2p_game_counts_sync(self) -> dict[str, int]:
+        """Synchronous helper: query P2P cluster manifest for game counts.
+
+        Feb 2026: Extracted to run in asyncio.to_thread() to prevent
+        event loop blocking from synchronous SQLite queries.
+        """
+        counts: dict[str, int] = {}
+        try:
+            from app.distributed.cluster_manifest import get_cluster_manifest
+            manifest = get_cluster_manifest()
+
+            with manifest._connection() as conn:
+                cursor = conn.execute("""
+                    SELECT board_type || '_' || num_players || 'p' as config,
+                           COUNT(DISTINCT game_id) as game_count
+                    FROM game_locations
+                    WHERE board_type IS NOT NULL
+                    GROUP BY board_type, num_players
+                """)
+                for row in cursor:
+                    config_key = row[0]
+                    count = row[1]
+                    if config_key and config_key != "None_Nonep":
+                        counts[config_key] = count
+        except Exception as e:
+            logger.warning(f"[ManifestHandlers] Error getting P2P counts: {e}")
+        return counts
+
     async def _collect_cluster_data_summary(self, force_refresh: bool = False) -> dict:
         """Collect aggregated data summary from all sources.
 
         Jan 3, 2026: Sprint 3 - Unified Data Visibility
+        Feb 2026: Moved blocking SQLite/filesystem ops to asyncio.to_thread()
+        to prevent event loop blocking (was causing 87s blocks).
 
         Sources:
         1. Local canonical databases (GameDiscovery)
@@ -671,27 +721,18 @@ class ManifestHandlersMixin(BaseP2PHandler):
                 "totals": {local, s3, owc, p2p},
             }
         """
+        import asyncio
+
         summary: dict[str, dict[str, int]] = {}
         totals = {"local": 0, "s3": 0, "owc": 0, "p2p": 0}
 
-        # 1. Local canonical databases
-        try:
-            from app.utils.game_discovery import GameDiscovery
-            discovery = GameDiscovery()
-
-            for db_info in discovery.find_all_databases():
-                # Only count canonical databases
-                if "canonical" not in db_info.path.name:
-                    continue
-
-                config_key = f"{db_info.board_type}_{db_info.num_players}p"
-                if config_key not in summary:
-                    summary[config_key] = {"local": 0, "s3": 0, "owc": 0, "p2p": 0, "total": 0}
-
-                summary[config_key]["local"] += db_info.game_count
-                totals["local"] += db_info.game_count
-        except Exception as e:
-            logger.warning(f"[ManifestHandlers] Error getting local counts: {e}")
+        # 1. Local canonical databases (blocking I/O — run in thread pool)
+        local_counts = await asyncio.to_thread(self._collect_local_game_counts_sync)
+        for config_key, count in local_counts.items():
+            if config_key not in summary:
+                summary[config_key] = {"local": 0, "s3": 0, "owc": 0, "p2p": 0, "total": 0}
+            summary[config_key]["local"] += count
+            totals["local"] += count
 
         # 2. S3 inventory
         try:
@@ -725,29 +766,13 @@ class ManifestHandlersMixin(BaseP2PHandler):
         except Exception as e:
             logger.warning(f"[ManifestHandlers] Error getting OWC counts: {e}")
 
-        # 4. P2P cluster manifest
-        try:
-            from app.distributed.cluster_manifest import get_cluster_manifest
-            manifest = get_cluster_manifest()
-
-            with manifest._connection() as conn:
-                cursor = conn.execute("""
-                    SELECT board_type || '_' || num_players || 'p' as config,
-                           COUNT(DISTINCT game_id) as game_count
-                    FROM game_locations
-                    WHERE board_type IS NOT NULL
-                    GROUP BY board_type, num_players
-                """)
-                for row in cursor:
-                    config_key = row[0]
-                    count = row[1]
-                    if config_key and config_key != "None_Nonep":
-                        if config_key not in summary:
-                            summary[config_key] = {"local": 0, "s3": 0, "owc": 0, "p2p": 0, "total": 0}
-                        summary[config_key]["p2p"] = count
-                        totals["p2p"] += count
-        except Exception as e:
-            logger.warning(f"[ManifestHandlers] Error getting P2P counts: {e}")
+        # 4. P2P cluster manifest (blocking SQLite — run in thread pool)
+        p2p_counts = await asyncio.to_thread(self._collect_p2p_game_counts_sync)
+        for config_key, count in p2p_counts.items():
+            if config_key not in summary:
+                summary[config_key] = {"local": 0, "s3": 0, "owc": 0, "p2p": 0, "total": 0}
+            summary[config_key]["p2p"] = count
+            totals["p2p"] += count
 
         # Compute total (max across all sources) for each config
         for config_key, counts in summary.items():
