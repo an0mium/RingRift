@@ -2050,7 +2050,9 @@ class TrainingCoordinator:
         logger.info(f"Completed training job {job_id} with status {status}")
 
         # Emit TRAINING_COMPLETE or TRAINING_FAILED event (December 2025)
+        # Feb 2026: Include model_path so tournament_daemon can queue evaluation
         event_type = "complete" if status == "completed" else "failed"
+        canonical_model = f"models/canonical_{job['board_type']}_{job['num_players']}p.pth"
         self._emit_training_event(
             event_type,
             job_id=job_id,
@@ -2060,6 +2062,8 @@ class TrainingCoordinator:
             final_elo=final_elo or job["current_elo"],
             epochs_completed=job["epochs_completed"],
             status=status,
+            model_path=canonical_model,
+            config=config_key,
         )
 
         return True
