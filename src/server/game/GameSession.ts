@@ -1890,6 +1890,12 @@ export class GameSession {
     // auto-resolution or warning events fire after session termination.
     this.resetDecisionPhaseTimeout();
 
+    // Clear the AI watchdog interval to prevent timer leaks
+    if (this.aiWatchdogHandle) {
+      clearInterval(this.aiWatchdogHandle);
+      this.aiWatchdogHandle = null;
+    }
+
     // Update session status to reflect termination
     const state = this.getGameState();
     if (state.gameStatus === 'active') {

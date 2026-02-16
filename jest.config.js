@@ -24,6 +24,10 @@
 //       Parity sweep across backend vs sandbox movement/capture enumeration.
 //       Slow on larger boards; keep as on-demand diagnostics.
 //
+//   - GameSession.setup.branchCoverage.test.ts
+//       Imports full server GameSession module tree (~3.7GB heap for compilation).
+//       Causes OOM when scheduled in the same worker as other heavy suites.
+//
 // REFACTORED (now CI-safe, included in core):
 //   - captureSequenceEnumeration.test.ts
 //       Was: Exhaustively enumerates capture sequences across 150 random boards.
@@ -75,6 +79,7 @@
 const HEAVY_DIAGNOSTIC_SUITES = [
   'ClientSandboxEngine\\.territoryDecisionPhases\\.MoveDriven\\.test\\.ts$',
   'MovementCaptureParity\\.RuleEngine_vs_Sandbox\\.test\\.ts$',
+  'GameSession\\.setup\\.branchCoverage\\.test\\.ts$',
 ];
 
 // Parity/diagnostic test patterns (excluded from default runs, run via test:diagnostic)
@@ -101,6 +106,7 @@ const BASE_TEST_PATH_IGNORE_PATTERNS = [
   '<rootDir>/tests/unit/archive/',
   '<rootDir>/archive/',  // Root-level archive directory for deprecated tests
   ...PARITY_DIAGNOSTIC_PATTERNS,  // Parity tests excluded from default runs
+  ...HEAVY_DIAGNOSTIC_SUITES,     // Heavy suites excluded from all default runs (OOM risk)
 ];
 
 // When collecting coverage, also ignore the heavy diagnostics suites to avoid

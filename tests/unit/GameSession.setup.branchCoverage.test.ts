@@ -152,6 +152,8 @@ afterEach(() => {
       // Ignore errors during cleanup
     }
   }
+  // Clear all fake timers to prevent accumulation
+  jest.clearAllTimers();
 });
 
 describe('GameSession Branch Coverage - userSockets map usage', () => {
