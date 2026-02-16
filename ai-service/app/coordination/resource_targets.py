@@ -116,10 +116,10 @@ class UtilizationTargets:
     memory_warn: float = 70.0       # Reduce jobs
     memory_critical: float = 80.0   # Stop spawning (HARD LIMIT)
 
-    # Disk targets (percentage) - 70% limit enforced as of 2025-12-15
-    # Tighter than 80% because cleanup takes time
-    disk_warn: float = 65.0         # Trigger cleanup
-    disk_critical: float = 70.0     # Stop all data-producing tasks
+    # Disk targets (percentage) - aligned with coordination_defaults.py
+    # Feb 2026: Raised from 70→90 to prevent premature write blocking
+    disk_warn: float = 80.0         # Trigger cleanup
+    disk_critical: float = 90.0     # Stop all data-producing tasks
 
     # Job concurrency targets
     jobs_per_core: float = 0.5      # Target 50% core utilization from jobs

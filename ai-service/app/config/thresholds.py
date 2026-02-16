@@ -804,10 +804,13 @@ MEMORY_WARNING_PERCENT = 70
 MEMORY_CRITICAL_PERCENT = 80
 
 # Disk utilization warning threshold
-DISK_WARNING_PERCENT = 65
+DISK_WARNING_PERCENT = 80
 
 # Disk utilization critical threshold
-DISK_CRITICAL_PERCENT = 70
+# Feb 2026: Raised from 70→90 to match coordination_defaults.py. At 70%,
+# disk writes were blocked with 228GB free on a 1TB drive, completely
+# starving the selfplay → training pipeline.
+DISK_CRITICAL_PERCENT = 90
 
 # =============================================================================
 # File Descriptor & Socket Limits (December 2025)

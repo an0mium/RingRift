@@ -186,10 +186,10 @@ class DiskSpaceConfig:
 
     # Thresholds (percentages) - imported from centralized config
     # See app/config/thresholds.py for DISK_WARNING_PERCENT, DISK_CRITICAL_PERCENT
-    proactive_cleanup_threshold: int = 60  # Start cleanup at 60%
-    warning_threshold: int = 65  # Emit warning at 65% (from DISK_WARNING_PERCENT)
-    critical_threshold: int = 70  # Emit critical at 70% (from DISK_CRITICAL_PERCENT)
-    emergency_threshold: int = 85  # Emergency mode at 85%
+    proactive_cleanup_threshold: int = 75  # Start cleanup at 75%
+    warning_threshold: int = 80  # Emit warning at 80%
+    critical_threshold: int = 90  # Emit critical at 90% (block writes)
+    emergency_threshold: int = 95  # Emergency mode at 95%
 
     # Target after cleanup - aligned with auto_sync_daemon target_disk_usage_percent
     target_disk_usage: int = 50  # Clean down to 50%
