@@ -221,7 +221,8 @@ class RelayHandlersMixin(BaseP2PHandler):
                 commands_to_send = queue[:RELAY_COMMAND_MAX_BATCH]
 
             # Return cluster state so they can see all peers
-            self._update_self_info()
+            # Feb 2026: Use async version to prevent event loop blocking
+            await self._update_self_info_async()
             async with NonBlockingAsyncLockWrapper(self.peers_lock, "peers_lock", timeout=5.0):
                 peers = {k: v.to_dict() for k, v in self.peers.items()}
 
@@ -321,7 +322,8 @@ class RelayHandlersMixin(BaseP2PHandler):
         try:
             if self.auth_token and not self._is_request_authorized(request):
                 return self.error_response("unauthorized", status=401)
-            self._update_self_info()
+            # Feb 2026: Use async version to prevent event loop blocking
+            await self._update_self_info_async()
             effective_leader = self._get_leader_peer()
             async with NonBlockingAsyncLockWrapper(self.peers_lock, "peers_lock", timeout=5.0):
                 all_peers = {k: v.to_dict() for k, v in self.peers.items()}

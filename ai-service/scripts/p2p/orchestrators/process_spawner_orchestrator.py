@@ -1094,8 +1094,12 @@ class ProcessSpawnerOrchestrator(BaseOrchestrator):
             alive_peers = [p for p in peers.values() if p.is_alive()]
 
         # Add self
-        if hasattr(self._p2p, "_update_self_info"):
-            self._p2p._update_self_info()
+        # Feb 2026: Use async version to prevent event loop blocking
+        if hasattr(self._p2p, "_update_self_info_async"):
+            await self._p2p._update_self_info_async()
+        elif hasattr(self._p2p, "_update_self_info"):
+            import asyncio
+            await asyncio.to_thread(self._p2p._update_self_info)
         self_info = getattr(self._p2p, "self_info", None)
         all_nodes = [*alive_peers]
         if self_info is not None:
@@ -1457,8 +1461,12 @@ class ProcessSpawnerOrchestrator(BaseOrchestrator):
                     )
 
         # Update self info
-        if hasattr(p2p, "_update_self_info"):
-            p2p._update_self_info()
+        # Feb 2026: Use async version to prevent event loop blocking
+        if hasattr(p2p, "_update_self_info_async"):
+            await p2p._update_self_info_async()
+        elif hasattr(p2p, "_update_self_info"):
+            import asyncio
+            await asyncio.to_thread(p2p._update_self_info)
         node = p2p.self_info
 
         # Check resource pressure - don't start jobs if under pressure

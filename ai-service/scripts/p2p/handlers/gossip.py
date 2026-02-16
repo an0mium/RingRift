@@ -145,7 +145,8 @@ class GossipHandlersMixin(BaseP2PHandler):
 
             # Prepare our response
             now = time.time()
-            self._update_self_info()
+            # Feb 2026: Use async version to prevent event loop blocking
+            await self._update_self_info_async()
 
             our_state = {
                 "node_id": self.node_id,
@@ -303,7 +304,8 @@ class GossipHandlersMixin(BaseP2PHandler):
 
             # Prepare our full state response
             now = time.time()
-            self._update_self_info()
+            # Feb 2026: Use async version to prevent event loop blocking
+            await self._update_self_info_async()
 
             all_known_states = {}
 

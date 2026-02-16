@@ -244,9 +244,16 @@ class JobCoordinationManager:
         return f"{scheme}://{host}:{port}{path}"
 
     async def _update_self_info(self) -> None:
-        """Update self info."""
-        if self._orchestrator and hasattr(self._orchestrator, "_update_self_info"):
-            self._orchestrator._update_self_info()
+        """Update self info.
+
+        Feb 2026: Use async version to prevent event loop blocking from
+        subprocess.run() calls in count_local_jobs().
+        """
+        if self._orchestrator and hasattr(self._orchestrator, "_update_self_info_async"):
+            await self._orchestrator._update_self_info_async()
+        elif self._orchestrator and hasattr(self._orchestrator, "_update_self_info"):
+            import asyncio
+            await asyncio.to_thread(self._orchestrator._update_self_info)
 
     def _get_cached_peer_snapshot(self) -> dict[str, Any]:
         """Get cached peer snapshot for lock-free access."""

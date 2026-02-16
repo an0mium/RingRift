@@ -181,7 +181,8 @@ class ElectionHandlersMixin(BaseP2PHandler):
             # Only "bully" lower-priority candidates when we're actually eligible
             # to act as a leader. Otherwise (e.g. NAT-blocked / ambiguous endpoint),
             # responding ALIVE can stall elections and leave the cluster leaderless.
-            self._update_self_info()
+            # Feb 2026: Use async version to prevent event loop blocking
+            await self._update_self_info_async()
             data = await self.parse_json_body(request)
             if data is None:
                 return self.bad_request("Invalid JSON body")

@@ -757,8 +757,10 @@ class PeerNetworkOrchestrator(BaseOrchestrator):
         import asyncio
 
         # Update self_info first
-        if hasattr(self._p2p, "_update_self_info"):
-            self._p2p._update_self_info()
+        # Feb 2026: Skip synchronous subprocess calls in register_self_in_peers
+        # since this is called from sync context. The async version updates
+        # self_info periodically via heartbeat_manager anyway.
+        pass  # self_info is kept current by _update_self_info_async() in heartbeat loop
 
         node_id = getattr(self._p2p, "node_id", "")
         self_info = getattr(self._p2p, "self_info", None)
