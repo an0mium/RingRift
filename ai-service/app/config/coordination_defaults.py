@@ -1378,8 +1378,10 @@ class ExportValidationDefaults:
     Used by: app/coordination/auto_export_daemon.py
     """
     # Minimum games required before export is allowed
-    # Lower than min_games_threshold allows export with quality override
-    MIN_GAMES: int = _env_int("RINGRIFT_EXPORT_VALIDATION_MIN_GAMES", 100)
+    # Feb 2026: Lowered from 100 to 25 — was higher than min_games_threshold (50),
+    # causing validation to block exports that already passed the threshold check.
+    # This produced 3,347 consecutive failures for hexagonal_4p.
+    MIN_GAMES: int = _env_int("RINGRIFT_EXPORT_VALIDATION_MIN_GAMES", 25)
 
     # Minimum average quality score (0.0-1.0)
     # Games are quality-scored based on move diversity, game length, etc.
