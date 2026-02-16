@@ -193,7 +193,7 @@ class P2PAutoDeployer:
 
             # Skip retired/offline nodes
             status = host_info.get("status", "")
-            if status in ("retired", "offline", "terminated"):
+            if status in ("retired", "offline", "terminated", "archived"):
                 continue
 
             # Must have SSH access

@@ -2224,7 +2224,7 @@ def _load_hosts_from_distributed_hosts(data: dict) -> list[HostConfig]:
         status = str(host_data.get("status", "")).lower()
         enabled = host_data.get("sync_enabled")
         if enabled is None:
-            enabled = status not in {"terminated", "offline", "suspended"}
+            enabled = status not in {"terminated", "offline", "suspended", "archived"}
         if host_data.get("role", "").lower() == "coordinator":
             enabled = False
         if (host_data.get("selfplay_enabled") is False

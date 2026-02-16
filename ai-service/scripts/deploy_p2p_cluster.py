@@ -182,7 +182,7 @@ class P2PClusterDeployer:
 
             # Skip retired/terminated nodes
             status = node_config.get("status", "")
-            if status in ("retired", "terminated", "offline"):
+            if status in ("retired", "terminated", "offline", "archived"):
                 logger.info(f"Node {node_id} status={status}, skipping")
                 continue
 

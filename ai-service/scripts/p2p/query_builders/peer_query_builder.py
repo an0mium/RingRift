@@ -450,7 +450,7 @@ class PeerQueryBuilder(BaseQueryBuilder):
         def predicate(peer: "NodeInfo") -> bool:
             # Skip offline/failing/retired
             status = getattr(peer, "status", "unknown")
-            if status in ("offline", "failing", "retired"):
+            if status in ("offline", "failing", "retired", "archived"):
                 return False
             if self._is_retired(peer):
                 return False

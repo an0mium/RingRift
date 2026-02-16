@@ -636,7 +636,7 @@ def _load_peers_from_distributed_hosts(data: dict) -> dict[str, dict]:
         if not config.get("p2p_enabled", True):
             continue
         status = str(config.get("status", "")).lower()
-        if status in {"terminated", "offline", "suspended"}:
+        if status in {"terminated", "offline", "suspended", "archived"}:
             continue
         ssh_host = config.get("tailscale_ip") or config.get("ssh_host", "")
         if not ssh_host:

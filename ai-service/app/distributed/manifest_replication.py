@@ -687,7 +687,7 @@ def create_replicator_from_config(
             if not host_data.get("p2p_enabled", True):
                 continue
             status = str(host_data.get("status", "")).lower()
-            if status in {"terminated", "offline", "suspended"}:
+            if status in {"terminated", "offline", "suspended", "archived"}:
                 continue
             role = host_data.get("role", "")
             if "training" in role.lower() and "selfplay" not in role.lower():

@@ -1202,7 +1202,7 @@ class JobManager(EventSubscriptionMixin):
                 return False, "not_in_peers"
             peer = self.peers.get(node_id)
             if peer and hasattr(peer, "status"):
-                if peer.status in ("offline", "dead", "retired"):
+                if peer.status in ("offline", "dead", "retired", "archived"):
                     return False, f"peer_status_{peer.status}"
 
         # Sprint 10 (Jan 3, 2026): Use adaptive timeout based on host performance history

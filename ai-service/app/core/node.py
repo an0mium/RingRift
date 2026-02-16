@@ -669,7 +669,7 @@ class NodeInfo:
         status = config.get("status", "unknown")
         if status in ("ready", "active"):
             health = HealthStatus(health=NodeHealth.HEALTHY, state=NodeState.ONLINE)
-        elif status in ("offline", "terminated"):
+        elif status in ("offline", "terminated", "archived"):
             health = HealthStatus(health=NodeHealth.OFFLINE, state=NodeState.OFFLINE)
         else:
             health = HealthStatus(health=NodeHealth.UNKNOWN, state=NodeState.UNKNOWN)

@@ -281,7 +281,7 @@ class LambdaChecker(StateChecker):
 
             # Node not found in active instances
             current_status = host_config.get("status", "")
-            if current_status not in ("retired", "offline"):
+            if current_status not in ("retired", "offline", "archived"):
                 terminated.append(node_name)
 
         return terminated

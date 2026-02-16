@@ -56,7 +56,7 @@ def get_all_peer_urls(exclude_node: str = "", port: int = 8770) -> list[str]:
         if name == exclude_node:
             continue
         # Skip inactive/retired nodes
-        if hasattr(node, "status") and node.status in ("retired", "offline", "terminated"):
+        if hasattr(node, "status") and node.status in ("retired", "offline", "terminated", "archived"):
             continue
         ip = getattr(node, "tailscale_ip", None)
         if ip and str(ip) not in seen_ips:
@@ -85,7 +85,7 @@ def _get_peers_from_yaml(exclude_node: str, port: int) -> list[str]:
         if name == exclude_node:
             continue
         status = info.get("status", "")
-        if status in ("retired", "offline", "terminated"):
+        if status in ("retired", "offline", "terminated", "archived"):
             continue
         ip = info.get("tailscale_ip")
         if ip and ip not in seen_ips:

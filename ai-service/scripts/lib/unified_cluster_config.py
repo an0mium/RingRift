@@ -337,7 +337,7 @@ class UnifiedClusterConfig:
             status = node_cfg.get("status", "active")
             if status in ("ready", "online"):
                 status = "active"
-            elif status in ("offline", "terminated", "setup"):
+            elif status in ("offline", "terminated", "setup", "archived"):
                 status = "inactive"
 
             self.nodes[node_id] = NodeConfig(

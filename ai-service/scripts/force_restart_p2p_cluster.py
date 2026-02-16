@@ -65,8 +65,8 @@ def load_cluster_nodes() -> list[NodeConfig]:
         if role == "proxy" or status == "proxy_only":
             continue
 
-        # Skip retired/offline nodes
-        if status in ("retired", "offline"):
+        # Skip retired/offline/archived nodes
+        if status in ("retired", "offline", "archived"):
             continue
 
         # Skip nodes without ringrift_path

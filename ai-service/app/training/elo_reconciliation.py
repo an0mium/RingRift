@@ -1005,7 +1005,7 @@ else:
                     if not info.get("p2p_enabled", True):
                         continue
                     status = str(info.get("status", "")).lower()
-                    if status in {"terminated", "offline", "suspended"}:
+                    if status in {"terminated", "offline", "suspended", "archived"}:
                         continue
                     host = info.get("tailscale_ip") or info.get("ssh_host")
                     if host:

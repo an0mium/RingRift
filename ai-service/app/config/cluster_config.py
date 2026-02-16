@@ -757,8 +757,10 @@ class ClusterNode:
 
         December 2025: Added 'retired' status to inactive list to prevent
         sync operations from targeting retired nodes (e.g., nebius-h100-2).
+        February 2026: Added 'archived' status for terminated/offline nodes
+        preserved for configuration history.
         """
-        return self.status not in ("terminated", "offline", "setup", "retired")
+        return self.status not in ("terminated", "offline", "setup", "retired", "archived")
 
     @property
     def is_gpu_node(self) -> bool:
