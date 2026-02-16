@@ -169,6 +169,15 @@ except ImportError:
     get_dead_letter_queue = None
 
 
+def _is_dlq_retry_event(event: "RouterEvent") -> bool:
+    """Check if an event originated from DLQ retry/replay.
+
+    Feb 2026: Events re-published from DLQ retry should NOT be re-captured
+    to the DLQ on failure, as this would create infinite retry loops.
+    """
+    return event.source.startswith("dlq_retry:") or event.source.startswith("dlq_replay:")
+
+
 # Handler timeout to prevent hung event handlers from blocking dispatch
 # Environment variable override: RINGRIFT_EVENT_HANDLER_TIMEOUT
 # December 29, 2025: Increased from 30s to 600s (10 min) for autonomous operation
@@ -889,7 +898,8 @@ class UnifiedEventRouter:
                         self._handler_timeouts += 1
 
                         # Capture to DLQ for retry/analysis
-                        if HAS_DLQ and get_dead_letter_queue:
+                        # Feb 2026: Skip capture for DLQ retry events to prevent infinite loops
+                        if HAS_DLQ and get_dead_letter_queue and not _is_dlq_retry_event(event):
                             try:
                                 dlq = get_dead_letter_queue()
                                 dlq.capture(
@@ -933,7 +943,8 @@ class UnifiedEventRouter:
                         f"{event.event_type}: {type(e).__name__}: {e}"
                     )
                 # Still capture to DLQ for analysis with elevated severity
-                if HAS_DLQ and get_dead_letter_queue:
+                # Feb 2026: Skip capture for DLQ retry events to prevent infinite loops
+                if HAS_DLQ and get_dead_letter_queue and not _is_dlq_retry_event(event):
                     try:
                         dlq = get_dead_letter_queue()
                         dlq.capture(
@@ -949,7 +960,8 @@ class UnifiedEventRouter:
                 callback_name = getattr(callback, "__name__", str(callback))
                 logger.error(f"[EventRouter] Callback error for {event.event_type}: {e}")
                 # Capture to DLQ for retry/analysis (December 2025)
-                if HAS_DLQ and get_dead_letter_queue:
+                # Feb 2026: Skip capture for DLQ retry events to prevent infinite loops
+                if HAS_DLQ and get_dead_letter_queue and not _is_dlq_retry_event(event):
                     try:
                         dlq = get_dead_letter_queue()
                         dlq.capture(
@@ -1085,7 +1097,8 @@ class UnifiedEventRouter:
                 else:
                     logger.error(f"[EventRouter] Callback error for {event.event_type}: {e}")
                 # Capture to DLQ for retry/analysis (December 2025)
-                if HAS_DLQ and get_dead_letter_queue:
+                # Feb 2026: Skip capture for DLQ retry events to prevent infinite loops
+                if HAS_DLQ and get_dead_letter_queue and not _is_dlq_retry_event(event):
                     try:
                         dlq = get_dead_letter_queue()
                         dlq.capture(

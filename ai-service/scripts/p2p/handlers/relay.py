@@ -29,6 +29,7 @@ Relay Architecture:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import TYPE_CHECKING, Any
@@ -221,10 +222,20 @@ class RelayHandlersMixin(BaseP2PHandler):
                 commands_to_send = queue[:RELAY_COMMAND_MAX_BATCH]
 
             # Return cluster state so they can see all peers
-            # Feb 2026: Use async version to prevent event loop blocking
-            await self._update_self_info_async()
-            async with NonBlockingAsyncLockWrapper(self.peers_lock, "peers_lock", timeout=5.0):
-                peers = {k: v.to_dict() for k, v in self.peers.items()}
+            # Feb 2026: Fire-and-forget self_info refresh to prevent event loop blocking
+            # under high CPU load (was causing 56-64s timeouts on /relay/peers)
+            try:
+                asyncio.create_task(self._update_self_info_async())
+            except Exception:
+                pass  # Fire-and-forget, don't block on errors
+
+            # Feb 2026: Use lock-free peer snapshot for read-only access
+            if hasattr(self, "_peer_snapshot"):
+                peers_snapshot = self._peer_snapshot.get_snapshot()
+                peers = {k: v.to_dict() for k, v in peers_snapshot.items()}
+            else:
+                async with NonBlockingAsyncLockWrapper(self.peers_lock, "peers_lock", timeout=5.0):
+                    peers = {k: v.to_dict() for k, v in self.peers.items()}
 
             effective_leader = self._get_leader_peer()
             effective_leader_id = effective_leader.node_id if effective_leader else None
@@ -318,43 +329,79 @@ class RelayHandlersMixin(BaseP2PHandler):
         """GET /relay/peers - Get list of all peers including NAT-blocked ones.
 
         Used by nodes to discover the full cluster including NAT-blocked members.
+
+        Feb 2026: Fixed event loop blocking under high CPU load (load avg 219).
+        Three changes to prevent 56-64s timeouts:
+        1. Fire-and-forget _update_self_info_async instead of awaiting it
+        2. Use lock-free _peer_snapshot instead of peers_lock
+        3. Cache response for 5s TTL to avoid repeated work under load
         """
         try:
             if self.auth_token and not self._is_request_authorized(request):
                 return self.error_response("unauthorized", status=401)
-            # Feb 2026: Use async version to prevent event loop blocking
-            await self._update_self_info_async()
+
+            # Check response cache (5s TTL) to avoid repeated work under load
+            now = time.time()
+            cache_attr = "_relay_peers_cache"
+            cache_time_attr = "_relay_peers_cache_time"
+            cached_response = getattr(self, cache_attr, None)
+            cached_time = getattr(self, cache_time_attr, 0.0)
+            if cached_response is not None and (now - cached_time) < 5.0:
+                return self.json_response(cached_response)
+
+            # Fire-and-forget: schedule background refresh of self_info
+            # Don't await - prevents blocking when subprocess resource detection
+            # is slow under high CPU load
+            try:
+                asyncio.create_task(self._update_self_info_async())
+            except Exception:
+                pass  # Fire-and-forget, don't block on errors
+
             effective_leader = self._get_leader_peer()
-            async with NonBlockingAsyncLockWrapper(self.peers_lock, "peers_lock", timeout=5.0):
-                all_peers = {k: v.to_dict() for k, v in self.peers.items()}
+
+            # Use lock-free peer snapshot instead of peers_lock to avoid blocking
+            if hasattr(self, "_peer_snapshot"):
+                peers_snapshot = self._peer_snapshot.get_snapshot()
+                all_peers = {k: v.to_dict() for k, v in peers_snapshot.items()}
+            else:
+                # Fallback to lock-based access if snapshot not available
+                async with NonBlockingAsyncLockWrapper(self.peers_lock, "peers_lock", timeout=5.0):
+                    all_peers = {k: v.to_dict() for k, v in self.peers.items()}
 
             # Separate NAT-blocked and directly reachable
             nat_blocked = {k: v for k, v in all_peers.items() if v.get("nat_blocked")}
             direct = {k: v for k, v in all_peers.items() if not v.get("nat_blocked")}
 
-            return self.json_response(
-                {
-                    "success": True,
-                    "leader_id": (
-                        effective_leader.node_id if effective_leader else self.leader_id
-                    ),
-                    "effective_leader_id": (
-                        effective_leader.node_id if effective_leader else None
-                    ),
-                    "total_peers": len(all_peers),
-                    "direct_peers": len(direct),
-                    "nat_blocked_peers": len(nat_blocked),
-                    "voter_node_ids": list(getattr(self, "voter_node_ids", []) or []),
-                    "voter_quorum_size": int(
-                        getattr(self, "voter_quorum_size", 0) or 0
-                    ),
-                    "voter_quorum_ok": self._has_voter_quorum(),
-                    "voter_config_source": str(
-                        getattr(self, "voter_config_source", "") or ""
-                    ),
-                    "peers": all_peers,
-                }
-            )
+            response_data = {
+                "success": True,
+                "leader_id": (
+                    effective_leader.node_id if effective_leader else self.leader_id
+                ),
+                "effective_leader_id": (
+                    effective_leader.node_id if effective_leader else None
+                ),
+                "total_peers": len(all_peers),
+                "direct_peers": len(direct),
+                "nat_blocked_peers": len(nat_blocked),
+                "voter_node_ids": list(getattr(self, "voter_node_ids", []) or []),
+                "voter_quorum_size": int(
+                    getattr(self, "voter_quorum_size", 0) or 0
+                ),
+                "voter_quorum_ok": self._has_voter_quorum(),
+                "voter_config_source": str(
+                    getattr(self, "voter_config_source", "") or ""
+                ),
+                "peers": all_peers,
+            }
+
+            # Cache the response for 5s TTL
+            try:
+                setattr(self, cache_attr, response_data)
+                setattr(self, cache_time_attr, now)
+            except Exception:
+                pass  # Don't fail if caching fails
+
+            return self.json_response(response_data)
 
         except Exception as e:
             return self.error_response(str(e), status=500)
@@ -400,12 +447,21 @@ class RelayHandlersMixin(BaseP2PHandler):
                 total_pending += len(commands)
 
             # Get NAT-blocked nodes for context
-            with self.peers_lock:
+            # Feb 2026: Use lock-free peer snapshot to avoid blocking event loop
+            if hasattr(self, "_peer_snapshot"):
+                peers_snapshot = self._peer_snapshot.get_snapshot()
                 nat_blocked_nodes = [
                     nid
-                    for nid, p in self.peers.items()
+                    for nid, p in peers_snapshot.items()
                     if getattr(p, "nat_blocked", False)
                 ]
+            else:
+                with self.peers_lock:
+                    nat_blocked_nodes = [
+                        nid
+                        for nid, p in self.peers.items()
+                        if getattr(p, "nat_blocked", False)
+                    ]
 
             return self.json_response(
                 {

@@ -4582,6 +4582,27 @@ class P2POrchestrator(
                 except Exception as e:  # noqa: BLE001
                     logger.error(f"Failed to load job: {e}")
 
+            # Feb 2026: Clean stale jobs with dead PIDs before gossip starts.
+            # Jobs from previous sessions may have PIDs that no longer exist,
+            # causing training_jobs/selfplay_jobs to report phantom counts.
+            stale_startup_jobs = []
+            for job_id, job in list(self.local_jobs.items()):
+                pid = getattr(job, "pid", 0) or 0
+                if pid > 0 and getattr(job, "status", "") == "running":
+                    try:
+                        os.kill(pid, 0)  # Check if process exists
+                    except ProcessLookupError:
+                        stale_startup_jobs.append(job_id)
+                    except PermissionError:
+                        pass  # Process exists but owned by another user
+            if stale_startup_jobs:
+                for job_id in stale_startup_jobs:
+                    self.local_jobs.pop(job_id, None)
+                logger.info(
+                    f"[P2POrchestrator] Startup cleanup: removed "
+                    f"{len(stale_startup_jobs)} jobs with dead PIDs"
+                )
+
             # Apply leader state
             # C1 fix: Use leader_state_lock for role/leader_id changes
             ls = state.leader_state
@@ -5592,6 +5613,68 @@ class P2POrchestrator(
         Jan 29, 2026: Delegated to JobOrchestrator.cleanup_stale_processes().
         """
         return self.jobs.cleanup_stale_processes()
+
+    def _cleanup_orphan_gpu_processes(self) -> int:
+        """Detect GPU processes not tracked in local_jobs and warn about them.
+
+        Feb 2026: On P2P startup, previous sessions may have left training or
+        selfplay processes that occupy GPU memory. We detect them via nvidia-smi
+        and log warnings so operators can decide whether to kill them.
+
+        Returns:
+            Number of orphan GPU processes found.
+        """
+        import subprocess
+
+        try:
+            result = subprocess.run(
+                ["nvidia-smi", "--query-compute-apps=pid,process_name,used_memory",
+                 "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=10,
+            )
+        except FileNotFoundError:
+            return 0  # No nvidia-smi = no GPU
+        except subprocess.TimeoutExpired:
+            logger.warning("[P2P] nvidia-smi timed out during orphan detection")
+            return 0
+
+        if result.returncode != 0:
+            return 0
+
+        tracked_pids = set()
+        for job in self.local_jobs.values():
+            pid = getattr(job, "pid", 0) or 0
+            if pid > 0:
+                tracked_pids.add(pid)
+
+        orphan_count = 0
+        for line in result.stdout.strip().split("\n"):
+            if not line.strip():
+                continue
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) < 2:
+                continue
+            try:
+                gpu_pid = int(parts[0])
+            except (ValueError, IndexError):
+                continue
+            proc_name = parts[1] if len(parts) > 1 else "unknown"
+            mem_mb = parts[2] if len(parts) > 2 else "?"
+
+            if gpu_pid not in tracked_pids:
+                orphan_count += 1
+                logger.warning(
+                    f"[P2P] Orphan GPU process: PID={gpu_pid} "
+                    f"name={proc_name} mem={mem_mb}MB (not tracked in local_jobs)"
+                )
+
+        if orphan_count > 0:
+            logger.warning(
+                f"[P2P] Found {orphan_count} orphan GPU processes. "
+                "These may block work claiming due to GPU memory usage. "
+                "Consider killing them manually if they're from previous sessions."
+            )
+        return orphan_count
 
     # ============================================
     # Phase 2: Distributed Data Sync Methods

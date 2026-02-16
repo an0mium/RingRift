@@ -303,6 +303,11 @@ class DeadLetterQueue:
     async def retry_event(self, event_id: str) -> bool:
         """Retry a specific failed event.
 
+        Feb 2026: Falls back to re-publishing through the event router when no
+        specific DLQ handlers are registered. This ensures failed events for
+        critical types like EVALUATION_COMPLETED are retried via the normal
+        subscriber chain instead of being silently dropped.
+
         Args:
             event_id: ID of event to retry
 
@@ -329,21 +334,107 @@ class DeadLetterQueue:
         # Check if handlers registered
         handlers = self._handlers.get(event.event_type, [])
         if not handlers:
-            logger.warning(f"[DLQ] No handlers registered for {event.event_type}")
-            return False
+            # Feb 2026: Fall back to re-publishing through the event router.
+            # Previously, events with no DLQ-specific handlers were silently
+            # dropped with a warning. Now we re-publish them through the router
+            # so the normal subscriber chain (AutoPromotionDaemon, etc.) can
+            # process them.
+            success = await self._retry_via_router(event)
+        else:
+            # Use registered DLQ handlers
+            success = await self._retry_via_handlers(event, handlers)
 
-        # Attempt retry
-        success = False
+        return await self._update_retry_status(event, success)
+
+    async def _retry_via_handlers(
+        self, event: FailedEvent, handlers: list[Callable]
+    ) -> bool:
+        """Attempt retry using registered DLQ handlers.
+
+        Args:
+            event: The failed event to retry
+            handlers: List of registered handler callbacks
+
+        Returns:
+            True if any handler succeeded
+        """
         for handler in handlers:
             try:
                 await handler(event.payload)
-                success = True
-                break
+                return True
             except Exception as e:
-                logger.warning(f"[DLQ] Retry failed for {event_id}: {e}")
+                logger.warning(f"[DLQ] Retry handler failed for {event.event_id}: {e}")
+        return False
 
+    async def _retry_via_router(self, event: FailedEvent) -> bool:
+        """Attempt retry by re-publishing through the event router.
+
+        Feb 2026: This is the fallback path when no DLQ-specific handlers are
+        registered. It re-publishes the event through the unified event router,
+        allowing all normal subscribers to process it.
+
+        Guards against infinite loops by using a 'dlq_retry' source marker -
+        the event router's DLQ capture checks this to avoid re-capturing
+        events that came from DLQ retry.
+
+        Args:
+            event: The failed event to retry
+
+        Returns:
+            True if re-publish succeeded and router has subscribers
+        """
+        try:
+            from app.coordination.event_router import get_router
+        except ImportError:
+            logger.warning(
+                f"[DLQ] Cannot retry {event.event_type} via router - "
+                f"event_router not available"
+            )
+            return False
+
+        router = get_router()
+
+        # Check if router has any subscribers for this event type
+        if not router.has_subscribers(event.event_type):
+            logger.debug(
+                f"[DLQ] No router subscribers for {event.event_type}, "
+                f"skipping re-publish"
+            )
+            return False
+
+        try:
+            await router.publish(
+                event_type=event.event_type,
+                payload=event.payload,
+                source=f"dlq_retry:{event.event_id}",
+            )
+            logger.info(
+                f"[DLQ] Re-published {event.event_type} via router "
+                f"(event_id={event.event_id})"
+            )
+            return True
+        except Exception as e:
+            logger.warning(
+                f"[DLQ] Router re-publish failed for {event.event_type}: {e}"
+            )
+            return False
+
+    async def _update_retry_status(
+        self, event: FailedEvent, success: bool
+    ) -> bool:
+        """Update event status in the database after a retry attempt.
+
+        Args:
+            event: The event that was retried
+            success: Whether the retry succeeded
+
+        Returns:
+            The success value (pass-through for caller convenience)
+        """
         now = datetime.now().isoformat()
         new_count = event.retry_count + 1
+
+        event_id = event.event_id
 
         def _update_event_status() -> str:
             """Update event status in database. Returns: 'recovered', 'abandoned', or 'retrying'."""

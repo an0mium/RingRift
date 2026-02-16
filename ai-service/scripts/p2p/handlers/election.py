@@ -480,6 +480,15 @@ class ElectionHandlersMixin(BaseP2PHandler):
         Body (optional): {"reason": "manual"}
         """
         try:
+            # Feb 2026 (2c): Suppress elections during force_leader grace period
+            grace_until = getattr(self, "_election_grace_until", 0.0) or 0.0
+            if time.time() < grace_until:
+                return self.json_response({
+                    "status": "election_suppressed",
+                    "reason": "force_leader_grace_period",
+                    "grace_expires_in": round(grace_until - time.time(), 1),
+                })
+
             data = await self.parse_json_body(request) or {}
             reason = data.get("reason", "manual_http_trigger")
 
@@ -549,6 +558,16 @@ class ElectionHandlersMixin(BaseP2PHandler):
                 self.last_leader_seen = time.time()
                 self.election_in_progress = False
 
+                # Feb 2026: Increment leader_term for term-based convergence
+                # Nodes adopt the leader with highest term in gossip, ensuring
+                # forced leadership converges in 1 gossip round.
+                current_term = getattr(self, "_leader_term", 0) or 0
+                new_term = current_term + 1
+                self._leader_term = new_term
+                if hasattr(self, "self_info") and self.self_info:
+                    self.self_info.leader_term = new_term
+                    self.self_info.leader_id = self.node_id
+
                 # Jan 25, 2026: Set forced leader override to bypass consensus checks
                 # This fixes the is_leader desync where work queue showed is_leader=False
                 self._forced_leader_override = True
@@ -585,6 +604,10 @@ class ElectionHandlersMixin(BaseP2PHandler):
                         )
                     )
 
+                # Feb 2026 (2c): Set election grace period to prevent natural elections
+                # from overriding the forced leader before gossip converges.
+                self._election_grace_until = time.time() + 30.0
+
                 logger.warning(
                     f"FORCED LEADERSHIP: {self.node_id} is now leader via override"
                 )
@@ -595,6 +618,7 @@ class ElectionHandlersMixin(BaseP2PHandler):
                     "role": "leader",
                     "lease_id": lease_id,
                     "lease_expires": self.leader_lease_expires,
+                    "leader_term": new_term,
                     "warning": "Leadership was forced without normal election. Use with caution.",
                 })
             else:
@@ -602,6 +626,18 @@ class ElectionHandlersMixin(BaseP2PHandler):
                 self.leader_id = target_leader_id
                 self.role = NodeRole.FOLLOWER
                 self.election_in_progress = False
+
+                # Feb 2026: Adopt the forced leader's term
+                forced_term = int(data.get("leader_term", 0) or 0)
+                if forced_term > 0:
+                    self._leader_term = forced_term
+                    if hasattr(self, "self_info") and self.self_info:
+                        self.self_info.leader_term = forced_term
+                        self.self_info.leader_consensus_id = target_leader_id
+
+                # Feb 2026 (2c): Set election grace period on followers too
+                self._election_grace_until = time.time() + 30.0
+
                 self._save_state()
 
                 logger.info(

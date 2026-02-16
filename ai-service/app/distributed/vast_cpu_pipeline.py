@@ -190,7 +190,7 @@ class VastCpuPipelineDaemon:
                         "ssh_port": host.ssh_port or 22,
                         "ssh_user": host.ssh_user or "root",
                         "ssh_key": host.ssh_key,
-                        "ringrift_path": host.ringrift_path or "~/ringrift/ai-service",
+                        "ringrift_path": host.work_directory,
                     })
 
             # Filter to instances that are reachable (quick health check)

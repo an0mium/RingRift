@@ -1144,7 +1144,6 @@ async def create_owc_sync_manager() -> None:
 
         daemon = get_external_drive_sync_daemon()
         await daemon.start()
-        await daemon.wait_until_stopped()
     except ImportError as e:
         logger.warning(f"OWC Sync Manager not available (likely not on coordinator): {e}")
         # Don't raise - OWC sync is optional for non-coordinator nodes
@@ -1198,7 +1197,7 @@ async def create_reanalysis() -> None:
     try:
         from app.coordination.reanalysis_daemon import get_reanalysis_daemon
 
-        daemon = get_reanalysis_daemon()
+        daemon = await get_reanalysis_daemon()
         await daemon.start()
         await daemon.wait_until_stopped()
     except ImportError as e:

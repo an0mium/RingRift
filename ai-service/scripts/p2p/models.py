@@ -49,6 +49,14 @@ class NodeInfo:
     last_heartbeat: float = 0.0
     # Leader tracking: who this node believes is the current cluster leader
     leader_id: str = ""  # Dec 2025: Added for leader propagation in heartbeats
+    # Feb 2026: Term-based leader convergence — monotonically increasing term
+    # ensures forced leadership converges in 1 gossip round instead of relying
+    # on vote counts. Nodes adopt the leader with the highest term.
+    leader_term: int = 0
+    # Feb 2026: Quorum-validated leader — populated during split-brain detection.
+    # Workers should claim work from leader_consensus_id (quorum-agreed) rather
+    # than leader_id (single-node belief) to avoid split-brain work dispatch.
+    leader_consensus_id: str = ""
     cpu_count: int = 0
     cpu_percent: float = 0.0
     memory_percent: float = 0.0
@@ -546,6 +554,11 @@ class NodeInfo:
             self.selfplay_jobs = other.selfplay_jobs
             self.training_jobs = other.training_jobs
             self.visible_peers = other.visible_peers
+            # Feb 2026: Adopt higher leader_term for faster convergence
+            if other.leader_term > self.leader_term:
+                self.leader_term = other.leader_term
+                self.leader_id = other.leader_id
+                self.leader_consensus_id = other.leader_consensus_id
 
         # Remove primary host from alternate_ips to avoid duplication
         all_ips.discard(self.host)
@@ -571,6 +584,8 @@ class NodeInfo:
         # Handle missing new fields gracefully
         d.setdefault('scheme', 'http')
         d.setdefault('leader_id', '')  # Dec 2025: Leader propagation field
+        d.setdefault('leader_term', 0)  # Feb 2026: Term-based leader convergence
+        d.setdefault('leader_consensus_id', '')  # Feb 2026: Quorum-validated leader
         d.setdefault('cpu_count', 0)
         d.setdefault('reported_host', '')
         d.setdefault('reported_port', 0)

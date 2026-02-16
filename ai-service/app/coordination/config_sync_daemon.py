@@ -327,7 +327,7 @@ class ConfigSyncDaemon(HandlerBase):
         try:
             # Get source node config
             config = load_cluster_config()
-            hosts = config.get("hosts", {})
+            hosts = config.hosts_raw
             node_config = hosts.get(source_node, {})
 
             if not node_config:
@@ -403,7 +403,7 @@ class ConfigSyncDaemon(HandlerBase):
         try:
             # Get active cluster nodes
             config = load_cluster_config()
-            hosts = config.get("hosts", {})
+            hosts = config.hosts_raw
 
             # Track nodes that need push
             current_time = time.time()
@@ -474,7 +474,7 @@ class ConfigSyncDaemon(HandlerBase):
         try:
             # Get node config
             config = load_cluster_config()
-            hosts = config.get("hosts", {})
+            hosts = config.hosts_raw
             node_config = hosts.get(node_id, {})
 
             if not node_config:
