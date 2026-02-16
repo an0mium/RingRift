@@ -179,6 +179,26 @@ class DistributionConfig:
     # Model-specific settings
     create_symlinks: bool = True
 
+    # Feb 2026: S3-only distribution mode for coordinator/low-memory nodes.
+    # When enabled, models are uploaded to S3 instead of pushed via rsync/HTTP.
+    # Cluster nodes pull from S3 via S3ImportDaemon or aws s3 cp.
+    # This prevents OOM on coordinator nodes that lack memory for large rsyncs.
+    s3_only_distribution: bool = field(
+        default_factory=lambda: os.environ.get(
+            "RINGRIFT_S3_ONLY_DISTRIBUTION", ""
+        ).lower() in ("1", "true", "yes")
+        # Auto-enable on coordinator nodes (no GPU, limited memory)
+        or os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() in ("1", "true", "yes")
+    )
+    s3_bucket: str = field(
+        default_factory=lambda: os.environ.get(
+            "RINGRIFT_S3_BUCKET", "ringrift-models-20251214"
+        )
+    )
+    s3_region: str = field(
+        default_factory=lambda: os.environ.get("RINGRIFT_S3_REGION", "us-east-1")
+    )
+
 
 @dataclass
 class DeliveryResult:
@@ -944,6 +964,19 @@ class UnifiedDistributionDaemon(HandlerBase):
         model_paths = list(set(model_paths))
         logger.info(f"Distributing {len(model_paths)} models to {len(target_nodes)} nodes")
 
+        # Feb 2026: S3-only distribution mode for low-memory coordinator nodes.
+        # Upload to S3 via streaming `aws s3 cp` (no memory spike), then notify
+        # nodes via P2P event. Nodes pull from S3 via S3ImportDaemon.
+        if self.config.s3_only_distribution and self.config.s3_bucket:
+            success = await self._distribute_via_s3(model_paths, DataType.MODEL)
+            if success:
+                self._model_distributions += len(model_paths)
+                self._successful_distributions += 1
+                self._last_sync_time = time.time()
+                if self.config.create_symlinks:
+                    await self._create_model_symlinks(model_paths)
+            return
+
         # Sprint 13.1: Emit MODEL_DISTRIBUTION_STARTED event
         # This enables coordination with other daemons waiting for distribution
         await self._emit_distribution_started_event(len(model_paths), len(target_nodes))
@@ -978,6 +1011,21 @@ class UnifiedDistributionDaemon(HandlerBase):
 
     async def _distribute_npz_files(self, items: list[dict[str, Any]]) -> None:
         """Distribute NPZ files to training nodes."""
+        # Feb 2026: S3-only mode for low-memory coordinator
+        if self.config.s3_only_distribution and self.config.s3_bucket:
+            npz_files = []
+            for item in items:
+                p = item.get("path")
+                if p and Path(p).exists():
+                    npz_files.append(Path(p))
+            if npz_files:
+                success = await self._distribute_via_s3(npz_files, DataType.NPZ)
+                if success:
+                    self._npz_distributions += len(npz_files)
+                    self._successful_distributions += 1
+                    self._last_sync_time = time.time()
+            return
+
         target_nodes = await self._get_training_nodes()
         if not target_nodes:
             logger.warning("No training nodes for NPZ distribution")
@@ -1020,6 +1068,72 @@ class UnifiedDistributionDaemon(HandlerBase):
                 await self._emit_failure_event(
                     DataType.NPZ, [item], f"Smart distribution failed for NPZ: {npz_path}"
                 )
+
+    async def _distribute_via_s3(
+        self, files: list[Path], data_type: DataType
+    ) -> bool:
+        """Upload files to S3 using streaming `aws s3 cp`.
+
+        Feb 2026: Lightweight distribution for coordinator/low-memory nodes.
+        Uses `aws s3 cp` which streams the file without loading it into memory,
+        preventing OOM on machines with limited RAM. Nodes pull from S3 via
+        S3ImportDaemon or periodic sync.
+
+        Args:
+            files: List of file paths to upload.
+            data_type: Type of data (MODEL, NPZ).
+
+        Returns:
+            True if at least one file was uploaded successfully.
+        """
+        bucket = self.config.s3_bucket
+        region = self.config.s3_region
+        uploaded = 0
+
+        for file_path in files:
+            if not file_path.exists():
+                continue
+
+            s3_key = f"consolidated/{data_type.value}/{file_path.name}"
+            s3_uri = f"s3://{bucket}/{s3_key}"
+
+            try:
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    [
+                        "aws", "s3", "cp",
+                        str(file_path), s3_uri,
+                        "--region", region,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=600,
+                )
+
+                if result.returncode == 0:
+                    logger.info(
+                        f"[S3Distribution] Uploaded {file_path.name} to {s3_uri}"
+                    )
+                    uploaded += 1
+                else:
+                    logger.warning(
+                        f"[S3Distribution] Failed to upload {file_path.name}: "
+                        f"{result.stderr[:200]}"
+                    )
+            except subprocess.TimeoutExpired:
+                logger.warning(
+                    f"[S3Distribution] Upload timed out for {file_path.name}"
+                )
+            except Exception as e:
+                logger.warning(f"[S3Distribution] Error uploading {file_path.name}: {e}")
+
+        if uploaded > 0:
+            logger.info(
+                f"[S3Distribution] Uploaded {uploaded}/{len(files)} files to S3. "
+                f"Nodes will pull via S3ImportDaemon."
+            )
+
+        return uploaded > 0
 
     async def _run_smart_distribution(
         self,
