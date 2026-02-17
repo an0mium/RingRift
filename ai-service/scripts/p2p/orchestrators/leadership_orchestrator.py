@@ -805,7 +805,7 @@ class LeadershipOrchestrator(BaseOrchestrator):
             "gossip_desync": gossip_desync,
             "role_desync": role_desync,
             "self_recognition_ok": leader_id_is_self == is_leader_call,
-            "is_consistent": not (gossip_desync or role_desync or role_ulsm_mismatch),
+            "is_consistent": not (gossip_desync or role_desync or role_ulsm_mismatch or leader_ulsm_mismatch),
         }
 
     def recover_leadership_desync(self) -> bool:
@@ -870,6 +870,40 @@ class LeadershipOrchestrator(BaseOrchestrator):
                 except Exception as e:
                     self._log_warning(f"[LeadershipRecovery] Failed to update state machine: {e}")
             return True
+
+        # Case 3: leader_ulsm_mismatch - ULSM leader_id differs from P2P leader_id
+        # Feb 17, 2026: Sync ULSM leader_id to match P2P's authoritative leader_id
+        leadership_sm = getattr(self._p2p, "_leadership_sm", None)
+        if leadership_sm:
+            try:
+                from scripts.p2p.leadership_state_machine import LeaderState
+                if leadership_sm._leader_id != leader_id:
+                    self._log_warning(
+                        f"[LeadershipRecovery] Fixing leader_ulsm_mismatch: "
+                        f"ulsm_leader={leadership_sm._leader_id} -> p2p_leader={leader_id}"
+                    )
+                    leadership_sm._leader_id = leader_id
+                    # Also fix state if needed
+                    if leader_id == node_id:
+                        if leadership_sm._state != LeaderState.LEADER:
+                            leadership_sm._state = LeaderState.LEADER
+                    elif leadership_sm._state == LeaderState.LEADER:
+                        leadership_sm._state = LeaderState.FOLLOWER
+                    return True
+                # Also check role mismatch (role_ulsm_mismatch)
+                local_is_leader = role in (NodeRole.LEADER, NodeRole.PROVISIONAL_LEADER)
+                ulsm_is_leader = leadership_sm._state == LeaderState.LEADER
+                if local_is_leader != ulsm_is_leader and leadership_sm._state != LeaderState.STEPPING_DOWN:
+                    self._log_warning(
+                        f"[LeadershipRecovery] Fixing role_ulsm_mismatch: "
+                        f"role_is_leader={local_is_leader}, ulsm_is_leader={ulsm_is_leader}"
+                    )
+                    leadership_sm._state = (
+                        LeaderState.LEADER if local_is_leader else LeaderState.FOLLOWER
+                    )
+                    return True
+            except (ImportError, AttributeError) as e:
+                self._log_warning(f"[LeadershipRecovery] ULSM sync failed: {e}")
 
         return False  # State was consistent
 

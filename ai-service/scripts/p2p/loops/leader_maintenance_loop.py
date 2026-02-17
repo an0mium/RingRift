@@ -213,6 +213,15 @@ class LeaderMaintenanceLoop(BaseLoop):
             # Set forced leader override (critical for is_leader checks)
             self._orchestrator._forced_leader_override = True
 
+            # Feb 17, 2026: Sync ULSM to prevent role_ulsm_mismatch / leader_ulsm_mismatch
+            if hasattr(self._orchestrator, "_leadership_sm") and self._orchestrator._leadership_sm:
+                try:
+                    from scripts.p2p.leadership_state_machine import LeaderState
+                    self._orchestrator._leadership_sm._state = LeaderState.LEADER
+                    self._orchestrator._leadership_sm._leader_id = node_id
+                except (ImportError, AttributeError):
+                    pass
+
             # Feb 2026 (2b): Propagate leader_term on maintenance refresh
             current_term = getattr(self._orchestrator, "_leader_term", 0) or 0
             if hasattr(self._orchestrator, "self_info") and self._orchestrator.self_info:

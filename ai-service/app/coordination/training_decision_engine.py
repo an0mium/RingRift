@@ -41,17 +41,38 @@ logger = logging.getLogger(__name__)
 
 
 # Default training parameters by intensity level
+# Entries: (epochs, batch_size, lr_multiplier)
+# Feb 2026: Added "intensive" and "high" intensities set by EloVelocityMixin.
+# Values now use multiplier-based epochs to stay consistent with
+# INTENSITY_TRAINING_MULTIPLIERS in budget_calculator.py.
 INTENSITY_DEFAULTS: dict[str, tuple[int, int, float]] = {
+    # intensive: Stalled configs (2x epochs) - set by EloVelocityMixin
+    "intensive": (100, 512, 1.1),
     # hot_path: Fast iteration with larger batches, higher LR
-    "hot_path": (30, 1024, 1.5),
+    "hot_path": (75, 1024, 1.2),
+    # high: Plateau response (1.5x epochs) - set by EloVelocityMixin
+    "high": (75, 768, 1.05),
     # accelerated: More aggressive training
-    "accelerated": (40, 768, 1.2),
+    "accelerated": (60, 768, 1.1),
     # normal: Default parameters (overridden by config)
     "normal": (50, 512, 1.0),
     # reduced: Slower, more careful training for struggling configs
-    "reduced": (60, 256, 0.8),
-    # paused: Should not reach here, but use minimal params
-    "paused": (10, 128, 0.5),
+    "reduced": (40, 256, 0.9),
+    # paused: Skip training entirely
+    "paused": (0, 128, 0.0),
+}
+
+# Feb 2026: Multiplier-based intensity mapping for training hyperparameters.
+# Maps intensity -> (epoch_multiplier, lr_multiplier) applied to default_epochs.
+# Follows the same pattern as INTENSITY_BUDGET_MULTIPLIERS in budget_calculator.py.
+INTENSITY_TRAINING_MULTIPLIERS: dict[str, tuple[float, float]] = {
+    "intensive": (2.0, 1.1),    # Stalled configs, double epochs
+    "hot_path": (1.5, 1.2),    # Aggressive improvement
+    "high": (1.5, 1.05),       # Plateau response
+    "accelerated": (1.2, 1.1), # Moderate boost
+    "normal": (1.0, 1.0),      # Baseline
+    "reduced": (0.8, 0.9),     # Conservative
+    "paused": (0.0, 0.0),      # Skip training
 }
 
 # Velocity-based cooldown multipliers
@@ -100,13 +121,14 @@ def get_training_params_for_intensity(
 ) -> tuple[int, int, float]:
     """Map training intensity to (epochs, batch_size, lr_multiplier).
 
-    December 2025: Training intensity controls parameter selection based on
-    quality score assessment by FeedbackLoopController:
-      - hot_path (quality >= 0.90): Fast iteration, high LR
-      - accelerated (quality >= 0.80): Increased training, moderate LR boost
-      - normal (quality >= 0.65): Default parameters
-      - reduced (quality >= 0.50): More epochs at lower LR for struggling configs
-      - paused: Skip training entirely (handled in trigger daemon)
+    Intensity levels (set by FeedbackLoopController and EloVelocityMixin):
+      - intensive: Stalled configs, double epochs (EloVelocityMixin)
+      - hot_path: Aggressive improvement, 1.5x epochs
+      - high: Plateau response, 1.5x epochs (EloVelocityMixin)
+      - accelerated: Moderate boost, 1.2x epochs
+      - normal: Default parameters
+      - reduced: Conservative, 0.8x epochs
+      - paused: Skip training entirely
 
     Args:
         intensity: Training intensity level
@@ -117,13 +139,18 @@ def get_training_params_for_intensity(
         Tuple of (epochs, batch_size, learning_rate_multiplier)
 
     Example:
-        >>> get_training_params_for_intensity("hot_path")
-        (30, 1024, 1.5)
+        >>> get_training_params_for_intensity("intensive", default_epochs=50)
+        (100, 512, 1.1)
         >>> get_training_params_for_intensity("normal", default_epochs=100)
         (100, 512, 1.0)
     """
-    # Override normal intensity with provided defaults
+    # Apply multipliers to provided defaults for epoch-scaled intensities
     intensity_params = INTENSITY_DEFAULTS.copy()
+    epoch_mult = INTENSITY_TRAINING_MULTIPLIERS.get(intensity, (1.0, 1.0))[0]
+    lr_mult = INTENSITY_TRAINING_MULTIPLIERS.get(intensity, (1.0, 1.0))[1]
+    if intensity in INTENSITY_TRAINING_MULTIPLIERS:
+        batch = INTENSITY_DEFAULTS.get(intensity, (0, default_batch_size, 0))[1]
+        intensity_params[intensity] = (int(default_epochs * epoch_mult), batch, lr_mult)
     intensity_params["normal"] = (default_epochs, default_batch_size, 1.0)
 
     params = intensity_params.get(intensity)
@@ -500,6 +527,7 @@ __all__ = [
     "compute_adaptive_max_data_age",
     # Constants
     "INTENSITY_DEFAULTS",
+    "INTENSITY_TRAINING_MULTIPLIERS",
     "VELOCITY_TREND_COOLDOWN_MULTIPLIERS",
     "PLAYER_COUNT_THRESHOLD_MULTIPLIERS",
     "BOOTSTRAP_TIERS",

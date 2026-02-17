@@ -321,17 +321,29 @@ class TestIntensityMapping:
             get_training_params_for_intensity,
         )
 
-        # hot_path: fast iteration
-        epochs, batch, lr = get_training_params_for_intensity("hot_path")
-        assert epochs == 30
-        assert batch == 1024
-        assert lr == 1.5
+        # intensive: stalled configs (2x epochs)
+        epochs, batch, lr = get_training_params_for_intensity("intensive")
+        assert epochs == 100  # 50 * 2.0
+        assert batch == 512
+        assert lr == 1.1
 
-        # accelerated
-        epochs, batch, lr = get_training_params_for_intensity("accelerated")
-        assert epochs == 40
-        assert batch == 768
+        # hot_path: aggressive improvement (1.5x epochs)
+        epochs, batch, lr = get_training_params_for_intensity("hot_path")
+        assert epochs == 75  # 50 * 1.5
+        assert batch == 1024
         assert lr == 1.2
+
+        # high: plateau response (1.5x epochs)
+        epochs, batch, lr = get_training_params_for_intensity("high")
+        assert epochs == 75  # 50 * 1.5
+        assert batch == 768
+        assert lr == 1.05
+
+        # accelerated: moderate boost (1.2x epochs)
+        epochs, batch, lr = get_training_params_for_intensity("accelerated")
+        assert epochs == 60  # 50 * 1.2
+        assert batch == 768
+        assert lr == 1.1
 
         # normal (uses default_epochs=50, default_batch_size=512)
         epochs, batch, lr = get_training_params_for_intensity("normal")
@@ -339,11 +351,16 @@ class TestIntensityMapping:
         assert batch == 512
         assert lr == 1.0
 
-        # reduced
+        # reduced: conservative (0.8x epochs)
         epochs, batch, lr = get_training_params_for_intensity("reduced")
-        assert epochs == 60
+        assert epochs == 40  # 50 * 0.8
         assert batch == 256
-        assert lr == 0.8
+        assert lr == 0.9
+
+        # paused: skip training
+        epochs, batch, lr = get_training_params_for_intensity("paused")
+        assert epochs == 0
+        assert lr == 0.0
 
     def test_unknown_intensity_fallback(self):
         """Test fallback to normal for unknown intensity."""

@@ -51,16 +51,17 @@ def get_training_params_for_intensity(
 ) -> tuple[int, int, float]:
     """Map training intensity to (epochs, batch_size, lr_multiplier).
 
-    The FeedbackLoopController sets intensity based on quality score:
-      - hot_path (quality >= 0.90): Fast iteration, high LR
-      - accelerated (quality >= 0.80): Increased training, moderate LR boost
-      - normal (quality >= 0.65): Default parameters
-      - reduced (quality >= 0.50): More epochs at lower LR for struggling configs
-      - paused: Skip training entirely (handled in _maybe_trigger_training)
+    Intensity levels (set by FeedbackLoopController and EloVelocityMixin):
+      - intensive: Stalled configs, 2x epochs (EloVelocityMixin)
+      - hot_path: Aggressive improvement, 1.5x epochs, higher LR
+      - high: Plateau response, 1.5x epochs (EloVelocityMixin)
+      - accelerated: Moderate boost, 1.2x epochs
+      - normal: Default parameters
+      - reduced: Conservative, 0.8x epochs
+      - paused: Skip training entirely
 
     Args:
-        intensity: Training intensity level ("hot_path", "accelerated", "normal",
-                   "reduced", "paused")
+        intensity: Training intensity level
         default_epochs: Default epoch count for "normal" intensity
         default_batch_size: Default batch size for "normal" intensity
 
@@ -68,16 +69,20 @@ def get_training_params_for_intensity(
         Tuple of (epochs, batch_size, learning_rate_multiplier)
     """
     intensity_params = {
+        # intensive: Stalled configs (2x epochs) - set by EloVelocityMixin
+        "intensive": (default_epochs * 2, default_batch_size, 1.1),
         # hot_path: Fast iteration with larger batches, higher LR
-        "hot_path": (30, 1024, 1.5),
+        "hot_path": (int(default_epochs * 1.5), 1024, 1.2),
+        # high: Plateau response (1.5x epochs) - set by EloVelocityMixin
+        "high": (int(default_epochs * 1.5), 768, 1.05),
         # accelerated: More aggressive training
-        "accelerated": (40, 768, 1.2),
+        "accelerated": (int(default_epochs * 1.2), 768, 1.1),
         # normal: Default parameters
         "normal": (default_epochs, default_batch_size, 1.0),
         # reduced: Slower, more careful training for struggling configs
-        "reduced": (60, 256, 0.8),
+        "reduced": (int(default_epochs * 0.8), 256, 0.9),
         # paused: Should not reach here, but use minimal params
-        "paused": (10, 128, 0.5),
+        "paused": (0, 128, 0.0),
     }
 
     params = intensity_params.get(intensity)

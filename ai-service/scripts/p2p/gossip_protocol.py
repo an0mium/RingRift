@@ -2168,12 +2168,23 @@ class GossipProtocolMixin(GossipPersistenceMixin, GossipPartitionMixin, _GossipM
                 self.self_info.leader_id = peer_leader
                 self.self_info.leader_consensus_id = peer_leader
             # Update role to follower if we accepted a different leader
-            if peer_leader != getattr(self, "node_id", None):
+            is_self = (peer_leader == getattr(self, "node_id", None))
+            if not is_self:
                 try:
                     from scripts.p2p.models import NodeRole
                     if hasattr(self, "role") and self.role != NodeRole.FOLLOWER:
                         self.role = NodeRole.FOLLOWER
                 except ImportError:
+                    pass
+            # Feb 17, 2026: Sync ULSM to prevent leader_ulsm_mismatch
+            if hasattr(self, "_leadership_sm") and self._leadership_sm:
+                try:
+                    from scripts.p2p.leadership_state_machine import LeaderState
+                    self._leadership_sm._leader_id = peer_leader
+                    self._leadership_sm._state = (
+                        LeaderState.LEADER if is_self else LeaderState.FOLLOWER
+                    )
+                except (ImportError, AttributeError):
                     pass
             self._log_info(
                 f"[Gossip] Adopted leader {peer_leader} with term {peer_term} "
@@ -2192,7 +2203,8 @@ class GossipProtocolMixin(GossipPersistenceMixin, GossipPartitionMixin, _GossipM
                     self.last_leader_seen = now
                     # Jan 20, 2026: FIX - Also update role to FOLLOWER when accepting leader
                     # This prevents desync where leader_id is set but role remains candidate
-                    if claimed_leader != getattr(self, "node_id", None):
+                    is_self = (claimed_leader == getattr(self, "node_id", None))
+                    if not is_self:
                         try:
                             from scripts.p2p.models import NodeRole
                             if hasattr(self, "role") and self.role != NodeRole.FOLLOWER:
@@ -2200,6 +2212,16 @@ class GossipProtocolMixin(GossipPersistenceMixin, GossipPartitionMixin, _GossipM
                                 self._log_debug(f"Gossip: Updated role to FOLLOWER (accepted leader {claimed_leader})")
                         except ImportError:
                             pass
+                    # Feb 17, 2026: Sync ULSM after accepting gossip leader claim
+                    try:
+                        from scripts.p2p.leadership_state_machine import LeaderState
+                        self._leadership_sm._leader_id = claimed_leader
+                        self._leadership_sm._state = (
+                            LeaderState.LEADER if is_self else LeaderState.FOLLOWER
+                        )
+                        self._leadership_sm.set_leader(claimed_leader, claimed_epoch)
+                    except (ImportError, AttributeError):
+                        pass
                     if current_lease_expired:
                         self._log_info(f"Gossip: Updated expired leader to {claimed_leader} epoch={claimed_epoch}")
                     else:

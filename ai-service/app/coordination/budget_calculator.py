@@ -283,8 +283,11 @@ def get_adaptive_budget_for_games(game_count: int, elo: float) -> int:
 
 # Intensity multipliers for Gumbel budget
 # Higher intensity → higher budget (more quality games)
+# Feb 2026: Added "intensive" and "high" (set by EloVelocityMixin)
 INTENSITY_BUDGET_MULTIPLIERS: dict[str, float] = {
+    "intensive": 1.75,    # Stalled configs need highest quality data
     "hot_path": 1.5,      # Fast iteration needs highest quality data
+    "high": 1.5,          # Plateau response, boost quality
     "accelerated": 1.25,  # Accelerated training benefits from quality
     "normal": 1.0,        # Baseline
     "reduced": 0.75,      # Lower intensity can use faster games

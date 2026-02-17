@@ -18,19 +18,33 @@ from app.coordination.training_architecture_selector import (
 class TestGetTrainingParamsForIntensity:
     """Tests for get_training_params_for_intensity function."""
 
+    def test_intensive_intensity(self):
+        """Intensive should return 2x epochs for stalled configs."""
+        epochs, batch_size, lr_mult = get_training_params_for_intensity("intensive")
+        assert epochs == DEFAULT_EPOCHS * 2  # 2.0x
+        assert batch_size == DEFAULT_BATCH_SIZE
+        assert lr_mult == 1.1
+
     def test_hot_path_intensity(self):
-        """Hot path should return fast iteration params."""
+        """Hot path should return 1.5x epochs with higher LR."""
         epochs, batch_size, lr_mult = get_training_params_for_intensity("hot_path")
-        assert epochs == 30
+        assert epochs == int(DEFAULT_EPOCHS * 1.5)  # 1.5x
         assert batch_size == 1024
-        assert lr_mult == 1.5
+        assert lr_mult == 1.2
+
+    def test_high_intensity(self):
+        """High should return 1.5x epochs for plateau response."""
+        epochs, batch_size, lr_mult = get_training_params_for_intensity("high")
+        assert epochs == int(DEFAULT_EPOCHS * 1.5)  # 1.5x
+        assert batch_size == 768
+        assert lr_mult == 1.05
 
     def test_accelerated_intensity(self):
         """Accelerated should return moderate boost params."""
         epochs, batch_size, lr_mult = get_training_params_for_intensity("accelerated")
-        assert epochs == 40
+        assert epochs == int(DEFAULT_EPOCHS * 1.2)  # 1.2x
         assert batch_size == 768
-        assert lr_mult == 1.2
+        assert lr_mult == 1.1
 
     def test_normal_intensity(self):
         """Normal should return default params."""
@@ -40,18 +54,18 @@ class TestGetTrainingParamsForIntensity:
         assert lr_mult == 1.0
 
     def test_reduced_intensity(self):
-        """Reduced should return careful training params."""
+        """Reduced should return conservative training params."""
         epochs, batch_size, lr_mult = get_training_params_for_intensity("reduced")
-        assert epochs == 60
+        assert epochs == int(DEFAULT_EPOCHS * 0.8)  # 0.8x
         assert batch_size == 256
-        assert lr_mult == 0.8
+        assert lr_mult == 0.9
 
     def test_paused_intensity(self):
-        """Paused should return minimal params."""
+        """Paused should return zero epochs."""
         epochs, batch_size, lr_mult = get_training_params_for_intensity("paused")
-        assert epochs == 10
+        assert epochs == 0
         assert batch_size == 128
-        assert lr_mult == 0.5
+        assert lr_mult == 0.0
 
     def test_unknown_intensity_fallback(self):
         """Unknown intensity should fall back to normal."""
@@ -69,13 +83,13 @@ class TestGetTrainingParamsForIntensity:
         assert batch_size == 256
         assert lr_mult == 1.0
 
-    def test_custom_defaults_not_affect_other_intensities(self):
-        """Custom defaults should only affect normal intensity."""
+    def test_custom_defaults_scale_other_intensities(self):
+        """Custom defaults should scale epoch-based intensities."""
         epochs, batch_size, lr_mult = get_training_params_for_intensity(
             "hot_path", default_epochs=100, default_batch_size=256
         )
-        # hot_path has fixed values, not affected by defaults
-        assert epochs == 30
+        # hot_path uses 1.5x multiplier on default_epochs
+        assert epochs == int(100 * 1.5)
         assert batch_size == 1024
 
 
@@ -397,7 +411,7 @@ class TestIntegration:
         """Test typical workflow: get intensity params, then amplify."""
         # Get base params for accelerated intensity
         base_params = get_training_params_for_intensity("accelerated")
-        assert base_params == (40, 768, 1.2)
+        assert base_params == (60, 768, 1.1)
 
         # Apply velocity amplification for fast improvement
         final_params = apply_velocity_amplification(
@@ -407,13 +421,13 @@ class TestIntegration:
         epochs, batch_size, lr_mult = final_params
 
         # Should be amplified from accelerated base
-        assert epochs > 40  # boosted
+        assert epochs > 60  # boosted
         assert batch_size >= 768  # at least maintained
-        assert lr_mult > 1.2  # boosted
+        assert lr_mult > 1.1  # boosted
 
     def test_all_intensities_produce_valid_params(self):
         """All intensity levels should produce valid parameter tuples."""
-        intensities = ["hot_path", "accelerated", "normal", "reduced", "paused"]
+        intensities = ["intensive", "hot_path", "high", "accelerated", "normal", "reduced", "paused"]
 
         for intensity in intensities:
             epochs, batch_size, lr_mult = get_training_params_for_intensity(intensity)
@@ -421,6 +435,8 @@ class TestIntegration:
             assert isinstance(epochs, int)
             assert isinstance(batch_size, int)
             assert isinstance(lr_mult, float)
-            assert epochs > 0
+            # paused is allowed to have 0 epochs and 0.0 lr
+            if intensity != "paused":
+                assert epochs > 0
+                assert lr_mult > 0
             assert batch_size > 0
-            assert lr_mult > 0

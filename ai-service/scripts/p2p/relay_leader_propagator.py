@@ -328,6 +328,20 @@ class RelayLeaderPropagatorMixin:
         if hasattr(self, "last_leader_seen"):
             self.last_leader_seen = now
 
+        # Feb 17, 2026: Sync ULSM to prevent leader_ulsm_mismatch
+        if hasattr(self, "_leadership_sm") and self._leadership_sm:
+            try:
+                from scripts.p2p.leadership_state_machine import LeaderState
+                is_self = (best_claim.leader_id == getattr(self, "node_id", None))
+                self._leadership_sm._leader_id = best_claim.leader_id
+                self._leadership_sm._state = (
+                    LeaderState.LEADER if is_self else LeaderState.FOLLOWER
+                )
+                if best_claim.epoch > self._leadership_sm._epoch:
+                    self._leadership_sm._epoch = best_claim.epoch
+            except (ImportError, AttributeError):
+                pass
+
         logger.info(
             f"[RelayLeaderPropagator] Adopted leader from gossip: "
             f"{old_leader} -> {best_claim.leader_id} "

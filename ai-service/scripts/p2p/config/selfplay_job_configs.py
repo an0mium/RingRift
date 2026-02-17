@@ -63,12 +63,13 @@ SELFPLAY_CONFIGS: list[dict[str, Any]] = [
     # ========================================================================
     # GUMBEL MCTS - HIGHEST PRIORITY (70% of jobs should use Gumbel)
     # GPU-accelerated Gumbel Top-K MCTS for high-quality training data
-    # 3p/4p get priority 12 (underrepresented), 2p get priority 10
+    # Feb 17 2026: All CRITICAL configs (square8_2p, square19_2p) upgraded to HIGH
+    # to break plateau stall. Previously 2p=10 vs 3p/4p=12 starved stalled 2p configs.
     # ========================================================================
     {"board_type": "hex8", "num_players": 2, "engine_mode": "gumbel-mcts", "priority": PRIORITY_GUMBEL_STANDARD},
     {"board_type": "hex8", "num_players": 3, "engine_mode": "gumbel-mcts", "priority": PRIORITY_GUMBEL_HIGH},
     {"board_type": "hex8", "num_players": 4, "engine_mode": "gumbel-mcts", "priority": PRIORITY_GUMBEL_HIGH},
-    {"board_type": "square8", "num_players": 2, "engine_mode": "gumbel-mcts", "priority": PRIORITY_GUMBEL_STANDARD},
+    {"board_type": "square8", "num_players": 2, "engine_mode": "gumbel-mcts", "priority": PRIORITY_GUMBEL_HIGH},
     {"board_type": "square8", "num_players": 3, "engine_mode": "gumbel-mcts", "priority": PRIORITY_GUMBEL_HIGH},
     {"board_type": "square8", "num_players": 4, "engine_mode": "gumbel-mcts", "priority": PRIORITY_GUMBEL_STANDARD},
     {"board_type": "square19", "num_players": 2, "engine_mode": "gumbel-mcts", "priority": PRIORITY_GUMBEL_HIGH},
@@ -308,18 +309,20 @@ DIVERSE_PROFILES: list[dict[str, Any]] = [
     # visit distributions as policy targets, training data is noise and the
     # AlphaZero loop cannot improve models. All 12 configs now have Gumbel.
     # ========================================================================
+    # Feb 17 2026: Boosted square8_2p (0.07->0.09) and square19_2p (0.06->0.08)
+    # to break plateau stall. Reduced hex8_3p/4p slightly to keep total at 0.70.
     {"engine_mode": "gumbel-mcts", "board_type": "hex8", "num_players": 2, "profile": "balanced", "weight": 0.07, "description": "Gumbel hex8_2p"},
-    {"engine_mode": "gumbel-mcts", "board_type": "hex8", "num_players": 3, "profile": "balanced", "weight": 0.06, "description": "Gumbel hex8_3p"},
-    {"engine_mode": "gumbel-mcts", "board_type": "hex8", "num_players": 4, "profile": "balanced", "weight": 0.06, "description": "Gumbel hex8_4p"},
-    {"engine_mode": "gumbel-mcts", "board_type": "square8", "num_players": 2, "profile": "balanced", "weight": 0.07, "description": "Gumbel square8_2p"},
+    {"engine_mode": "gumbel-mcts", "board_type": "hex8", "num_players": 3, "profile": "balanced", "weight": 0.05, "description": "Gumbel hex8_3p"},
+    {"engine_mode": "gumbel-mcts", "board_type": "hex8", "num_players": 4, "profile": "balanced", "weight": 0.05, "description": "Gumbel hex8_4p"},
+    {"engine_mode": "gumbel-mcts", "board_type": "square8", "num_players": 2, "profile": "balanced", "weight": 0.09, "description": "Gumbel square8_2p"},
     {"engine_mode": "gumbel-mcts", "board_type": "square8", "num_players": 3, "profile": "balanced", "weight": 0.06, "description": "Gumbel square8_3p"},
-    {"engine_mode": "gumbel-mcts", "board_type": "square8", "num_players": 4, "profile": "balanced", "weight": 0.06, "description": "Gumbel square8_4p"},
-    {"engine_mode": "gumbel-mcts", "board_type": "square19", "num_players": 2, "profile": "balanced", "weight": 0.06, "description": "Gumbel square19_2p"},
+    {"engine_mode": "gumbel-mcts", "board_type": "square8", "num_players": 4, "profile": "balanced", "weight": 0.05, "description": "Gumbel square8_4p"},
+    {"engine_mode": "gumbel-mcts", "board_type": "square19", "num_players": 2, "profile": "balanced", "weight": 0.08, "description": "Gumbel square19_2p"},
     {"engine_mode": "gumbel-mcts", "board_type": "square19", "num_players": 3, "profile": "balanced", "weight": 0.05, "description": "Gumbel square19_3p"},
     {"engine_mode": "gumbel-mcts", "board_type": "square19", "num_players": 4, "profile": "balanced", "weight": 0.05, "description": "Gumbel square19_4p"},
     {"engine_mode": "gumbel-mcts", "board_type": "hexagonal", "num_players": 2, "profile": "balanced", "weight": 0.06, "description": "Gumbel hexagonal_2p"},
     {"engine_mode": "gumbel-mcts", "board_type": "hexagonal", "num_players": 3, "profile": "balanced", "weight": 0.05, "description": "Gumbel hexagonal_3p"},
-    {"engine_mode": "gumbel-mcts", "board_type": "hexagonal", "num_players": 4, "profile": "balanced", "weight": 0.05, "description": "Gumbel hexagonal_4p"},
+    {"engine_mode": "gumbel-mcts", "board_type": "hexagonal", "num_players": 4, "profile": "balanced", "weight": 0.04, "description": "Gumbel hexagonal_4p"},
     # Gumbel total: 0.70 (70%)
 
     # ========================================================================

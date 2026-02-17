@@ -1086,8 +1086,14 @@ class SelfplayScheduler(
             )
 
             if self._is_config_plateaued(config_key):
-                # Apply 50% penalty for plateaued configs
-                cfg["effective_priority"] = max(1, int(base_priority * 0.5))
+                # Apply 50% penalty for plateaued configs, but exempt CRITICAL
+                # configs (priority 0) to prevent death spiral: no data -> no
+                # training -> no Elo improvement -> plateau penalty -> less data
+                is_critical = board_priority_overrides.get(config_key, 3) == 0
+                if is_critical:
+                    cfg["effective_priority"] = base_priority
+                else:
+                    cfg["effective_priority"] = max(1, int(base_priority * 0.5))
             else:
                 cfg["effective_priority"] = base_priority
 

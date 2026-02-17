@@ -1017,6 +1017,20 @@ class ElectionHandlersMixin(BaseP2PHandler):
                 except ImportError:
                     pass
 
+            # Feb 17, 2026: Sync ULSM to prevent role_ulsm_mismatch / leader_ulsm_mismatch
+            if hasattr(self, "_leadership_sm") and self._leadership_sm:
+                try:
+                    from scripts.p2p.leadership_state_machine import LeaderState
+                    is_self = (leader_id == self.node_id)
+                    self._leadership_sm._leader_id = leader_id
+                    self._leadership_sm._state = (
+                        LeaderState.LEADER if is_self else LeaderState.FOLLOWER
+                    )
+                    if epoch > self._leadership_sm._epoch:
+                        self._leadership_sm._epoch = epoch
+                except (ImportError, AttributeError):
+                    pass
+
             logger.info(
                 f"[Election] Adopted leader {leader_id} via direct announcement "
                 f"(epoch {epoch}, term {peer_term})"

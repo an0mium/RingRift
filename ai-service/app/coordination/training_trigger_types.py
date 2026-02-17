@@ -152,7 +152,7 @@ class ConfigTrainingState:
     elo_velocity_trend: str = "stable"  # accelerating, stable, decelerating, plateauing
     last_elo_velocity_update: float = 0.0
     # Training intensity (set by master_loop or FeedbackLoopController)
-    training_intensity: str = "normal"  # hot_path, accelerated, normal, reduced, paused
+    training_intensity: str = "normal"  # intensive, hot_path, high, accelerated, normal, reduced, paused
     consecutive_failures: int = 0
     # December 29, 2025: Track model path for event emission
     _pending_model_path: str = ""  # Path where current training will save model
