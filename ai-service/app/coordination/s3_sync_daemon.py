@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any
 
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
+from app.utils.paths import AWS_CLI
 
 logger = logging.getLogger(__name__)
 
@@ -466,7 +467,7 @@ class S3SyncDaemon(HandlerBase):
             result = await asyncio.to_thread(
                 subprocess.run,
                 [
-                    "aws",
+                    AWS_CLI,
                     "s3",
                     "cp",
                     str(local_path),

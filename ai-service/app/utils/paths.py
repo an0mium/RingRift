@@ -17,6 +17,7 @@ Usage:
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 
 __all__ = [
@@ -54,6 +55,7 @@ __all__ = [
     # Database paths
     "UNIFIED_ELO_DB",
     "WORK_QUEUE_DB",
+    "AWS_CLI",
     "ensure_dir",
     "ensure_parent_dir",
     "get_data_dir",
@@ -83,6 +85,32 @@ def get_project_root() -> Path:
 
 # The project root - use this instead of computing Path(__file__).parents[n]
 AI_SERVICE_ROOT = get_project_root()
+
+
+# =============================================================================
+# External Binary Paths
+# =============================================================================
+
+def _resolve_aws_cli() -> str:
+    """Resolve the AWS CLI binary path.
+
+    Subprocess calls need the full path because spawned processes may not
+    inherit the user's PATH (e.g. when run via LaunchAgent or cron).
+    """
+    found = shutil.which("aws")
+    if found:
+        return found
+    for candidate in [
+        os.path.expanduser("~/local/aws-cli/aws"),
+        "/usr/local/bin/aws",
+        "/opt/homebrew/bin/aws",
+    ]:
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return "aws"
+
+
+AWS_CLI = _resolve_aws_cli()
 
 
 # =============================================================================

@@ -130,7 +130,7 @@ class LeaderProbeLoop(BaseLoop):
         # Jan 21, 2026: Adjusted range for Phase 1 timeout alignment (6-14 failures = 60-140s)
         # Range: 6-14 failures (60-140s at 10s probe interval)
         self._min_failure_threshold = 6  # 60s - healthy cluster, fast failover
-        self._max_failure_threshold = 14  # 140s - degraded cluster, avoid false elections
+        self._max_failure_threshold = 10  # 100s - must be < 150s heartbeat timeout to avoid dual-leader
         self._dynamic_threshold_enabled = True
 
         # Jan 23, 2026: Handle "no leader" case - trigger election after threshold

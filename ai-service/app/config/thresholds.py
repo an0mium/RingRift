@@ -25,7 +25,7 @@ from functools import lru_cache
 
 # Games needed to trigger training (per config)
 # December 29, 2025: Reduced from 100 to 50 for faster pipeline iteration
-TRAINING_TRIGGER_GAMES = 50
+TRAINING_TRIGGER_GAMES = 100
 
 # Minimum interval between training runs (seconds)
 # December 29, 2025: Reduced from 1200 to 300 for faster iteration cycles
@@ -1797,6 +1797,7 @@ POLICY_LOW_THRESHOLD = 0.65   # Below this: boost training weight
 POLICY_HIGH_THRESHOLD = 0.80  # Above this: reduce training weight
 
 # ELO velocity thresholds (per hour)
+ELO_STALL_PER_HOUR = 2.0              # Below this triggers intensive mode
 ELO_PLATEAU_PER_HOUR = 10.0          # Below this is considered plateau
 ELO_FAST_IMPROVEMENT_PER_HOUR = 50.0  # Above this is fast improvement
 
@@ -2374,9 +2375,9 @@ GUMBEL_DEFAULT_BUDGET = GUMBEL_BUDGET_STANDARD
 # Jan 12, 2026: CRITICAL FIX - Increased bootstrap budgets significantly.
 # Old values (64/150/200) produced weak training data plateauing at ~1400 Elo.
 # Higher budgets generate higher quality games even during bootstrap.
-GUMBEL_BUDGET_BOOTSTRAP_TIER1 = 150  # For <100 games: was 64, now 150 for quality
-GUMBEL_BUDGET_BOOTSTRAP_TIER2 = 300  # For <500 games: was 150, now 300
-GUMBEL_BUDGET_BOOTSTRAP_TIER3 = 500  # For <1000 games: was 200, now 500
+GUMBEL_BUDGET_BOOTSTRAP_TIER1 = 64   # For <100 games: was 64, now 150 for quality
+GUMBEL_BUDGET_BOOTSTRAP_TIER2 = 150  # For <500 games: was 150, now 300
+GUMBEL_BUDGET_BOOTSTRAP_TIER3 = 300  # For <1000 games: was 200, now 500
 # Above 1000 games: use Elo-based adaptive budget (STANDARD/QUALITY/ULTIMATE/MASTER)
 
 # Game count thresholds for bootstrap budget tiers

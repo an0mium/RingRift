@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any
 
 from app.coordination.event_utils import make_config_key
+from app.utils.paths import AWS_CLI
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +188,7 @@ class S3Inventory:
         try:
             # List all .db files in games prefix
             cmd = [
-                "aws", "s3", "ls",
+                AWS_CLI, "s3", "ls",
                 f"s3://{self.config.bucket}/{self.config.games_prefix}/",
                 "--recursive",
                 "--region", self.config.region,
@@ -262,7 +263,7 @@ class S3Inventory:
         """Query S3 for NPZ training files."""
         try:
             cmd = [
-                "aws", "s3", "ls",
+                AWS_CLI, "s3", "ls",
                 f"s3://{self.config.bucket}/{self.config.training_prefix}/",
                 "--recursive",
                 "--region", self.config.region,
@@ -323,7 +324,7 @@ class S3Inventory:
         """Query S3 for model checkpoints."""
         try:
             cmd = [
-                "aws", "s3", "ls",
+                AWS_CLI, "s3", "ls",
                 f"s3://{self.config.bucket}/{self.config.models_prefix}/",
                 "--recursive",
                 "--region", self.config.region,

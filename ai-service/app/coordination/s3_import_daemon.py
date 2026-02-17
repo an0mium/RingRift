@@ -34,6 +34,7 @@ from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.coordination.mixins.import_mixin import ImportDaemonMixin
 from app.coordination.protocols import CoordinatorStatus
 from app.coordination.event_emission_helpers import safe_emit_event
+from app.utils.paths import AWS_CLI
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +167,7 @@ class S3ImportDaemon(HandlerBase, ImportDaemonMixin):
             result = await asyncio.to_thread(
                 subprocess.run,
                 [
-                    "aws", "s3api", "list-objects-v2",
+                    AWS_CLI, "s3api", "list-objects-v2",
                     "--bucket", self.config.bucket,
                     "--prefix", prefix,
                     "--region", self.config.region,
@@ -217,7 +218,7 @@ class S3ImportDaemon(HandlerBase, ImportDaemonMixin):
             result = await asyncio.to_thread(
                 subprocess.run,
                 [
-                    "aws", "s3", "cp",
+                    AWS_CLI, "s3", "cp",
                     s3_uri,
                     str(local_path),
                     "--region", self.config.region,

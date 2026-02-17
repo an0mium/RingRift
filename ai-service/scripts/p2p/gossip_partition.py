@@ -270,3 +270,36 @@ class GossipPartitionMixin:
             "interval_stable": self.GOSSIP_INTERVAL_STABLE,
             "jitter_factor": self.GOSSIP_INTERVAL_JITTER,  # Phase 10.2: For monitoring
         }
+
+    # =========================================================================
+    # Epoch-Aware Gossip Merge (Feb 2026)
+    # =========================================================================
+
+    def validate_gossip_leader_epoch(
+        self, claimed_leader: str, claimed_epoch: int, lease_expires: float
+    ) -> bool:
+        """Validate a leader claim from gossip against known epoch.
+
+        Only accept leader info if the epoch is >= our current known epoch.
+        This prevents stale leader claims from pre-partition state from
+        causing oscillation after partition healing.
+        """
+        import time
+        now = time.time()
+
+        if lease_expires <= now:
+            return False
+
+        current_epoch = 0
+        if hasattr(self, "_leadership_sm") and self._leadership_sm:
+            current_epoch = getattr(self._leadership_sm, "epoch", 0)
+
+        if claimed_epoch >= current_epoch:
+            return True
+
+        self._log_debug(
+            f"[GossipPartition] Rejected stale leader claim from {claimed_leader}: "
+            f"epoch={claimed_epoch} < current={current_epoch}"
+        )
+        return False
+

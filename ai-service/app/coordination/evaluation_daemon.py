@@ -256,9 +256,9 @@ class EvaluationConfig:
     # Dec 29: Increased thresholds for higher training throughput
     # Jan 5, 2026: Further increased from 70/35 to 100/50 to reduce training pauses.
     # 70 was too aggressive - training blocked 5-15 min per cycle during eval queue spikes.
-    max_queue_depth: int = 150  # Maximum pending evaluations (increased from 100)
-    backpressure_threshold: int = 100  # Emit backpressure at this depth (increased from 70)
-    backpressure_release_threshold: int = 50  # Release backpressure at this depth (increased from 35)
+    max_queue_depth: int = 200  # Maximum pending evaluations (increased from 100)
+    backpressure_threshold: int = 150  # Emit backpressure at this depth (increased from 70)
+    backpressure_release_threshold: int = 75  # Release backpressure at this depth (increased from 35)
 
     # Session 17.24 (Jan 2026): Backpressure hysteresis to prevent rapid toggling
     # When queue hovers near threshold, it can toggle frequently. Hysteresis adds:

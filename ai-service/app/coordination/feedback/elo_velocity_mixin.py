@@ -21,6 +21,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from app.config.thresholds import (
+    ELO_STALL_PER_HOUR,
     ELO_TARGET_ALL_CONFIGS,
     ELO_PLATEAU_PER_HOUR,
     ELO_FAST_IMPROVEMENT_PER_HOUR,
@@ -66,30 +67,50 @@ class EloVelocityAdaptationMixin:
         - Near 2000 Elo goal -> Fine-tune with higher budget
         """
         elo_gap = ELO_TARGET_ALL_CONFIGS - elo
+        is_stalled = velocity < ELO_STALL_PER_HOUR and len(state.elo_history) >= 3
         is_plateau = velocity < ELO_PLATEAU_PER_HOUR and len(state.elo_history) >= 3
         is_fast = velocity > ELO_FAST_IMPROVEMENT_PER_HOUR
 
-        # Determine new search budget based on velocity and gap
-        if is_plateau:
-            # Plateau detected - boost search budget
+        # Determine new search budget and intensity based on velocity
+        old_intensity = state.current_training_intensity
+        if is_stalled:
+            # Stalled (<2 Elo/hr) - aggressive intensity (2x epochs)
             old_budget = state.current_search_budget
-            new_budget = min(800, old_budget + 100)  # Increase by 100, cap at 800
+            new_budget = min(800, old_budget + 100)
             state.current_search_budget = new_budget
             state.current_exploration_boost = min(
                 EXPLORATION_BOOST_MAX, state.current_exploration_boost * EXPLORATION_BOOST_MULTIPLIER
             )
+            state.current_training_intensity = "intensive"
+
+            logger.warning(
+                f"[EloVelocity] STALL DETECTED for {config_key}: "
+                f"velocity={velocity:.1f} Elo/hr (<{ELO_STALL_PER_HOUR}), elo_gap={elo_gap:.0f}. "
+                f"budget {old_budget}->{new_budget}, intensity->intensive, "
+                f"exploration_boost={state.current_exploration_boost:.2f}"
+            )
+        elif is_plateau:
+            # Plateau (<10 Elo/hr) - boost budget, high intensity (1.5x epochs)
+            old_budget = state.current_search_budget
+            new_budget = min(800, old_budget + 100)
+            state.current_search_budget = new_budget
+            state.current_exploration_boost = min(
+                EXPLORATION_BOOST_MAX, state.current_exploration_boost * EXPLORATION_BOOST_MULTIPLIER
+            )
+            state.current_training_intensity = "high"
 
             logger.warning(
                 f"[EloVelocity] PLATEAU DETECTED for {config_key}: "
                 f"velocity={velocity:.1f} Elo/hr, elo_gap={elo_gap:.0f}. "
-                f"Increasing budget {old_budget}->{new_budget}, "
+                f"budget {old_budget}->{new_budget}, intensity->high, "
                 f"exploration_boost={state.current_exploration_boost:.2f}"
             )
         elif is_fast:
-            # Fast improvement - maintain current settings
+            # Fast improvement (>50 Elo/hr) - maintain current settings
+            state.current_training_intensity = "normal"
             logger.info(
                 f"[EloVelocity] Fast improvement for {config_key}: "
-                f"velocity={velocity:.1f} Elo/hr. Maintaining settings."
+                f"velocity={velocity:.1f} Elo/hr. intensity->normal."
             )
         elif elo > 1800:
             # Near goal - fine-tune with higher budget
@@ -97,6 +118,12 @@ class EloVelocityAdaptationMixin:
             logger.info(
                 f"[EloVelocity] Near goal for {config_key}: "
                 f"elo={elo:.0f}, using budget={state.current_search_budget}"
+            )
+
+        if old_intensity != state.current_training_intensity:
+            logger.info(
+                f"[EloVelocity] Training intensity transition for {config_key}: "
+                f"{old_intensity} -> {state.current_training_intensity}"
             )
 
         # Emit selfplay target update event
@@ -119,6 +146,7 @@ class EloVelocityAdaptationMixin:
                     "config_key": config_key,
                     "search_budget": state.current_search_budget,
                     "exploration_boost": state.current_exploration_boost,
+                    "training_intensity": state.current_training_intensity,
                     "elo_gap": elo_gap,
                     "velocity": velocity,
                     "priority": "HIGH" if elo_gap > 500 or velocity < ELO_PLATEAU_PER_HOUR else "NORMAL",

@@ -371,22 +371,22 @@ class CircuitBreakerDefaults:
     MAX_BACKOFF: float = _env_float("RINGRIFT_CB_MAX_BACKOFF", 180.0)
 
     # Half-open state max calls for testing recovery
-    HALF_OPEN_MAX_CALLS: int = _env_int("RINGRIFT_CB_HALF_OPEN_MAX_CALLS", 1)
+    HALF_OPEN_MAX_CALLS: int = _env_int("RINGRIFT_CB_HALF_OPEN_MAX_CALLS", 2)
 
     # Per-transport type configs
-    SSH_FAILURE_THRESHOLD: int = 3
+    SSH_FAILURE_THRESHOLD: int = 5
     SSH_RECOVERY_TIMEOUT: float = 60.0
 
     HTTP_FAILURE_THRESHOLD: int = 5
     HTTP_RECOVERY_TIMEOUT: float = 30.0
 
-    P2P_FAILURE_THRESHOLD: int = 3
+    P2P_FAILURE_THRESHOLD: int = 5
     P2P_RECOVERY_TIMEOUT: float = 45.0
 
-    ARIA2_FAILURE_THRESHOLD: int = 2
+    ARIA2_FAILURE_THRESHOLD: int = 3
     ARIA2_RECOVERY_TIMEOUT: float = 120.0
 
-    RSYNC_FAILURE_THRESHOLD: int = 2
+    RSYNC_FAILURE_THRESHOLD: int = 3
     RSYNC_RECOVERY_TIMEOUT: float = 90.0
 
     # Per-provider configs (December 29, 2025)

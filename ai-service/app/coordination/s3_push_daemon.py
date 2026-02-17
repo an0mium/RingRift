@@ -34,6 +34,7 @@ from typing import Any
 
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.utils.retry import RetryConfig
+from app.utils.paths import AWS_CLI
 
 logger = logging.getLogger(__name__)
 

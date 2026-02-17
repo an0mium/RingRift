@@ -107,17 +107,17 @@ try:
 except ImportError:
     # Fallback defaults if central config not available
     CIRCUIT_BREAKER_CONFIGS = {
-        "ssh": {"failure_threshold": 3, "recovery_timeout": 60.0},
+        "ssh": {"failure_threshold": 5, "recovery_timeout": 60.0},
         "http": {"failure_threshold": 5, "recovery_timeout": 30.0},
-        "p2p": {"failure_threshold": 3, "recovery_timeout": 45.0},
-        "aria2": {"failure_threshold": 2, "recovery_timeout": 120.0},
-        "rsync": {"failure_threshold": 2, "recovery_timeout": 90.0},
+        "p2p": {"failure_threshold": 5, "recovery_timeout": 45.0},
+        "aria2": {"failure_threshold": 3, "recovery_timeout": 120.0},
+        "rsync": {"failure_threshold": 3, "recovery_timeout": 90.0},
     }
     DEFAULT_FAILURE_THRESHOLD = 5
     DEFAULT_RECOVERY_TIMEOUT = 60.0
     # Dec 28, 2025: Reduced from 600 to 180 to prevent long stalls in training pipelines
     DEFAULT_MAX_BACKOFF = 180.0
-    DEFAULT_HALF_OPEN_MAX_CALLS = 1
+    DEFAULT_HALF_OPEN_MAX_CALLS = 2
 
 # Jan 21, 2026: Phase 3 - TTL reset prevents permanently stuck circuit breakers
 # These are module-level constants, not part of the try/except fallback,
@@ -1193,10 +1193,10 @@ _transport_breakers_lock = RLock()
 # Transports with faster recovery get shorter TTLs to avoid prolonged blocking
 TRANSPORT_CONFIGS = {
     "http": {"failure_threshold": 5, "recovery_timeout": 30.0, "decay_ttl": 7200.0},      # 2 hours
-    "ssh": {"failure_threshold": 3, "recovery_timeout": 60.0, "decay_ttl": 3600.0},       # 1 hour
-    "rsync": {"failure_threshold": 2, "recovery_timeout": 90.0, "decay_ttl": 3600.0},     # 1 hour
-    "p2p": {"failure_threshold": 3, "recovery_timeout": 45.0, "decay_ttl": 1800.0},       # 30 min
-    "aria2": {"failure_threshold": 2, "recovery_timeout": 120.0, "decay_ttl": 3600.0},    # 1 hour
+    "ssh": {"failure_threshold": 5, "recovery_timeout": 60.0, "decay_ttl": 3600.0},       # 1 hour
+    "rsync": {"failure_threshold": 3, "recovery_timeout": 90.0, "decay_ttl": 3600.0},     # 1 hour
+    "p2p": {"failure_threshold": 5, "recovery_timeout": 45.0, "decay_ttl": 1800.0},       # 30 min
+    "aria2": {"failure_threshold": 3, "recovery_timeout": 120.0, "decay_ttl": 3600.0},    # 1 hour
     "tailscale": {"failure_threshold": 3, "recovery_timeout": 60.0, "decay_ttl": 1800.0}, # 30 min (usually recovers fast)
     "base64": {"failure_threshold": 2, "recovery_timeout": 30.0, "decay_ttl": 1800.0},    # 30 min
     "relay": {"failure_threshold": 2, "recovery_timeout": 30.0, "decay_ttl": 900.0},      # 15 min (high churn)

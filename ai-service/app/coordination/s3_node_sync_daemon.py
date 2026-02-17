@@ -55,6 +55,7 @@ if str(ROOT) not in sys.path:
 from app.coordination.event_handler_utils import extract_config_key
 from app.coordination.handler_base import HandlerBase
 from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
+from app.utils.paths import AWS_CLI
 
 
 def get_node_id() -> str:
@@ -559,7 +560,7 @@ class S3NodeSyncDaemon(HandlerBase):
         try:
             # Check if exists in S3 with same size
             cmd = [
-                "aws", "s3api", "head-object",
+                AWS_CLI, "s3api", "head-object",
                 "--bucket", self.config.s3_bucket,
                 "--key", s3_path,
             ]
@@ -596,7 +597,7 @@ class S3NodeSyncDaemon(HandlerBase):
         """Upload file to S3."""
         s3_uri = f"s3://{self.config.s3_bucket}/{s3_path}"
 
-        cmd = ["aws", "s3", "cp", local_path, s3_uri]
+        cmd = [AWS_CLI, "s3", "cp", local_path, s3_uri]
 
         if self.config.bandwidth_limit_kbps > 0:
             # AWS CLI uses bytes/second for --expected-size
@@ -682,7 +683,7 @@ class S3NodeSyncDaemon(HandlerBase):
         """Download file from S3."""
         s3_uri = f"s3://{self.config.s3_bucket}/{s3_path}"
 
-        cmd = ["aws", "s3", "cp", s3_uri, local_path, "--only-show-errors"]
+        cmd = [AWS_CLI, "s3", "cp", s3_uri, local_path, "--only-show-errors"]
 
         logger.debug(f"Downloading {s3_uri} to {local_path}")
 
@@ -718,7 +719,7 @@ class S3NodeSyncDaemon(HandlerBase):
 
         # List all node directories
         cmd = [
-            "aws", "s3", "ls",
+            AWS_CLI, "s3", "ls",
             f"s3://{self.config.s3_bucket}/nodes/",
         ]
 
@@ -1025,7 +1026,7 @@ class S3ConsolidationDaemon:
             True if key exists, False otherwise.
         """
         cmd = [
-            "aws", "s3api", "head-object",
+            AWS_CLI, "s3api", "head-object",
             "--bucket", self.config.s3_bucket,
             "--key", s3_key,
         ]
@@ -1057,7 +1058,7 @@ class S3ConsolidationDaemon:
             return (False, "skipped_missing")
 
         cmd = [
-            "aws", "s3", "cp",
+            AWS_CLI, "s3", "cp",
             f"s3://{self.config.s3_bucket}/{src}",
             f"s3://{self.config.s3_bucket}/{dst}",
             "--only-show-errors",
@@ -1081,7 +1082,7 @@ class S3ConsolidationDaemon:
         """Upload file to S3."""
         s3_uri = f"s3://{self.config.s3_bucket}/{s3_path}"
 
-        cmd = ["aws", "s3", "cp", local_path, s3_uri, "--only-show-errors"]
+        cmd = [AWS_CLI, "s3", "cp", local_path, s3_uri, "--only-show-errors"]
 
         process = await asyncio.create_subprocess_exec(
             *cmd,

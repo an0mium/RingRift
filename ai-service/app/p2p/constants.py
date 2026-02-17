@@ -899,7 +899,7 @@ MEMBERSHIP_MODE = os.environ.get("RINGRIFT_MEMBERSHIP_MODE", "http")
 # Jan 29, 2026: Changed default from "bully" to "raft" for stronger consensus guarantees.
 # Raft provides quorum-based leader election preventing split-brain.
 # Use RINGRIFT_CONSENSUS_MODE=bully for legacy behavior, or =hybrid for migration.
-CONSENSUS_MODE = os.environ.get("RINGRIFT_CONSENSUS_MODE", "raft")
+CONSENSUS_MODE = os.environ.get("RINGRIFT_CONSENSUS_MODE", "hybrid")
 
 # ============================================
 # Aggressive Failover Mode (Dec 2025)
