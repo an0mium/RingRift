@@ -636,18 +636,15 @@ class JobManager(EventSubscriptionMixin):
                 board_type, num_players, effective_version
             )
 
-            # Sprint 17.9: Handle model not found - prevent cascade failures
+            # Sprint 17.9: Handle model not found - fallback to heuristic selfplay
+            # Feb 2026: Instead of aborting, allow fresh weights so configs can bootstrap
+            allow_fresh = False
             if model_path is None:
                 config_key = f"{board_type}_{num_players}p"
                 logger.warning(
-                    f"[JobManager] Cannot dispatch selfplay for {config_key}: model not found"
+                    f"[JobManager] No model for {config_key}, falling back to heuristic selfplay"
                 )
-                return {
-                    "success": False,
-                    "error": "model_not_found",
-                    "config_key": config_key,
-                    "model_version": effective_version,
-                }
+                allow_fresh = True
 
             # Jan 12, 2026: Default to "mixed" for harness diversity across cluster
             # Jan 18, 2026: Route weak GPUs to heuristic selfplay instead of Gumbel
@@ -2249,6 +2246,10 @@ class JobManager(EventSubscriptionMixin):
             else:
                 cmd.append("--no-gpu-tree")
                 logger.debug(f"GPU tree disabled for node {self.node_id} job {job_id}")
+
+            # Feb 2026: Allow fresh weights when no model exists (bootstrap from heuristic)
+            if allow_fresh:
+                cmd.append("--allow-fresh-weights")
         else:
             # Use run_gpu_selfplay.py for GPU-optimized modes
             script_path = self._get_script_path("run_gpu_selfplay.py")
