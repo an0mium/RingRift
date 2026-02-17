@@ -376,7 +376,7 @@ def main():
 
     parser.add_argument(
         "--board", "-b", type=str, default="square8",
-        choices=["square8", "square19", "hex8", "hexagonal"],
+        choices=["square8", "square19", "hex8", "hex", "hexagonal"],
         help="Board type (default: square8)",
     )
     parser.add_argument(
@@ -441,6 +441,10 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Feb 2026: Normalize "hex" alias to "hexagonal" for consistency
+    if args.board == "hex":
+        args.board = "hexagonal"
 
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)

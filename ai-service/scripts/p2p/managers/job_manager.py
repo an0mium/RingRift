@@ -2089,7 +2089,7 @@ class JobManager(EventSubscriptionMixin):
             engine_extra_args: Extra engine arguments (e.g., {"budget": 64} for gumbel-mcts)
             cuda_device: Optional GPU device index for multi-GPU nodes (sets CUDA_VISIBLE_DEVICES)
         """
-        board_norm = board_type.replace("hexagonal", "hex")
+        board_norm = board_type.replace("hexagonal", "hex")  # Only for directory paths, NOT for --board args
         # Session 17.35: Use _get_data_path() to avoid doubled ai-service/ path
         output_dir = Path(self._get_data_path("selfplay", "p2p_gpu", f"{board_norm}_{num_players}p", job_id))
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -2168,7 +2168,7 @@ class JobManager(EventSubscriptionMixin):
             cmd = [
                 sys.executable,
                 script_path,
-                "--board", board_norm,
+                "--board", board_type,
                 "--num-players", str(num_players),
                 "--num-games", str(num_games),
                 "--engine", "mixed",  # Use MixedOpponentSelfplayRunner
@@ -2197,7 +2197,7 @@ class JobManager(EventSubscriptionMixin):
             cmd = [
                 sys.executable,
                 script_path,
-                "--board", board_norm,
+                "--board", board_type,
                 "--num-players", str(num_players),
                 "--num-games", str(num_games),
                 "--batch-size", str(batch_size),
@@ -2232,7 +2232,7 @@ class JobManager(EventSubscriptionMixin):
             cmd = [
                 sys.executable,
                 script_path,
-                "--board", board_norm,  # generate_gumbel_selfplay uses --board not --board-type
+                "--board", board_type,  # Feb 2026: Use board_type not board_norm (scripts reject "hex" alias)
                 "--num-players", str(num_players),
                 "--num-games", str(num_games),
                 "--db", str(output_dir / "games.db"),  # uses --db not --record-db
@@ -2285,7 +2285,7 @@ class JobManager(EventSubscriptionMixin):
             cmd = [
                 sys.executable,
                 script_path,
-                "--board", board_norm,  # Note: --board not --board-type
+                "--board", board_type,  # Feb 2026: Use board_type not board_norm (run_gpu accepts both)
                 "--num-players", str(num_players),
                 "--num-games", str(num_games),
                 "--output-dir", str(output_dir),
@@ -3172,11 +3172,10 @@ class JobManager(EventSubscriptionMixin):
         if yaml_has_gpu:
             # GPU node: use generate_gumbel_selfplay.py for GPU-accelerated selfplay
             script_path = self._get_script_path("generate_gumbel_selfplay.py")
-            board_norm = board_type.replace("hexagonal", "hex")  # Normalize board type
             cmd = [
                 sys.executable,
                 script_path,
-                "--board", board_norm,
+                "--board", board_type,
                 "--num-players", str(num_players),
                 "--num-games", str(num_games),
                 "--db", str(Path(output_dir) / "games.db"),
