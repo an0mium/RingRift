@@ -961,13 +961,26 @@ class ElectionHandlersMixin(BaseP2PHandler):
             leader_id = data.get("leader_id")
             epoch = data.get("epoch", 0)
             lease_expires = data.get("lease_expires", 0)
+            peer_term = int(data.get("leader_term", 0) or 0)
 
             if not leader_id:
                 return self.json_response({"accepted": False, "reason": "missing_leader_id"})
 
+            # Feb 2026 (2b): Term-based validation — higher term always wins
+            local_term = getattr(self, "_leader_term", 0) or 0
+            if peer_term > local_term:
+                self._leader_term = peer_term
+                if hasattr(self, "self_info") and self.self_info:
+                    self.self_info.leader_term = peer_term
+                    self.self_info.leader_consensus_id = leader_id
+                logger.info(
+                    f"[Election] Adopting leader term {peer_term} from announcement "
+                    f"(was {local_term})"
+                )
+
             # Validate epoch is newer than current
             current_epoch = getattr(self, "_election_epoch", 0)
-            if epoch < current_epoch:
+            if epoch < current_epoch and peer_term <= local_term:
                 logger.debug(
                     f"[Election] Rejecting stale leader announcement: "
                     f"epoch {epoch} < current {current_epoch}"
@@ -990,9 +1003,23 @@ class ElectionHandlersMixin(BaseP2PHandler):
                 self._election_epoch = epoch
             if hasattr(self, "_leader_lease_expires"):
                 self._leader_lease_expires = lease_expires
+            if hasattr(self, "last_leader_seen"):
+                self.last_leader_seen = time.time()
+
+            # Feb 2026 (2b): Update self_info and set follower role
+            if hasattr(self, "self_info") and self.self_info:
+                self.self_info.leader_id = leader_id
+            if leader_id != self.node_id:
+                try:
+                    from scripts.p2p.types import NodeRole
+                    if hasattr(self, "role") and self.role != NodeRole.FOLLOWER:
+                        self.role = NodeRole.FOLLOWER
+                except ImportError:
+                    pass
 
             logger.info(
-                f"[Election] Adopted leader {leader_id} via direct announcement (epoch {epoch})"
+                f"[Election] Adopted leader {leader_id} via direct announcement "
+                f"(epoch {epoch}, term {peer_term})"
             )
 
             # Emit event for observability

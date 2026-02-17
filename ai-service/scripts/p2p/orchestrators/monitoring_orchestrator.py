@@ -537,6 +537,61 @@ class MonitoringOrchestrator(BaseOrchestrator):
 
         return addresses
 
+    def _refresh_capabilities(self) -> bool:
+        """Refresh node capabilities by re-detecting hardware.
+
+        Feb 2026 (1c): Capabilities were only set at startup, never refreshed.
+        If a GPU becomes available/unavailable after startup, or if coordinator
+        mode config changes, capabilities should update accordingly.
+
+        Returns:
+            True if capabilities changed, False otherwise.
+        """
+        p2p = self._p2p
+        if not p2p or not hasattr(p2p, "self_info") or not p2p.self_info:
+            return False
+
+        # Re-detect GPU
+        has_gpu, gpu_name = p2p._detect_gpu()
+        memory_gb = p2p._detect_memory()
+
+        # Check coordinator mode (same logic as create_self_info)
+        is_coordinator = os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() in ("true", "1", "yes")
+        if not is_coordinator:
+            try:
+                from app.config.cluster_config import load_cluster_config
+                config = load_cluster_config()
+                nodes = getattr(config, "hosts_raw", {}) or {}
+                node_cfg = nodes.get(self.node_id, {})
+                if node_cfg.get("role") == "coordinator":
+                    is_coordinator = True
+                elif node_cfg.get("selfplay_enabled") is False and node_cfg.get("training_enabled") is False:
+                    is_coordinator = True
+            except Exception:
+                pass
+
+        if is_coordinator:
+            new_capabilities: list[str] = []
+        else:
+            new_capabilities = ["selfplay"]
+            if has_gpu:
+                new_capabilities.extend(["training", "cmaes", "gauntlet", "tournament"])
+            if memory_gb >= 64:
+                new_capabilities.append("large_boards")
+
+        old_capabilities = list(p2p.self_info.capabilities or [])
+        if set(new_capabilities) != set(old_capabilities):
+            p2p.self_info.capabilities = new_capabilities
+            p2p.self_info.has_gpu = has_gpu
+            p2p.self_info.gpu_name = gpu_name
+            p2p.self_info.memory_gb = memory_gb
+            logger.info(
+                f"[P2P] Capabilities refreshed: {old_capabilities} -> {new_capabilities} "
+                f"(GPU: {gpu_name or 'none'})"
+            )
+            return True
+        return False
+
     def get_stability_metrics(self) -> dict:
         """Get current stability metrics for effectiveness tracking.
 

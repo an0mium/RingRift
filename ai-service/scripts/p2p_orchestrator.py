@@ -8756,6 +8756,8 @@ print(json.dumps({{
         self.self_info.last_heartbeat = time.time()
         # Dec 2025: Propagate leader_id in heartbeats for cluster-wide leader discovery
         self.self_info.leader_id = self.leader_id or ""
+        # Feb 2026: Propagate leader_term for term-based convergence
+        self.self_info.leader_term = getattr(self, "_leader_term", 0) or 0
 
         # Detect external work (running outside P2P orchestrator tracking)
         external = self._detect_local_external_work()
@@ -8947,6 +8949,15 @@ print(json.dumps({{
                 optimizer.report_node_resources(node_resources)
             except (ValueError, KeyError, IndexError, AttributeError):
                 pass
+
+        # Feb 2026 (1c): Periodically refresh capabilities
+        last_cap_refresh = getattr(self, "_last_capability_refresh", 0)
+        if now - last_cap_refresh >= 60.0:
+            self._last_capability_refresh = now
+            try:
+                self.monitoring._refresh_capabilities()
+            except Exception as e:
+                logger.debug(f"[P2P] Capability refresh failed: {e}")
 
         # NODE_CAPACITY_UPDATED event (throttled, fast)
         # Sprint 10 (Jan 3, 2026): Use unified emitter for consistent payloads
@@ -13108,6 +13119,22 @@ print(json.dumps({{
         # Cluster nodes don't have local canonical DBs, so fetch from coordinator
         # This fixes underserved config prioritization on worker nodes
         await self._async_seed_game_counts_from_peers_if_needed()
+
+        # Feb 2026 (1d): Refresh self_info with current metrics before first gossip.
+        # Prevents broadcasting stale training_jobs/selfplay_jobs counts from
+        # persisted state that hasn't been validated against running PIDs yet.
+        try:
+            self._update_self_info()
+            logger.info("[P2P] Pre-gossip self_info refresh complete")
+        except Exception as e:
+            logger.warning(f"[P2P] Pre-gossip self_info refresh failed: {e}")
+
+        # Feb 2026 (3a): Detect orphan GPU processes from previous sessions.
+        # These can occupy GPU memory and block work claiming.
+        try:
+            self._cleanup_orphan_gpu_processes()
+        except Exception as e:
+            logger.warning(f"[P2P] Orphan GPU detection failed: {e}")
 
         # Start background tasks with exception isolation and restart support
         # CRITICAL FIX (Dec 2025): Each task is wrapped to prevent cascade failures.

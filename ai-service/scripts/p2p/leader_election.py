@@ -1737,6 +1737,11 @@ class LeaderElectionMixin(P2PMixinBase):
 
         # Check for split-brain
         if len(leaders_seen) <= 1:
+            # Feb 2026 (2a): Populate leader_consensus_id on unanimous agreement
+            if len(leaders_seen) == 1:
+                consensus_leader = list(leaders_seen.keys())[0]
+                if hasattr(self, "self_info") and self.self_info:
+                    self.self_info.leader_consensus_id = consensus_leader
             return None  # No split-brain
 
         # Multiple leaders detected - this is split-brain
@@ -1799,6 +1804,10 @@ class LeaderElectionMixin(P2PMixinBase):
 
         if canonical_leader is None:
             return
+
+        # Feb 2026 (2a): Set consensus leader to the canonical choice
+        if hasattr(self, "self_info") and self.self_info:
+            self.self_info.leader_consensus_id = canonical_leader
 
         # If we're not the canonical leader, step down
         if canonical_leader != self.node_id:

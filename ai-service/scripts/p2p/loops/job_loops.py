@@ -1144,6 +1144,20 @@ class WorkerPullLoop(BaseLoop):
 
         # Check if leader is available (for legacy path)
         leader_id = self._get_leader_id()
+        # Feb 2026 (2a): Prefer quorum-validated leader_consensus_id over
+        # single-node leader_id belief to avoid split-brain work dispatch.
+        try:
+            metrics_data = self._get_self_metrics()
+            consensus_leader = metrics_data.get("leader_consensus_id", "") or ""
+            if consensus_leader and consensus_leader != leader_id:
+                logger.debug(
+                    f"[WorkerPull] Using consensus leader {consensus_leader} "
+                    f"instead of local belief {leader_id}"
+                )
+                leader_id = consensus_leader
+        except (AttributeError, TypeError, KeyError):
+            pass  # Fall back to leader_id
+
         use_autonomous_fallback = False
 
         # Session 17.42: Validate leader health to detect split-brain scenarios
@@ -1225,9 +1239,40 @@ class WorkerPullLoop(BaseLoop):
         available_slots = max(0, max_slots - selfplay_jobs)
 
         # Don't pull work if already running training
+        # Feb 2026 (3b): Verify training PIDs are actually alive before skipping.
+        # Stale training_jobs counts from previous sessions can permanently block
+        # work claiming if PIDs died but weren't cleaned up yet.
         if training_jobs > 0:
-            self._skipped_busy += 1
-            return
+            training_pids_alive = False
+            try:
+                metrics_data = self._get_self_metrics()
+                # If we can get PIDs from metrics, verify them
+                reported_pids = metrics_data.get("_training_pids", [])
+                if reported_pids:
+                    for pid in reported_pids:
+                        try:
+                            os.kill(int(pid), 0)
+                            training_pids_alive = True
+                            break
+                        except (ProcessLookupError, ValueError):
+                            continue
+                        except PermissionError:
+                            training_pids_alive = True
+                            break
+                else:
+                    # No PID info available, trust the count
+                    training_pids_alive = True
+            except (AttributeError, TypeError, KeyError):
+                training_pids_alive = True  # Conservative: trust count on error
+
+            if training_pids_alive:
+                self._skipped_busy += 1
+                return
+            else:
+                logger.info(
+                    f"[WorkerPull] training_jobs={training_jobs} but all PIDs dead, "
+                    "proceeding with work claiming"
+                )
 
         # Jan 2, 2026: Slot-based capacity check with GPU guard rail
         # This allows work queue claiming to coexist with legacy selfplay processes

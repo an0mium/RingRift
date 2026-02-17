@@ -213,6 +213,12 @@ class LeaderMaintenanceLoop(BaseLoop):
             # Set forced leader override (critical for is_leader checks)
             self._orchestrator._forced_leader_override = True
 
+            # Feb 2026 (2b): Propagate leader_term on maintenance refresh
+            current_term = getattr(self._orchestrator, "_leader_term", 0) or 0
+            if hasattr(self._orchestrator, "self_info") and self._orchestrator.self_info:
+                self._orchestrator.self_info.leader_term = current_term
+                self._orchestrator.self_info.leader_consensus_id = node_id
+
             # Increment epoch and save state
             if hasattr(self._orchestrator, "_increment_cluster_epoch"):
                 self._orchestrator._increment_cluster_epoch()

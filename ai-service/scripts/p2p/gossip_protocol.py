@@ -1175,6 +1175,12 @@ class GossipProtocolMixin(GossipPersistenceMixin, GossipPartitionMixin, _GossipM
         # Expected improvement: +5-10 nodes recovered from false-dead state
         await self._probe_suspected_peers_for_recovery()
 
+        # Feb 2026 (3c): Decay circuit breakers with exponential backoff
+        # Runs every 60s (rate-limited internally) for faster recovery than
+        # the 30-minute CircuitBreakerDecayLoop. Applies tiered backoff:
+        # 45s -> 2m -> 5m -> 10m, auto-resets after 1h with no failures.
+        self._decay_circuit_breakers()
+
         now = time.time()
 
         # Rate limit: use adaptive gossip interval based on partition status
@@ -1398,6 +1404,8 @@ class GossipProtocolMixin(GossipPersistenceMixin, GossipPartitionMixin, _GossipM
             "leader_lease_expires": getattr(self, "leader_lease_expires", 0),
             # Jan 2026: ULSM epoch for stale leader claim rejection
             "leadership_epoch": getattr(self, "_leadership_sm", None) and self._leadership_sm.epoch or 0,
+            # Feb 2026: Term-based leader convergence
+            "leader_term": getattr(self, "_leader_term", 0) or 0,
             "selfplay_jobs": getattr(self.self_info, "selfplay_jobs", 0),
             "training_jobs": getattr(self.self_info, "training_jobs", 0),
             "gpu_percent": getattr(self.self_info, "gpu_percent", 0),
@@ -2146,6 +2154,32 @@ class GossipProtocolMixin(GossipPersistenceMixin, GossipPartitionMixin, _GossipM
             getattr(self, "leader_lease_expires", 0) < now
         )
 
+        # Feb 2026 (1b): Term-based leader adoption — highest term wins.
+        # This ensures forced leadership converges in 1 gossip round.
+        peer_term = int(sender_state.get("leader_term", 0) or 0)
+        local_term = getattr(self, "_leader_term", 0) or 0
+        peer_leader = sender_state.get("leader_id", "")
+        if peer_term > local_term and peer_leader:
+            self._leader_term = peer_term
+            self.leader_id = peer_leader
+            self.last_leader_seen = now
+            if hasattr(self, "self_info") and self.self_info:
+                self.self_info.leader_term = peer_term
+                self.self_info.leader_id = peer_leader
+                self.self_info.leader_consensus_id = peer_leader
+            # Update role to follower if we accepted a different leader
+            if peer_leader != getattr(self, "node_id", None):
+                try:
+                    from scripts.p2p.models import NodeRole
+                    if hasattr(self, "role") and self.role != NodeRole.FOLLOWER:
+                        self.role = NodeRole.FOLLOWER
+                except ImportError:
+                    pass
+            self._log_info(
+                f"[Gossip] Adopted leader {peer_leader} with term {peer_term} "
+                f"(was term {local_term})"
+            )
+
         if sender_state.get("leader_id") and (not self.leader_id or current_lease_expired):
             claimed_leader = sender_state.get("leader_id")
             claimed_epoch = sender_state.get("leadership_epoch", 0)
@@ -2173,8 +2207,18 @@ class GossipProtocolMixin(GossipPersistenceMixin, GossipPartitionMixin, _GossipM
                 else:
                     self._log_debug(f"Gossip: Rejected leader claim {claimed_leader} epoch={claimed_epoch}")
             else:
-                # Fallback: simple lease expiry check (pre-ULSM behavior)
-                if lease_expires > now:
+                # Fallback: lease expiry + epoch check (pre-ULSM behavior)
+                # Feb 2026: Added epoch validation to prevent stale leader claims
+                # from pre-partition state causing oscillation after partition healing
+                epoch_valid = True
+                if hasattr(self, "validate_gossip_leader_epoch"):
+                    epoch_valid = self.validate_gossip_leader_epoch(
+                        claimed_leader, claimed_epoch, lease_expires
+                    )
+                elif lease_expires <= now:
+                    epoch_valid = False
+
+                if epoch_valid:
                     self.leader_id = claimed_leader
                     self.last_leader_seen = now
                     # Jan 20, 2026: FIX - Also update role to FOLLOWER when accepting leader
@@ -2556,6 +2600,92 @@ class GossipProtocolMixin(GossipPersistenceMixin, GossipPartitionMixin, _GossipM
         except (AttributeError, TypeError, ValueError, KeyError) as e:
             self._log_debug(f"Circuit breaker gossip processing failed: {type(e).__name__}: {e}")
 
+    def _decay_circuit_breakers(self) -> int:
+        """Decay circuit breaker timeouts with exponential backoff.
+
+        Feb 2026 (3c): Prevents permanent node exclusion from tripped breakers.
+        Recovery timeout escalates based on consecutive_opens: 45s -> 2m -> 5m -> 10m.
+        Auto-resets after 1 hour with no failures.
+
+        This runs inline during gossip rounds (every 30s-60s) for faster recovery
+        than the 30-minute CircuitBreakerDecayLoop, and applies exponential backoff
+        to recovery_timeout based on how many times each circuit has tripped.
+
+        Returns:
+            Number of circuit breakers that were decayed or had backoff adjusted.
+        """
+        adjusted = 0
+        now = time.time()
+
+        # Backoff tiers: (max_consecutive_opens, recovery_timeout_seconds)
+        BACKOFF_TIERS = [
+            (1, 45),    # First trip: 45s recovery
+            (2, 120),   # Second trip: 2 minutes
+            (3, 300),   # Third trip: 5 minutes
+            (4, 600),   # Fourth trip: 10 minutes
+        ]
+        MAX_TRIP_AGE = 3600  # Auto-reset after 1 hour with no failures
+
+        # Rate-limit: only run every 60 seconds
+        last_run = getattr(self, "_last_cb_decay_time", 0.0)
+        if now - last_run < 60.0:
+            return 0
+        self._last_cb_decay_time = now
+
+        try:
+            from app.distributed.circuit_breaker import (
+                decay_transport_circuit_breakers,
+                _transport_breakers,
+                _transport_breakers_lock,
+                CircuitState,
+            )
+        except ImportError:
+            return 0
+
+        try:
+            # 1. Apply exponential backoff to recovery_timeout based on consecutive_opens
+            with _transport_breakers_lock:
+                for key, breaker in _transport_breakers.items():
+                    for target, circuit in breaker._circuits.items():
+                        if circuit.state == CircuitState.CLOSED:
+                            continue
+
+                        # Auto-reset breakers with no recent failures
+                        last_fail = circuit.last_failure_time or 0
+                        if circuit.state == CircuitState.OPEN and last_fail > 0 and (now - last_fail) > MAX_TRIP_AGE:
+                            breaker.reset(target)
+                            adjusted += 1
+                            self._log_info(
+                                f"[CB-Decay] Auto-reset {key}:{target} "
+                                f"(no failures for {int(now - last_fail)}s)"
+                            )
+                            continue
+
+                        # Apply tiered backoff based on consecutive_opens
+                        opens = circuit.consecutive_opens or 0
+                        new_timeout = 600.0  # Default cap at 10 minutes
+                        for max_opens, timeout in BACKOFF_TIERS:
+                            if opens <= max_opens:
+                                new_timeout = float(timeout)
+                                break
+
+                        if breaker.recovery_timeout != new_timeout:
+                            breaker.recovery_timeout = new_timeout
+                            adjusted += 1
+
+            # 2. Run transport-specific TTL decay with gossip alive check
+            decay_transport_circuit_breakers(
+                external_alive_check=self._is_peer_alive_for_circuit_breaker
+            )
+
+        except Exception as e:
+            self._log_debug(f"[CB-Decay] Error during decay: {type(e).__name__}: {e}")
+
+        if adjusted > 0:
+            self._log_info(f"[CB-Decay] Adjusted {adjusted} circuit breakers (backoff/reset)")
+
+        return adjusted
+
     def _get_local_model_locations(self) -> list[dict]:
         """December 2025 Phase 3D: Get local model locations for gossip sharing.
 
@@ -2789,6 +2919,7 @@ class GossipProtocolMixin(GossipPersistenceMixin, GossipPartitionMixin, _GossipM
             "version": int(now * 1000),
             "role": self.role.value if hasattr(self.role, "value") else str(self.role),
             "leader_id": self.leader_id,
+            "leader_term": getattr(self, "_leader_term", 0) or 0,
             "selfplay_jobs": getattr(self.self_info, "selfplay_jobs", 0),
             "training_jobs": getattr(self.self_info, "training_jobs", 0),
         }

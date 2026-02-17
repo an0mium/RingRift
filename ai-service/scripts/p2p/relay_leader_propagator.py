@@ -469,10 +469,12 @@ class RelayLeaderPropagatorMixin:
         if not peers:
             return 0
 
+        leader_term = getattr(self, "_leader_term", 0) or 0
         payload = {
             "leader_id": leader_id,
             "epoch": epoch,
             "lease_expires": lease_expires,
+            "leader_term": leader_term,
         }
 
         success_count = 0
