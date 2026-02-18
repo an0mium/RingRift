@@ -993,8 +993,10 @@ def validate_database_for_export(
             f"This usually means JSONL-to-DB import failed to populate game_moves table."
         )
 
-    # Dec 30, 2025: Validate game_moves schema has required move_json column
-    # This prevents export failures from databases with incompatible schemas
+    # Dec 30, 2025: Validate game_moves schema has usable move columns
+    # Accept two schema formats (matching game_discovery.py validation):
+    # 1. New format: move_json column (JSON-serialized move data)
+    # 2. Legacy format: move_type + position_q + position_r columns
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=10.0)
         cursor = conn.cursor()
@@ -1005,9 +1007,14 @@ def validate_database_for_export(
             cursor.execute("PRAGMA table_info(game_moves)")
             move_columns = {row[1] for row in cursor.fetchall()}
             conn.close()
-            if "move_json" not in move_columns:
+            has_json_schema = "move_json" in move_columns
+            has_column_schema = {"move_type", "position_q", "position_r"}.issubset(
+                move_columns
+            )
+            if not (has_json_schema or has_column_schema):
                 return False, (
-                    f"Database has game_moves table but missing required 'move_json' column. "
+                    f"Database has game_moves table but missing required columns. "
+                    f"Need move_json or (move_type, position_q, position_r). "
                     f"Columns found: {', '.join(sorted(move_columns))}. "
                     f"This indicates an incompatible database schema version."
                 )

@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from app.models import BoardType, GameState, Move
+from app.models import BoardType, GameState, Move, MoveType, Position
 
 if TYPE_CHECKING:
     import numpy as np
@@ -388,6 +388,48 @@ def _serialize_move(move: Move) -> str:
 def _deserialize_move(json_str: str) -> Move:
     """Deserialize JSON string to Move."""
     return Move.model_validate_json(json_str)
+
+
+def _move_from_columns(row: sqlite3.Row) -> Move | None:
+    """Reconstruct a Move object from column-based schema fields.
+
+    Column-based schema has: game_id, move_number, player, position_q,
+    position_r, move_type, move_probs, etc.  Returns None if essential
+    fields are missing (e.g. position data required for placement/movement).
+    """
+    move_type_str = row["move_type"]
+    player = row["player"]
+    if not move_type_str or player is None:
+        return None
+
+    try:
+        move_type = MoveType(move_type_str)
+    except ValueError:
+        return None
+
+    q = row["position_q"]
+    r = row["position_r"]
+
+    # For moves that require a target position (place_ring, move_stack, etc.),
+    # if q/r are NULL we can't reconstruct the move
+    needs_position = move_type in (
+        MoveType.PLACE_RING,
+        MoveType.MOVE_STACK,
+        MoveType.OVERTAKING_CAPTURE,
+        MoveType.CONTINUE_CAPTURE_SEGMENT,
+    )
+    if needs_position and (q is None or r is None):
+        return None
+
+    to_pos = Position(x=q, y=r, z=-(q + r)) if q is not None and r is not None else None
+
+    move_number = row["move_number"]
+    return Move(
+        id=f"col_{move_number}",
+        type=move_type,
+        player=player,
+        to=to_pos,
+    )
 
 
 def _compute_state_hash(state: GameState) -> str:
@@ -787,6 +829,8 @@ class GameReplayDB:
 
         # Cache for games table column names (avoids PRAGMA calls on every query)
         self._schema_columns: set[str] | None = None
+        # Cache for game_moves table column names
+        self._game_moves_columns: set[str] | None = None
 
         # Initialize schema
         self._init_schema()
@@ -1030,6 +1074,16 @@ class GameReplayDB:
             # This is safe because schema only changes during initialization
             cursor = conn.execute("PRAGMA table_info(games)")
             self._schema_columns = {row[1] for row in cursor.fetchall()}
+
+            # Cache game_moves columns for schema detection
+            has_game_moves = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='game_moves'"
+            ).fetchone()
+            if has_game_moves:
+                cursor = conn.execute("PRAGMA table_info(game_moves)")
+                self._game_moves_columns = {row[1] for row in cursor.fetchall()}
+            else:
+                self._game_moves_columns = set()
 
     def _get_schema_version(self, conn: sqlite3.Connection) -> int:
         """Get current schema version from database."""
@@ -2054,6 +2108,17 @@ class GameReplayDB:
 
             return create_initial_state(board_type=board_type, num_players=num_players)
 
+    @property
+    def _has_move_json_column(self) -> bool:
+        """Check if game_moves table uses move_json schema."""
+        return "move_json" in (self._game_moves_columns or set())
+
+    @property
+    def _has_column_schema(self) -> bool:
+        """Check if game_moves table uses column-based schema."""
+        cols = self._game_moves_columns or set()
+        return {"move_type", "position_q", "position_r"}.issubset(cols)
+
     def get_moves(
         self,
         game_id: str,
@@ -2062,8 +2127,8 @@ class GameReplayDB:
     ) -> list[Move]:
         """Get moves in a range.
 
-        Tries the normalized `game_moves` table first, then falls back to
-        the inline `games.moves` JSON column for legacy databases.
+        Tries the normalized `game_moves` table first (move_json or column-based),
+        then falls back to the inline `games.moves` JSON column for legacy databases.
 
         Args:
             game_id: Game identifier
@@ -2074,28 +2139,62 @@ class GameReplayDB:
             List of Move objects
         """
         with self._get_conn() as conn:
-            # Try normalized game_moves table first
-            if end is None:
-                rows = conn.execute(
-                    """
-                    SELECT move_json FROM game_moves
-                    WHERE game_id = ? AND move_number >= ?
-                    ORDER BY move_number
-                    """,
-                    (game_id, start),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    """
-                    SELECT move_json FROM game_moves
-                    WHERE game_id = ? AND move_number >= ? AND move_number < ?
-                    ORDER BY move_number
-                    """,
-                    (game_id, start, end),
-                ).fetchall()
+            if self._has_move_json_column:
+                # Preferred: move_json schema
+                if end is None:
+                    rows = conn.execute(
+                        """
+                        SELECT move_json FROM game_moves
+                        WHERE game_id = ? AND move_number >= ?
+                        ORDER BY move_number
+                        """,
+                        (game_id, start),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        """
+                        SELECT move_json FROM game_moves
+                        WHERE game_id = ? AND move_number >= ? AND move_number < ?
+                        ORDER BY move_number
+                        """,
+                        (game_id, start, end),
+                    ).fetchall()
 
-            if rows:
-                return [_deserialize_move(row["move_json"]) for row in rows]
+                if rows:
+                    return [_deserialize_move(row["move_json"]) for row in rows]
+            elif self._has_column_schema:
+                # Column-based schema fallback
+                if end is None:
+                    rows = conn.execute(
+                        """
+                        SELECT move_number, player, position_q, position_r, move_type
+                        FROM game_moves
+                        WHERE game_id = ? AND move_number >= ?
+                        ORDER BY move_number
+                        """,
+                        (game_id, start),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        """
+                        SELECT move_number, player, position_q, position_r, move_type
+                        FROM game_moves
+                        WHERE game_id = ? AND move_number >= ? AND move_number < ?
+                        ORDER BY move_number
+                        """,
+                        (game_id, start, end),
+                    ).fetchall()
+
+                if rows:
+                    moves = []
+                    for row in rows:
+                        move = _move_from_columns(row)
+                        if move is not None:
+                            moves.append(move)
+                        else:
+                            # Can't reconstruct this move - game is unusable
+                            return []
+                    return moves
 
             # Fallback: read from inline games.moves JSON column
             return self._get_moves_from_inline_json(conn, game_id, start, end)
@@ -2121,6 +2220,10 @@ class GameReplayDB:
         Returns:
             List of Move objects
         """
+        # Guard: games table may not have a 'moves' column (column-based schemas)
+        if "moves" not in (self._schema_columns or set()):
+            return []
+
         row = conn.execute(
             "SELECT moves FROM games WHERE game_id = ?",
             (game_id,),
@@ -2236,8 +2339,8 @@ class GameReplayDB:
         This is more efficient than calling get_moves() for each game
         when processing many games (avoids N+1 query pattern).
 
-        Tries the normalized `game_moves` table first, then falls back to
-        the inline `games.moves` JSON column for games without normalized data.
+        Tries the normalized `game_moves` table first (move_json or column-based),
+        then falls back to the inline `games.moves` JSON column for legacy databases.
 
         Args:
             game_ids: List of game identifiers
@@ -2251,21 +2354,47 @@ class GameReplayDB:
         results: dict[str, list[Move]] = {gid: [] for gid in game_ids}
 
         with self._get_conn() as conn:
-            # Try normalized game_moves table first
             placeholders = ",".join("?" * len(game_ids))
-            rows = conn.execute(
-                f"""
-                SELECT game_id, move_json
-                FROM game_moves
-                WHERE game_id IN ({placeholders})
-                ORDER BY game_id, move_number
-                """,
-                game_ids,
-            ).fetchall()
 
-            for row in rows:
-                move = _deserialize_move(row["move_json"])
-                results[row["game_id"]].append(move)
+            if self._has_move_json_column:
+                # Preferred: move_json schema
+                rows = conn.execute(
+                    f"""
+                    SELECT game_id, move_json
+                    FROM game_moves
+                    WHERE game_id IN ({placeholders})
+                    ORDER BY game_id, move_number
+                    """,
+                    game_ids,
+                ).fetchall()
+
+                for row in rows:
+                    move = _deserialize_move(row["move_json"])
+                    results[row["game_id"]].append(move)
+            elif self._has_column_schema:
+                # Column-based schema fallback
+                rows = conn.execute(
+                    f"""
+                    SELECT game_id, move_number, player, position_q, position_r, move_type
+                    FROM game_moves
+                    WHERE game_id IN ({placeholders})
+                    ORDER BY game_id, move_number
+                    """,
+                    game_ids,
+                ).fetchall()
+
+                failed_games: set[str] = set()
+                for row in rows:
+                    gid = row["game_id"]
+                    if gid in failed_games:
+                        continue
+                    move = _move_from_columns(row)
+                    if move is not None:
+                        results[gid].append(move)
+                    else:
+                        # Can't reconstruct this move - mark game unusable
+                        results[gid] = []
+                        failed_games.add(gid)
 
             # Find games without moves from game_moves table
             games_without_moves = [gid for gid in game_ids if not results[gid]]
@@ -2291,6 +2420,10 @@ class GameReplayDB:
             game_ids: List of game identifiers to fetch
             results: Dict to update with parsed moves
         """
+        # Guard: games table may not have a 'moves' column (column-based schemas)
+        if "moves" not in (self._schema_columns or set()):
+            return
+
         placeholders = ",".join("?" * len(game_ids))
         rows = conn.execute(
             f"""
