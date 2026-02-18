@@ -348,12 +348,10 @@ class AllocationEngine:
 
         # Allocate based on priorities
         for config_key, priority_score in priorities:
-            if priority_score <= 0:
-                skipped_configs.append((config_key, priority_score))
-                continue
-
-            # Allocate based on priority weight
-            config_games = int(effective_games_per_config * (0.5 + priority_score))
+            # Feb 2026: Guarantee minimum allocation for all active configs.
+            # Prevents mature configs from being squeezed to zero by priority weighting.
+            # Floor at 10% of base allocation ensures every config gets selfplay data.
+            config_games = int(effective_games_per_config * max(0.1, 0.5 + priority_score))
             config_games = max(MIN_GAMES_PER_ALLOCATION, config_games)
 
             # Distribute across nodes

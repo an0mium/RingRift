@@ -85,8 +85,10 @@ class AutoPromotionConfig:
     # Whether to wait for both RANDOM and HEURISTIC results
     require_both_baselines: bool = True
     # Safety: require consecutive successful evaluations
-    # Dec 30: REVERTED from 1 to 2 - single pass is too noisy for promotion
-    consecutive_passes_required: int = 2
+    # Feb 2026: Reduced from 2 to 1. The 2-pass requirement (Dec 30) predated the
+    # head-to-head gate (Jan 10), gauntlet verification (Jan 5), and velocity gate (Jan 26).
+    # With 6 other safety gates, consecutive passes add 4-8h delay without meaningful signal.
+    consecutive_passes_required: int = 1
     # Dry run mode - log but don't actually promote
     dry_run: bool = False
     # Dec 27, 2025: Minimum Elo improvement over previous model required for promotion
@@ -117,7 +119,9 @@ class AutoPromotionConfig:
     # This prevents promoting models during regression periods, ensuring only models
     # with positive momentum (or at least stable Elo) get promoted.
     velocity_gate_enabled: bool = True
-    min_velocity_for_promotion: float = 0.0  # Block if velocity < 0 (declining)
+    # Feb 2026: Relaxed from 0.0 to -2.0. Zero threshold blocked on noise (-0.01 Elo/hr).
+    # -2.0 still blocks severe regression (>48 Elo/day decline) while allowing normal variance.
+    min_velocity_for_promotion: float = -2.0
 
 
 @dataclass
@@ -395,11 +399,14 @@ class AutoPromotionDaemon(HandlerBase):
         break the catch-22 where models can't get games without promotion and can't
         promote without games.
 
+        Feb 2026: Now returns 1 for all configs since consecutive_passes_required
+        default changed to 1. Kept for clarity and in case the default is raised again.
+
         Args:
             training_game_count: Number of training games for this config.
 
         Returns:
-            1 for bootstrap configs, otherwise the config default (typically 2).
+            1 for bootstrap configs, otherwise the config default (now 1).
         """
         from app.config.thresholds import GAME_COUNT_BOOTSTRAP_THRESHOLD
 
@@ -663,7 +670,8 @@ class AutoPromotionDaemon(HandlerBase):
 
         try:
             # Get Elo trend for this config over the last 48 hours
-            trend = get_elo_trend_for_config(candidate.config_key, hours=48)
+            # Feb 2026: Extended from 48h to 72h for more stable velocity estimates
+            trend = get_elo_trend_for_config(candidate.config_key, hours=72)
 
             if trend is None:
                 # No trend data available - allow promotion (bootstrap case)

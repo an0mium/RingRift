@@ -194,6 +194,7 @@ class ConfigState:
     # Default 0.7 allows initial training (threshold is 0.5) before actual quality metrics arrive
     # Will be overwritten once QUALITY_SCORE_UPDATED events are received
     last_quality_score: float = 0.7
+    last_quality_update_time: float = 0.0
     last_policy_accuracy: float = 0.0
     last_evaluation_win_rate: float = 0.0
 
@@ -613,6 +614,7 @@ class MasterLoopController:
                         exploration_boost REAL NOT NULL DEFAULT 1.0,
                         training_intensity TEXT NOT NULL DEFAULT 'normal',
                         last_quality_score REAL NOT NULL DEFAULT 0.7,
+                        last_quality_update_time REAL NOT NULL DEFAULT 0.0,
                         updated_at REAL NOT NULL
                     )
                 """)
@@ -650,17 +652,26 @@ class MasterLoopController:
             with self._state_lock:
                 try:
                     with contextlib.closing(connect_safe(self._db_path, row_factory=None)) as conn:
+                        # Feb 2026: Add last_quality_update_time column if missing (schema migration)
+                        try:
+                            conn.execute("ALTER TABLE config_state ADD COLUMN last_quality_update_time REAL NOT NULL DEFAULT 0.0")
+                            conn.commit()
+                        except sqlite3.OperationalError:
+                            pass  # Column already exists
+
                         rows = conn.execute("""
-                            SELECT config_key, exploration_boost, training_intensity, last_quality_score
+                            SELECT config_key, exploration_boost, training_intensity,
+                                   last_quality_score, last_quality_update_time
                             FROM config_state
                         """).fetchall()
 
                         restored_count = 0
-                        for config_key, boost, intensity, quality_score in rows:
+                        for config_key, boost, intensity, quality_score, quality_update_time in rows:
                             if config_key in self._states:
                                 self._states[config_key].exploration_boost = boost
                                 self._states[config_key].training_intensity = intensity
                                 self._states[config_key].last_quality_score = quality_score
+                                self._states[config_key].last_quality_update_time = quality_update_time
                                 restored_count += 1
 
                         return restored_count
@@ -695,13 +706,15 @@ class MasterLoopController:
                         for config_key, state in self._states.items():
                             conn.execute("""
                                 INSERT OR REPLACE INTO config_state
-                                (config_key, exploration_boost, training_intensity, last_quality_score, updated_at)
-                                VALUES (?, ?, ?, ?, ?)
+                                (config_key, exploration_boost, training_intensity,
+                                 last_quality_score, last_quality_update_time, updated_at)
+                                VALUES (?, ?, ?, ?, ?, ?)
                             """, (
                                 config_key,
                                 state.exploration_boost,
                                 state.training_intensity,
                                 state.last_quality_score,
+                                state.last_quality_update_time,
                                 now,
                             ))
 
@@ -1991,6 +2004,7 @@ class MasterLoopController:
             if config_key in self._states:
                 state = self._states[config_key]
                 state.last_quality_score = quality_score
+                state.last_quality_update_time = time.time()
 
                 # Compute training intensity from quality
                 if quality_score >= 0.90:
@@ -2445,9 +2459,19 @@ class MasterLoopController:
         if state.games_since_last_export < min_games:
             return False, f"Insufficient games: {state.games_since_last_export} < {min_games}"
 
-        # Check quality score
-        if state.last_quality_score < 0.5:
-            return False, f"Low quality: {state.last_quality_score:.2f}"
+        # Check quality score with time-decay escape hatch
+        # Feb 2026: If quality hasn't been updated in >2 hours and we have enough games,
+        # decay the floor to allow training on marginal-quality data rather than stalling
+        quality_floor = 0.5
+        hours_since_update = 0.0
+        if state.last_quality_update_time > 0:
+            hours_since_update = (time.time() - state.last_quality_update_time) / 3600
+        if hours_since_update > 2.0 and state.games_since_last_export >= min_games * 2:
+            # Decay floor: 0.5 -> 0.35 over 2-6 hours
+            decay = min(0.15, (hours_since_update - 2.0) * 0.0375)
+            quality_floor = max(0.35, 0.5 - decay)
+        if state.last_quality_score < quality_floor:
+            return False, f"Low quality: {state.last_quality_score:.2f} (floor={quality_floor:.2f})"
 
         # Dec 29, 2025: Check data freshness before training
         # Can be bypassed via RINGRIFT_ALLOW_STALE_TRAINING=true for faster iteration
