@@ -2248,7 +2248,8 @@ class JobManager(EventSubscriptionMixin):
                 logger.debug(f"GPU tree disabled for node {self.node_id} job {job_id}")
 
             # Feb 2026: Allow fresh weights when no model exists (bootstrap from heuristic)
-            if allow_fresh:
+            model_path = self._get_model_path_for_version(board_type, num_players, model_version)
+            if model_path is None:
                 cmd.append("--allow-fresh-weights")
         else:
             # Use run_gpu_selfplay.py for GPU-optimized modes
