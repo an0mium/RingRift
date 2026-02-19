@@ -34,7 +34,7 @@ class TestPromotionCriteria:
         """Should have sensible default values."""
         criteria = PromotionCriteria()
         assert criteria.min_elo_improvement == 25.0
-        assert criteria.min_games_played == 50
+        assert criteria.min_games_played == 100
         assert criteria.min_win_rate == 0.52
         assert criteria.max_value_mse_degradation == 0.05
         assert criteria.confidence_threshold == 0.95

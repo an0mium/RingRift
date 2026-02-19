@@ -32,20 +32,17 @@ class TestAutoPromotionConfig:
         """Default configuration has expected values."""
         config = AutoPromotionConfig()
         assert config.enabled is True
-        # Dec 29, 2025: reduced from 50 to 20 for faster iteration (95% CI ±10%)
-        assert config.min_games_vs_random == 20
-        assert config.min_games_vs_heuristic == 20
+        assert config.min_games_vs_random == 50
+        assert config.min_games_vs_heuristic == 50
         assert config.promotion_cooldown_seconds == 300.0
         assert config.require_both_baselines is True
-        # Dec 29, 2025: lowered from 2 to 1 to accelerate iteration
         assert config.consecutive_passes_required == 1
         assert config.dry_run is False
-        # Dec 29, 2025: lowered from 25 to 5 to allow incremental improvements
-        assert config.min_elo_improvement == 5.0
+        assert config.min_elo_improvement == 10.0
         # Quality gate settings (Dec 2025)
         assert config.quality_gate_enabled is True
-        assert config.min_training_games == 500
-        assert config.min_quality_score == 0.5
+        assert config.min_training_games == 100
+        assert config.min_quality_score == 0.55
         assert config.require_parity_validation is True
 
     def test_custom_values(self):
