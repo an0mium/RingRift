@@ -34,6 +34,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Protocol
@@ -666,6 +667,70 @@ class QuorumManager:
             return False
         parts = peer_id.rsplit(":", 1)
         return len(parts) == 2 and parts[1] == "7947"
+
+    # ========================================================================
+    # Orchestrator Binding & Split-Brain Detection
+    # ========================================================================
+
+    def set_orchestrator(self, orchestrator: Any) -> None:
+        """Bind orchestrator reference for split-brain detection.
+
+        Feb 2026: Late-binding so QuorumManager can access orchestrator state
+        (leader_id, peers, forced_leader_override) without circular imports.
+        """
+        self._orchestrator = orchestrator
+
+    async def check_and_resolve_split_brain(self) -> bool:
+        """Check for split-brain (multiple leaders) and resolve if needed.
+
+        Feb 2026: Checks gossip state to see if any peer also claims
+        leadership. If forced_leader_override is active, never step down.
+
+        Returns:
+            True if we stepped down (caller should skip leader ops this cycle).
+        """
+        orch = getattr(self, "_orchestrator", None)
+        if orch is None:
+            return False
+
+        # If forced leadership is active with valid lease, never step down
+        forced = getattr(orch, "_forced_leader_override", False)
+        lease_valid = time.time() < getattr(orch, "leader_lease_expires", 0)
+        if forced and lease_valid:
+            return False
+
+        # Check if any peer claims to be leader with a higher term
+        our_term = getattr(orch, "_leader_term", 0) or 0
+        our_node_id = self._config.node_id
+        peers = self._get_peers_safely()
+
+        for peer_id, peer_info in peers.items():
+            if peer_id == our_node_id:
+                continue
+            # Check gossip-propagated leader state
+            peer_leader = None
+            peer_term = 0
+            if isinstance(peer_info, dict):
+                peer_leader = peer_info.get("leader_id")
+                peer_term = int(peer_info.get("leader_term", 0) or 0)
+            elif hasattr(peer_info, "leader_id"):
+                peer_leader = getattr(peer_info, "leader_id", None)
+                peer_term = int(getattr(peer_info, "leader_term", 0) or 0)
+
+            # If peer thinks THEY are leader with higher term, we step down
+            if (
+                peer_leader == peer_id
+                and peer_leader != our_node_id
+                and peer_term > our_term
+            ):
+                logger.warning(
+                    f"[QuorumManager] Split-brain detected: {peer_id} claims "
+                    f"leadership with term {peer_term} > our term {our_term}. "
+                    f"Stepping down."
+                )
+                return True
+
+        return False
 
     # ========================================================================
     # Health Check

@@ -817,13 +817,12 @@ class UnifiedQueuePopulator:
             # Use direct SQL for efficiency
             db_path = getattr(self._work_queue, "db_path", None)
             if db_path:
-                conn = sqlite3.connect(db_path)
-                cursor = conn.execute(
-                    "SELECT work_type, COUNT(*) FROM work_items "
-                    "WHERE status = 'pending' GROUP BY work_type"
-                )
-                result = {row[0]: row[1] for row in cursor.fetchall()}
-                conn.close()
+                with sqlite3.connect(db_path, timeout=10.0) as conn:
+                    cursor = conn.execute(
+                        "SELECT work_type, COUNT(*) FROM work_items "
+                        "WHERE status = 'pending' GROUP BY work_type"
+                    )
+                    result = {row[0]: row[1] for row in cursor.fetchall()}
                 return result
             # Fallback to status dict
             status = self._work_queue.get_queue_status()
@@ -852,21 +851,20 @@ class UnifiedQueuePopulator:
         try:
             db_path = getattr(self._work_queue, "db_path", None)
             if db_path:
-                conn = sqlite3.connect(db_path)
-                cursor = conn.execute(
-                    "SELECT json_extract(config, '$.board_type'), "
-                    "json_extract(config, '$.num_players'), COUNT(*) "
-                    "FROM work_items "
-                    "WHERE status = 'pending' AND work_type = 'tournament' "
-                    "GROUP BY json_extract(config, '$.board_type'), "
-                    "json_extract(config, '$.num_players')"
-                )
-                result = {}
-                for row in cursor.fetchall():
-                    if row[0] and row[1]:
-                        config_key = f"{row[0]}_{row[1]}p"
-                        result[config_key] = row[2]
-                conn.close()
+                with sqlite3.connect(db_path, timeout=10.0) as conn:
+                    cursor = conn.execute(
+                        "SELECT json_extract(config, '$.board_type'), "
+                        "json_extract(config, '$.num_players'), COUNT(*) "
+                        "FROM work_items "
+                        "WHERE status = 'pending' AND work_type = 'tournament' "
+                        "GROUP BY json_extract(config, '$.board_type'), "
+                        "json_extract(config, '$.num_players')"
+                    )
+                    result = {}
+                    for row in cursor.fetchall():
+                        if row[0] and row[1]:
+                            config_key = f"{row[0]}_{row[1]}p"
+                            result[config_key] = row[2]
                 return result
             return {}
         except Exception as e:
