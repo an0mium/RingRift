@@ -2402,35 +2402,16 @@ class TournamentDaemon(HandlerBase):
                             "win_rate_a": win_rate_a,
                         }
 
-                        # Record in Elo service
-                        try:
-                            participant_a = Path(model_a["model_path"]).stem
-                            participant_b = Path(model_b["model_path"]).stem
-                            # January 2026: Extract harness_type for per-harness Elo tracking
-                            # Default to gumbel_mcts for legacy model names without composite ID
-                            harness_type = extract_harness_type(participant_a) or "gumbel_mcts"
-                            for _ in range(wins_a):
-                                elo_service.record_match(
-                                    participant_a=participant_a,
-                                    participant_b=participant_b,
-                                    winner=participant_a,
-                                    board_type=board_type,
-                                    num_players=num_players,
-                                    tournament_id=f"cross_config_{family_key}",
-                                    harness_type=harness_type,
-                                )
-                            for _ in range(games_per_matchup - wins_a):
-                                elo_service.record_match(
-                                    participant_a=participant_a,
-                                    participant_b=participant_b,
-                                    winner=participant_b,
-                                    board_type=board_type,
-                                    num_players=num_players,
-                                    tournament_id=f"cross_config_{family_key}",
-                                    harness_type=harness_type,
-                                )
-                        except Exception as e:
-                            logger.warning(f"Failed to record cross-config Elo: {e}")
+                        # Feb 2026: Do NOT record cross-config matches in the main
+                        # Elo database. Recording a 2p model as a participant in 4p
+                        # games pollutes per-config Elo tracking and causes massive
+                        # Elo regression (e.g., hex8_4p dropped from 1900 to 1508).
+                        # Cross-config results are logged above in family_result for
+                        # informational purposes only.
+                        logger.info(
+                            f"Cross-config: {model_a['config_key']} vs {model_b['config_key']} "
+                            f"({board_type} {num_players}p) - win_rate_a={win_rate_a:.1%}"
+                        )
 
                 results["family_results"][family_key] = family_result
                 results["families_evaluated"] += 1
