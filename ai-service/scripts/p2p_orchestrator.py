@@ -13013,6 +13013,16 @@ print(json.dumps({{
             logger.error("aiohttp is required. Install with: pip install aiohttp")
             raise RuntimeError("aiohttp is required but not available - install with: pip install aiohttp")
 
+        # Feb 2026: Limit the default ThreadPoolExecutor to 4 workers.
+        # Without this, asyncio.to_thread() uses min(32, os.cpu_count()+4) = 20 workers
+        # on 16-core Mac Studio. With 30+ daemons wrapping SQLite in to_thread(), all 20
+        # threads run concurrent DB operations, burning 400%+ CPU. Cap at 4 to bound CPU.
+        import concurrent.futures
+        loop = asyncio.get_running_loop()
+        loop.set_default_executor(
+            concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="p2p_")
+        )
+
         # Start isolated health server FIRST (January 2026)
         # This ensures /health endpoint is always responsive even if main loop blocks
         self.monitoring.start_isolated_health_server()
