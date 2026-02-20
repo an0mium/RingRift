@@ -12575,21 +12575,25 @@ print(json.dumps({{
         SAFEGUARD: Checks coordination safeguards before requesting remote spawn.
         """
         try:
+            # Feb 2026: Normalize job_type to string early — _get_job_type() returns
+            # a plain string when the JobType enum isn't available, but callers below
+            # assumed .value always exists. This caused 4000+ dispatch failures/day.
+            job_type_str = job_type.value if hasattr(job_type, 'value') else str(job_type)
+
             # SAFEGUARD: Check safeguards before requesting remote spawn
             if HAS_SAFEGUARDS and _safeguards:
-                task_type_str = job_type.value if hasattr(job_type, 'value') else str(job_type)
-                allowed, reason = check_before_spawn(task_type_str, node.node_id)
+                allowed, reason = check_before_spawn(job_type_str, node.node_id)
                 if not allowed:
-                    logger.info(f"SAFEGUARD blocked remote {task_type_str} on {node.node_id}: {reason}")
+                    logger.info(f"SAFEGUARD blocked remote {job_type_str} on {node.node_id}: {reason}")
                     return
 
-            job_id = f"{job_type.value}_{board_type}_{num_players}p_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+            job_id = f"{job_type_str}_{board_type}_{num_players}p_{int(time.time())}_{uuid.uuid4().hex[:6]}"
 
             # NAT-blocked nodes can't accept inbound /start_job; enqueue a relay command instead.
             if getattr(node, "nat_blocked", False):
                 payload = {
                     "job_id": job_id,
-                    "job_type": job_type.value,
+                    "job_type": job_type_str,
                     "board_type": board_type,
                     "num_players": num_players,
                     "engine_mode": engine_mode,
@@ -12598,7 +12602,7 @@ print(json.dumps({{
                 if cmd_id:
                     print(
                         f"[P2P] Enqueued relay job for {node.node_id}: "
-                        f"{job_type.value} {board_type} {num_players}p ({job_id})"
+                        f"{job_type_str} {board_type} {num_players}p ({job_id})"
                     )
                 else:
                     logger.info(f"Relay queue full for {node.node_id}; skipping enqueue")
@@ -12608,7 +12612,7 @@ print(json.dumps({{
             async with get_client_session(timeout) as session:
                 payload = {
                     "job_id": job_id,
-                    "job_type": job_type.value,
+                    "job_type": job_type_str,
                     "board_type": board_type,
                     "num_players": num_players,
                     "engine_mode": engine_mode,
