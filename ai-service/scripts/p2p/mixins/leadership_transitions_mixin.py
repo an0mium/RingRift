@@ -81,6 +81,15 @@ class LeadershipTransitionsMixin(P2PMixinBase):
         Args:
             reason: Why we're stepping down (LEASE_EXPIRED, QUORUM_LOST, etc.)
         """
+        # Feb 2026: Don't step down if forced leader override is active
+        _forced_sd = getattr(self, "_forced_leader_override", False)
+        _lease_sd = time.time() < getattr(self, "leader_lease_expires", 0)
+        if _forced_sd and _lease_sd:
+            logger.warning(
+                f"ULSM: Blocking step-down (reason={reason.value}) — "
+                f"forced leader override active"
+            )
+            return
         try:
             loop = asyncio.get_running_loop()
             loop.create_task(self._complete_step_down_async(reason))

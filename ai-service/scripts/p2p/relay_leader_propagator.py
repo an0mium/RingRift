@@ -319,6 +319,16 @@ class RelayLeaderPropagatorMixin:
             )
             return False
 
+        # Feb 2026: Don't adopt relay leader if forced override is active
+        _forced_rl = getattr(self, "_forced_leader_override", False)
+        _lease_rl = now < getattr(self, "leader_lease_expires", 0)
+        if _forced_rl and _lease_rl and best_claim.leader_id != getattr(self, "node_id", None):
+            logger.info(
+                f"[RelayLeaderPropagator] Rejecting relay leader {best_claim.leader_id} "
+                f"(forced leader override active)"
+            )
+            return False
+
         # Update our leader_id
         old_leader = self.leader_id
         self.leader_id = best_claim.leader_id

@@ -442,13 +442,14 @@ class ElectionHandlersMixin(BaseP2PHandler):
                 "leader_lease_expires": getattr(self, "leader_lease_expires", 0.0),
             }
 
-            # Reset election state
+            # Reset election state (also clears forced override)
             self.election_in_progress = False
             self.leader_id = None
             self.leader_lease_id = ""
             self.leader_lease_expires = 0.0
             self.last_lease_renewal = 0.0
             self.last_election_attempt = 0.0
+            self._forced_leader_override = False
             if self.role == NodeRole.LEADER:
                 self.role = NodeRole.FOLLOWER
 
@@ -850,6 +851,21 @@ class ElectionHandlersMixin(BaseP2PHandler):
                         "challenger_id": self.node_id,
                         "reason": "election_in_progress",
                     })
+
+            # Feb 2026: Don't accept provisional claims if forced override is active
+            _forced_pc = getattr(self, "_forced_leader_override", False)
+            _lease_pc = time.time() < getattr(self, "leader_lease_expires", 0)
+            if _forced_pc and _lease_pc and claimant_id != self.node_id:
+                logger.info(
+                    f"Rejecting provisional claim from {claimant_id} "
+                    f"(forced leader override active)"
+                )
+                return self.json_response({
+                    "ack": False,
+                    "challenge": True,
+                    "challenger_id": self.node_id,
+                    "reason": "forced_override_active",
+                })
 
             # Acknowledge the provisional claim
             self.leader_id = claimant_id

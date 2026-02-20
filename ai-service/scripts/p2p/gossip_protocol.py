@@ -2159,7 +2159,11 @@ class GossipProtocolMixin(GossipPersistenceMixin, GossipPartitionMixin, _GossipM
         peer_term = int(sender_state.get("leader_term", 0) or 0)
         local_term = getattr(self, "_leader_term", 0) or 0
         peer_leader = sender_state.get("leader_id", "")
-        if peer_term > local_term and peer_leader:
+        # Feb 2026: Don't adopt a different leader via term if forced override is active
+        _forced = getattr(self, "_forced_leader_override", False)
+        _lease_ok = now < getattr(self, "leader_lease_expires", 0)
+        _is_self = (peer_leader == getattr(self, "node_id", None))
+        if peer_term > local_term and peer_leader and not (_forced and _lease_ok and not _is_self):
             self._leader_term = peer_term
             self.leader_id = peer_leader
             self.last_leader_seen = now
@@ -2196,8 +2200,17 @@ class GossipProtocolMixin(GossipPersistenceMixin, GossipPartitionMixin, _GossipM
             claimed_epoch = sender_state.get("leadership_epoch", 0)
             lease_expires = sender_state.get("leader_lease_expires", 0)
 
+            # Feb 2026: Don't accept gossip leader claims if forced override is active
+            _forced_gs = getattr(self, "_forced_leader_override", False)
+            _lease_gs = now < getattr(self, "leader_lease_expires", 0)
+            _is_self_gs = (claimed_leader == getattr(self, "node_id", None))
+            if _forced_gs and _lease_gs and not _is_self_gs:
+                self._log_debug(
+                    f"Gossip: Rejecting leader claim {claimed_leader} "
+                    f"(forced leader override active)"
+                )
             # Check if we have ULSM state machine for validation
-            if hasattr(self, "_leadership_sm") and self._leadership_sm:
+            elif hasattr(self, "_leadership_sm") and self._leadership_sm:
                 if self._leadership_sm.validate_leader_claim(claimed_leader, claimed_epoch, lease_expires):
                     self.leader_id = claimed_leader
                     self.last_leader_seen = now
@@ -2855,16 +2868,25 @@ class GossipProtocolMixin(GossipPersistenceMixin, GossipPartitionMixin, _GossipM
             sender_state = response.get("sender_state", {})
             incoming_leader = sender_state.get("leader_id")
             if incoming_leader and incoming_leader != self.node_id:
-                # Import NodeRole for comparison
-                try:
-                    from .models import NodeRole
-                except ImportError:
-                    NodeRole = None
+                # Feb 2026: Don't adopt incoming leader if forced override is active
+                _forced_ae = getattr(self, "_forced_leader_override", False)
+                _lease_ae = time.time() < getattr(self, "leader_lease_expires", 0)
+                if _forced_ae and _lease_ae:
+                    self._log_info(
+                        f"Rejecting epoch-based leader {incoming_leader} "
+                        f"(forced leader override active)"
+                    )
+                else:
+                    # Import NodeRole for comparison
+                    try:
+                        from .models import NodeRole
+                    except ImportError:
+                        NodeRole = None
 
-                if NodeRole and self.role == NodeRole.LEADER:
-                    self._log_info(f"Stepping down: higher epoch cluster has leader {incoming_leader}")
-                    self.role = NodeRole.FOLLOWER
-                self.leader_id = incoming_leader
+                    if NodeRole and self.role == NodeRole.LEADER:
+                        self._log_info(f"Stepping down: higher epoch cluster has leader {incoming_leader}")
+                        self.role = NodeRole.FOLLOWER
+                    self.leader_id = incoming_leader
 
     async def _gossip_anti_entropy_repair(self) -> None:
         """DECENTRALIZED: Periodic full state reconciliation with random peer.

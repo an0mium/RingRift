@@ -1811,6 +1811,15 @@ class LeaderElectionMixin(P2PMixinBase):
 
         # If we're not the canonical leader, step down
         if canonical_leader != self.node_id:
+            # Feb 2026: Don't step down if forced leader override is active
+            _forced_sb = getattr(self, "_forced_leader_override", False)
+            _lease_sb = time.time() < getattr(self, "leader_lease_expires", 0)
+            if _forced_sb and _lease_sb:
+                self._log_warning(
+                    f"SPLIT-BRAIN RESOLUTION: Ignoring demotion to {canonical_leader} "
+                    f"(forced leader override active for {self.node_id})"
+                )
+                return
             self._log_warning(
                 f"SPLIT-BRAIN RESOLUTION: Demoting self ({self.node_id}) in favor of "
                 f"canonical leader {canonical_leader} (has {max_votes} votes)"
@@ -1960,6 +1969,16 @@ class LeaderElectionMixin(P2PMixinBase):
             class NodeRole(str, Enum):
                 LEADER = "leader"
                 FOLLOWER = "follower"
+
+        # Feb 2026: Don't override forced leadership with Raft leader
+        _forced_raft = getattr(self, "_forced_leader_override", False)
+        _lease_raft = time.time() < getattr(self, "leader_lease_expires", 0)
+        if _forced_raft and _lease_raft and raft_leader_id != self.node_id:
+            self._log_info(
+                f"[Raft] Ignoring Raft leader {raft_leader_id} "
+                f"(forced leader override active for {self.node_id})"
+            )
+            return False
 
         old_leader = self.leader_id
         self.leader_id = raft_leader_id
