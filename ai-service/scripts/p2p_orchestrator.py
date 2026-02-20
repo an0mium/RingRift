@@ -1851,6 +1851,13 @@ class P2POrchestrator(
         # Jan 3, 2026 (Sprint 10+): Per-peer circuit breakers and health scoring
         # Finer-grained failure isolation than per-transport breakers
         self._peer_circuit_breakers: dict[str, PeerCircuitBreaker] = {}
+
+        # Feb 2026: Per-node job dispatch failure tracking with cooldown.
+        # Prevents tight retry loops when a node consistently returns HTTP 4xx/5xx.
+        # Dict maps node_id -> (consecutive_failures, last_failure_time)
+        self._job_dispatch_failures: dict[str, tuple[int, float]] = {}
+        self._JOB_DISPATCH_FAILURE_THRESHOLD = 3  # consecutive failures before cooldown
+        self._JOB_DISPATCH_COOLDOWN_SECONDS = 60.0  # seconds to skip node after threshold
         self._peer_health_scores: dict[str, PeerHealthScore] = {}
 
         # Feb 2026: Centralized training config
@@ -12580,6 +12587,20 @@ print(json.dumps({{
             # assumed .value always exists. This caused 4000+ dispatch failures/day.
             job_type_str = job_type.value if hasattr(job_type, 'value') else str(job_type)
 
+            # Feb 2026: Check per-node dispatch cooldown to prevent tight retry loops.
+            # Nodes that fail repeatedly get skipped for _JOB_DISPATCH_COOLDOWN_SECONDS.
+            nid = node.node_id
+            fail_info = self._job_dispatch_failures.get(nid)
+            if fail_info:
+                fail_count, fail_time = fail_info
+                if fail_count >= self._JOB_DISPATCH_FAILURE_THRESHOLD:
+                    elapsed = time.time() - fail_time
+                    if elapsed < self._JOB_DISPATCH_COOLDOWN_SECONDS:
+                        return  # Silently skip — already logged when cooldown started
+                    else:
+                        # Cooldown expired, reset and allow retry
+                        self._job_dispatch_failures[nid] = (0, 0.0)
+
             # SAFEGUARD: Check safeguards before requesting remote spawn
             if HAS_SAFEGUARDS and _safeguards:
                 allowed, reason = check_before_spawn(job_type_str, node.node_id)
@@ -12627,13 +12648,25 @@ print(json.dumps({{
                             data = await resp.json()
                             if data.get("success"):
                                 logger.info(f"Started remote {board_type} {num_players}p job on {node.node_id}")
+                                # Reset failure tracking on success
+                                self._job_dispatch_failures.pop(nid, None)
                                 return
                             last_err = str(data.get("error") or "start_failed")
                     except Exception as e:  # noqa: BLE001
                         last_err = str(e)
                         continue
                 if last_err:
-                    logger.error(f"Failed to start remote job on {node.node_id}: {last_err}")
+                    # Track consecutive failures for cooldown
+                    prev_count = self._job_dispatch_failures.get(nid, (0, 0.0))[0]
+                    new_count = prev_count + 1
+                    self._job_dispatch_failures[nid] = (new_count, time.time())
+                    if new_count >= self._JOB_DISPATCH_FAILURE_THRESHOLD:
+                        logger.warning(
+                            f"Job dispatch to {nid} failed {new_count}x consecutively, "
+                            f"cooling down for {self._JOB_DISPATCH_COOLDOWN_SECONDS}s"
+                        )
+                    else:
+                        logger.error(f"Failed to start remote job on {nid}: {last_err}")
         except Exception as e:  # noqa: BLE001
             logger.error(f"Failed to request remote job from {node.node_id}: {e}")
 
