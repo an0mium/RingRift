@@ -2524,6 +2524,7 @@ class ClusterManifest:
             board_type = ""
             num_players = 0
 
+            conn = None
             try:
                 conn = sqlite3.connect(db_path)
                 cursor = conn.cursor()
@@ -2583,10 +2584,11 @@ class ClusterManifest:
                 except sqlite3.Error:
                     pass
 
-                conn.close()
-
             except sqlite3.Error as e:
                 logger.debug(f"Error reading {db_path}: {e}")
+            finally:
+                if conn is not None:
+                    conn.close()
 
             # Get replication count
             replication_count = self._get_db_replication_count(db_path)

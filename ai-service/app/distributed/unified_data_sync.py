@@ -1428,10 +1428,12 @@ class UnifiedDataSyncService:
 
                     # Verify SQLite integrity
                     conn = sqlite3.connect(db_file)
-                    cursor = conn.cursor()
-                    cursor.execute("PRAGMA integrity_check")
-                    result = cursor.fetchone()
-                    conn.close()
+                    try:
+                        cursor = conn.cursor()
+                        cursor.execute("PRAGMA integrity_check")
+                        result = cursor.fetchone()
+                    finally:
+                        conn.close()
 
                     if result[0] != "ok":
                         errors.append(f"{db_file.name}: SQLite integrity check failed: {result[0]}")
@@ -1493,16 +1495,19 @@ class UnifiedDataSyncService:
             # Count games in synced DBs
             total = 0
             for db_file in local_dir.glob("*.db"):
+                conn = None
                 try:
                     conn = sqlite3.connect(db_file)
                     cursor = conn.cursor()
                     cursor.execute("SELECT COUNT(*) FROM games")
                     total += cursor.fetchone()[0]
-                    conn.close()
                 except sqlite3.Error as e:
                     logger.debug(f"Could not count games in {db_file.name}: {e}")
                 except Exception as e:
                     logger.warning(f"Unexpected error counting games in {db_file.name}: {e}")
+                finally:
+                    if conn is not None:
+                        conn.close()
 
             return total, ""
 

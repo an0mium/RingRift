@@ -603,17 +603,20 @@ def check_database() -> ComponentHealthStatus:
         test_db = None
 
         for db_file in db_files[:5]:  # Only check first 5 to keep it fast
+            conn = None
             try:
                 conn = sqlite3.connect(str(db_file), timeout=2)
                 cursor = conn.cursor()
                 cursor.execute("SELECT 1")
                 cursor.fetchone()
-                conn.close()
                 valid_count += 1
                 if test_db is None:
                     test_db = db_file
             except sqlite3.DatabaseError:
                 invalid_files.append(db_file.name)
+            finally:
+                if conn is not None:
+                    conn.close()
 
         if valid_count == 0:
             return ComponentHealthStatus.warning(

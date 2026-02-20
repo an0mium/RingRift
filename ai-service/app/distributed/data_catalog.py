@@ -413,6 +413,7 @@ class DataCatalog:
         Returns:
             DataSource object or None if analysis fails
         """
+        conn = None
         try:
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
@@ -422,7 +423,6 @@ class DataCatalog:
             game_count = cursor.fetchone()[0]
 
             if game_count == 0:
-                conn.close()
                 return None
 
             # Get board type and player count distribution
@@ -435,8 +435,6 @@ class DataCatalog:
                 player_counts = {row[0] for row in cursor.fetchall()}
             except sqlite3.OperationalError:
                 pass  # Columns may not exist
-
-            conn.close()
 
             # Get file stats
             stat = db_path.stat()
@@ -460,6 +458,9 @@ class DataCatalog:
         except OSError as e:
             logger.debug(f"Error analyzing {db_path}: {e}")
             return None
+        finally:
+            if conn is not None:
+                conn.close()
 
     def get_training_data(
         self,

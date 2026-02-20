@@ -394,15 +394,14 @@ class ConsolidationEligibilityManager:
 
                 # Quick check: does it have any games?
                 try:
-                    conn = connect_safe(db_path, timeout=2.0, row_factory=None)
-                    cursor = conn.execute("SELECT 1 FROM games LIMIT 1")
-                    has_games = cursor.fetchone() is not None
-                    conn.close()
-                    if has_games:
-                        logger.debug(
-                            f"[ConsolidationEligibility] Found local game data in {db_path}"
-                        )
-                        return True
+                    with connect_safe(db_path, timeout=2.0, row_factory=None) as conn:
+                        cursor = conn.execute("SELECT 1 FROM games LIMIT 1")
+                        has_games = cursor.fetchone() is not None
+                        if has_games:
+                            logger.debug(
+                                f"[ConsolidationEligibility] Found local game data in {db_path}"
+                            )
+                            return True
                 except (sqlite3.Error, OSError):
                     continue
 
