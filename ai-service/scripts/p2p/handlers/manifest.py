@@ -76,21 +76,61 @@ class ManifestHandlersMixin(BaseP2PHandler):
     cluster_data_manifest: object | None
     _cluster_manifest_received_at: float  # When broadcast was received
 
+    # Feb 2026: Response cache for /data_manifest to prevent concurrent
+    # requests from spawning multiple heavy filesystem scans
+    _manifest_cache: dict | None = None
+    _manifest_cache_time: float = 0.0
+    _manifest_cache_lock: asyncio.Lock | None = None
+    _MANIFEST_CACHE_TTL: float = 30.0  # Cache for 30 seconds
+
+    def _get_manifest_cache_lock(self) -> asyncio.Lock:
+        """Lazy-init asyncio.Lock (must be created in event loop context)."""
+        if self._manifest_cache_lock is None:
+            self._manifest_cache_lock = asyncio.Lock()
+        return self._manifest_cache_lock
+
     @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_data_manifest(self, request: web.Request) -> web.Response:
         """Return this node's local data manifest.
 
         Used by leader to collect data inventory from all nodes.
+        Feb 2026: Added 30s response cache to prevent concurrent requests
+        from spawning multiple heavy filesystem scans that block the event loop.
         """
-        try:
-            local_manifest = await asyncio.to_thread(self._collect_local_data_manifest)
-            with self.manifest_lock:
-                self.local_data_manifest = local_manifest
+        import time
 
-            return web.json_response({
-                "node_id": self.node_id,
-                "manifest": local_manifest.to_dict(),
-            })
+        try:
+            now = time.time()
+            # Return cached response if fresh
+            if (
+                self._manifest_cache is not None
+                and (now - self._manifest_cache_time) < self._MANIFEST_CACHE_TTL
+            ):
+                return web.json_response(self._manifest_cache)
+
+            # Use lock to deduplicate concurrent requests
+            lock = self._get_manifest_cache_lock()
+            async with lock:
+                # Double-check after acquiring lock
+                now = time.time()
+                if (
+                    self._manifest_cache is not None
+                    and (now - self._manifest_cache_time) < self._MANIFEST_CACHE_TTL
+                ):
+                    return web.json_response(self._manifest_cache)
+
+                local_manifest = await asyncio.to_thread(self._collect_local_data_manifest)
+                with self.manifest_lock:
+                    self.local_data_manifest = local_manifest
+
+                response_data = {
+                    "node_id": self.node_id,
+                    "manifest": local_manifest.to_dict(),
+                }
+                self._manifest_cache = response_data
+                self._manifest_cache_time = time.time()
+
+            return web.json_response(response_data)
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": str(e)}, status=500)
 
