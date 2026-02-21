@@ -984,6 +984,24 @@ class EloDatabase:
         if game_id is None:
             game_id = str(uuid.uuid4())
 
+        # Feb 2026: Guard against cross-config matches that corrupt ratings.
+        # Reject matches where participant IDs indicate different player counts
+        # (e.g., ringrift_best_square8_2p vs ringrift_best_square8_4p).
+        import re
+        player_counts_in_ids = set()
+        for pid in participant_ids:
+            # Extract player count suffix from bare ID (before any : harness suffix)
+            bare_id = pid.split(":")[0]
+            match = re.search(r'_(\d)p(?:_|$)', bare_id)
+            if match:
+                player_counts_in_ids.add(int(match.group(1)))
+        if len(player_counts_in_ids) > 1:
+            logger.warning(
+                f"Rejected cross-config match: participants span player counts "
+                f"{player_counts_in_ids}: {participant_ids}"
+            )
+            return -1, {pid: 1500.0 for pid in participant_ids}
+
         # Ensure all participants are registered (outside main transaction)
         for pid in participant_ids:
             self.ensure_participant(pid)

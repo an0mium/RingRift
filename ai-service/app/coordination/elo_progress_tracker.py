@@ -561,23 +561,13 @@ async def snapshot_all_configs() -> dict[str, EloSnapshot | None]:
                 results[config_key] = None
                 continue
 
-            # Feb 2026: Group by canonical NN identity to find the best
-            # model regardless of which harness variant is highest-rated.
-            # Prefer ringrift_best_<config> entries (the stable symlink)
-            # so Elo tracking persists across model promotions.
+            # Feb 2026: Use the highest-rated model entry.
+            # Previously we preferred bare ringrift_best_<config> IDs for
+            # tracking consistency, but cross-config matches can corrupt
+            # bare ID ratings (e.g., 560 wins / 0 losses = 1508 Elo when
+            # real rating is 1899). The leaderboard is sorted by rating
+            # DESC, so model_entries[0] is always the strongest model.
             best = model_entries[0]
-
-            # Check if there's a ringrift_best_* entry for this config
-            canonical_id = f"ringrift_best_{config_key}"
-            for entry in model_entries:
-                nn_id = _extract_canonical_nn_id(entry.participant_id)
-                if nn_id == canonical_id:
-                    best = entry  # Take the highest-rated canonical match
-                    break
-                # Also match plain ringrift_best_* (non-composite)
-                if entry.participant_id == canonical_id:
-                    best = entry
-                    break
 
             # Record the snapshot
             tracker.record_snapshot(

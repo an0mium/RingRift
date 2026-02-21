@@ -958,18 +958,34 @@ class DataPipelineManager:
                     for db_path, _ in dbs_to_merge[:50]:  # Limit to 50 DBs at a time
                         cmd.extend(["--db", str(db_path)])
 
-                    # Run merge in background
-                    proc = subprocess.Popen(
-                        cmd,
-                        env=env,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        cwd=str(Path(self._get_ai_service_path())),
-                    )
-                    logger.info(f"Started DB merge (PID: {proc.pid})")
-                    self._stats.db_consolidations += 1
-                    self._stats.games_consolidated += total_games
-                    self._stats.last_consolidation_time = time.time()
+                    # Run merge and wait for completion (capture output for debugging)
+                    try:
+                        result = await asyncio.to_thread(
+                            subprocess.run,
+                            cmd,
+                            env=env,
+                            capture_output=True,
+                            text=True,
+                            timeout=600,  # 10 minute timeout
+                            cwd=str(Path(self._get_ai_service_path())),
+                        )
+                        if result.returncode == 0:
+                            logger.info(
+                                f"DB merge completed: {total_games} games from "
+                                f"{len(dbs_to_merge)} DBs"
+                            )
+                            self._stats.db_consolidations += 1
+                            self._stats.games_consolidated += total_games
+                            self._stats.last_consolidation_time = time.time()
+                        else:
+                            logger.warning(
+                                f"DB merge failed (rc={result.returncode}): "
+                                f"{result.stderr[:500] if result.stderr else 'no stderr'}"
+                            )
+                            self._stats.consolidation_errors += 1
+                    except subprocess.TimeoutExpired:
+                        logger.warning("DB merge timed out after 600s")
+                        self._stats.consolidation_errors += 1
 
         except Exception as e:  # noqa: BLE001
             logger.info(f"Data consolidation error: {e}")
