@@ -163,16 +163,6 @@ class SelfplayHandlersMixin:
         is enabled. Selfplay doesn't require cluster consensus - it's local GPU work.
         """
         try:
-            # Feb 2026: Coordinator nodes must NEVER run selfplay — no GPU, OOM-prone.
-            if os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() in ("true", "1", "yes"):
-                logger.warning(
-                    f"[P2P] Rejecting selfplay on coordinator node {self.node_id}"
-                )
-                return web.json_response({
-                    "success": False,
-                    "error": "Coordinator nodes cannot run selfplay (no GPU)",
-                }, status=403)
-
             # Phase 2.4 (Dec 29, 2025): Block dispatch if in partition readonly mode
             # Jan 2026: Allow bypass for selfplay (doesn't require consensus)
             if self.is_partition_readonly():
