@@ -8635,7 +8635,6 @@ print(json.dumps({{
             export RINGRIFT_RAFT_ENABLED=true
             export RINGRIFT_CONSENSUS_MODE=raft  # or "hybrid"
         """
-        print("[DEBUG] _init_hybrid_coordinator() called", flush=True)
         logger.info("[P2P] _init_hybrid_coordinator() called")
         try:
             from app.p2p.constants import RAFT_ENABLED, CONSENSUS_MODE
@@ -8712,23 +8711,29 @@ print(json.dumps({{
         immediately announce to all known peers. This reduces discovery latency
         from 15-30s down to 2-5s after startup.
 
-        This is called for ALL nodes (not just NAT-blocked) to ensure fast
-        peer discovery after restarts or cluster updates.
+        Feb 22, 2026: Made concurrent with 10s per-peer timeout to prevent
+        blocking startup for 3+ minutes when peers are unreachable.
         """
-        # Send to known peers from config
-        success_count = 0
-        total_attempts = 0
-
-        print(f"[DEBUG] _send_startup_peer_announcements: {len(self.known_peers)} known peers", flush=True)
+        peers_to_announce = []
         for peer_addr in self.known_peers:
             try:
                 scheme, host, port = self._parse_peer_address(peer_addr)
+                peers_to_announce.append((scheme, host, port))
             except (AttributeError, ValueError):
                 continue
 
-            total_attempts += 1
+        if not peers_to_announce:
+            return
+
+        success_count = 0
+
+        async def _announce_one(scheme, host, port):
+            nonlocal success_count
             try:
-                info = await self._send_heartbeat_to_peer(host, port, scheme=scheme)
+                info = await asyncio.wait_for(
+                    self._send_heartbeat_to_peer(host, port, scheme=scheme),
+                    timeout=10.0,
+                )
                 if info and info.node_id != self.node_id:
                     async with NonBlockingAsyncLockWrapper(self.peers_lock, "peers_lock", timeout=5.0):
                         is_first_contact = info.node_id not in self.peers
@@ -8737,13 +8742,26 @@ print(json.dumps({{
                     if is_first_contact:
                         logger.info(f"[P2P] Startup announcement discovered peer: {info.node_id}")
                     success_count += 1
+            except asyncio.TimeoutError:
+                logger.debug(f"[P2P] Startup announcement to {host}:{port} timed out (10s)")
             except Exception as e:  # noqa: BLE001
                 logger.debug(f"[P2P] Startup announcement to {host}:{port} failed: {e}")
 
+        # Run all announcements concurrently with an overall 30s timeout
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*[_announce_one(s, h, p) for s, h, p in peers_to_announce],
+                               return_exceptions=True),
+                timeout=30.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"[P2P] Startup announcements overall timeout (30s)")
+
+        total = len(peers_to_announce)
         if success_count > 0:
-            logger.info(f"[P2P] Startup announcements: {success_count}/{total_attempts} peers reachable")
-        elif total_attempts > 0:
-            logger.warning(f"[P2P] Startup announcements: no peers reachable (tried {total_attempts})")
+            logger.info(f"[P2P] Startup announcements: {success_count}/{total} peers reachable")
+        elif total > 0:
+            logger.warning(f"[P2P] Startup announcements: no peers reachable (tried {total})")
 
     async def _execute_relay_commands(self, commands: list[dict[str, Any]]) -> None:
         """Execute relay commands (polling mode for NAT-blocked nodes)."""
@@ -11243,86 +11261,81 @@ print(json.dumps({{
             return await self.quorum_manager.check_and_resolve_split_brain()
         return False
 
+    async def _run_with_timeout(self, coro, name: str, timeout: float = 60.0) -> None:
+        """Run a coroutine with a timeout, logging if it exceeds the limit."""
+        try:
+            await asyncio.wait_for(coro, timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.warning(f"[JobMgmt] {name} timed out after {timeout}s, skipping")
+        except Exception as e:
+            logger.debug(f"[JobMgmt] {name} failed: {e}")
+
     async def _job_management_loop(self):
         """Manage jobs - leader coordinates cluster, all nodes handle local operations."""
+        logger.info("[JobMgmt] _job_management_loop started")
         while self.running:
             try:
+                _t0 = time.time()
                 # ==== DECENTRALIZED OPERATIONS (all nodes) ====
-                # These run on every node to ensure cluster health even without a leader
-                # Makes the cluster resilient to leader instability
-
-                # Local data consolidation: merge siloed job DBs to main selfplay.db
-                # Jan 28, 2026: Uses data_pipeline_manager directly
-                await self.data_pipeline_manager.consolidate_selfplay_data(
-                    dispatch_export_job_callback=self._dispatch_export_job,
-                )
-
-                # Local stuck job detection: each node monitors its own processes
-                # Jan 28, 2026: Uses job_lifecycle_manager directly
-                await self.job_lifecycle_manager.check_local_stuck_jobs()
-
-                # Local resource cleanup: handle disk/memory pressure independently
-                # Jan 28, 2026: Uses job_coordination_manager directly
-                await self.job_coordination_manager.local_resource_cleanup()
-
-                # Local job management: start/stop jobs based on node capacity
-                await self._manage_local_jobs_decentralized()
-
-                # Local GPU auto-scaling: optimize GPU utilization independently
-                # Jan 28, 2026: Uses job_coordination_manager directly
-                await self.job_coordination_manager.local_gpu_auto_scale()
-
-                # Leaderless training fallback: trigger local training if no leader for too long
-                await self._check_local_training_fallback()
-
-                # Emergency coordinator: if voter quorum unavailable for >5min, take leadership
-                await self._check_emergency_coordinator_fallback()
-
-                # P2P data sync: nodes can sync data directly without leader
-                await self.sync.p2p_data_sync()
-
-                # P2P model sync: dedicated model distribution (more frequent)
-                await self.sync.p2p_model_sync()
-
-                # P2P training DB sync: sync training databases for diversity
-                await self.sync.p2p_training_db_sync()
-
-                # Gossip protocol: share state with random peers
-                await self._gossip_state_to_peers()
-
-                # Anti-entropy repair: periodic full state reconciliation
-                await self._gossip_anti_entropy_repair()
+                # Each op has a 60s timeout to prevent blocking the entire loop
+                _ops = [
+                    ("consolidate_selfplay_data", lambda: self.data_pipeline_manager.consolidate_selfplay_data(
+                        dispatch_export_job_callback=self._dispatch_export_job)),
+                    ("check_local_stuck_jobs", lambda: self.job_lifecycle_manager.check_local_stuck_jobs()),
+                    ("local_resource_cleanup", lambda: self.job_coordination_manager.local_resource_cleanup()),
+                    ("manage_local_jobs_decentralized", lambda: self._manage_local_jobs_decentralized()),
+                    ("local_gpu_auto_scale", lambda: self.job_coordination_manager.local_gpu_auto_scale()),
+                    ("check_local_training_fallback", lambda: self._check_local_training_fallback()),
+                    ("check_emergency_coordinator_fallback", lambda: self._check_emergency_coordinator_fallback()),
+                    ("p2p_data_sync", lambda: self.sync.p2p_data_sync()),
+                    ("p2p_model_sync", lambda: self.sync.p2p_model_sync()),
+                    ("p2p_training_db_sync", lambda: self.sync.p2p_training_db_sync()),
+                    # Gossip ops have dedicated LoopManager loops; use short timeout here
+                    ("gossip_state_to_peers", lambda: self._gossip_state_to_peers()),
+                    ("gossip_anti_entropy_repair", lambda: self._gossip_anti_entropy_repair()),
+                ]
+                # Gossip ops have dedicated LoopManager loops, so use shorter
+                # timeout here (15s) to avoid blocking the management cycle.
+                _gossip_ops = {"gossip_state_to_peers", "gossip_anti_entropy_repair"}
+                for _op_name, _op_factory in _ops:
+                    _op_start = time.time()
+                    _timeout = 15.0 if _op_name in _gossip_ops else 60.0
+                    await self._run_with_timeout(_op_factory(), _op_name, timeout=_timeout)
+                    _op_elapsed = time.time() - _op_start
+                    if _op_elapsed > 5.0:
+                        logger.warning(f"[JobMgmt] {_op_name} took {_op_elapsed:.1f}s")
 
                 # ==== LEADER-ONLY OPERATIONS ====
                 if self.role == NodeRole.LEADER:
-                    # LEARNED LESSONS - Check for split-brain before acting as leader
-                    if await self._check_and_resolve_split_brain():
-                        # We stepped down, skip this cycle
+                    split_brain = await self._check_and_resolve_split_brain()
+                    if split_brain:
                         await asyncio.sleep(JOB_CHECK_INTERVAL)
                         continue
 
-                    await self._manage_cluster_jobs()
-                    # Cluster rebalancing: migrate jobs from weak to powerful nodes
-                    await self._check_cluster_balance()
-                    # Phase 3: Check if training should be triggered automatically
-                    await self._check_and_trigger_training()
-                    # Phase 5: Check improvement cycles for automated training
-                    await self._check_improvement_cycles()
-                    # Cluster-wide stuck job detection (remote nodes)
-                    # Jan 28, 2026: Uses job_lifecycle_manager directly
-                    await self.job_lifecycle_manager.check_and_kill_stuck_jobs()
-                    # Work queue rebalancing: assign queued work to idle nodes
-                    await self._auto_rebalance_from_work_queue()
-                    # Self-healing: auto-scale GPU utilization toward 60-80% target
-                    await self._auto_scale_gpu_utilization()
-                    # Self-healing: probe NAT-blocked peers to check if they've become reachable
-                    # Jan 28, 2026: Uses recovery_manager directly
-                    await self.recovery_manager.sweep_nat_recovery()
-                    # Self-healing: detect and recover stuck nodes via SSH restart
-                    # Jan 28, 2026: Uses recovery_manager directly
-                    await self.recovery_manager.check_node_recovery()
+                    logger.info("[JobMgmt] Running leader-only operations cycle")
+                    await self._run_with_timeout(
+                        self._manage_cluster_jobs(), "manage_cluster_jobs")
+                    await self._run_with_timeout(
+                        self._check_cluster_balance(), "check_cluster_balance")
+                    await self._run_with_timeout(
+                        self._check_and_trigger_training(), "check_and_trigger_training")
+                    await self._run_with_timeout(
+                        self._check_improvement_cycles(), "check_improvement_cycles")
+                    await self._run_with_timeout(
+                        self.job_lifecycle_manager.check_and_kill_stuck_jobs(),
+                        "check_and_kill_stuck_jobs")
+                    await self._run_with_timeout(
+                        self._auto_rebalance_from_work_queue(), "auto_rebalance_from_work_queue")
+                    await self._run_with_timeout(
+                        self._auto_scale_gpu_utilization(), "auto_scale_gpu_utilization")
+                    await self._run_with_timeout(
+                        self.recovery_manager.sweep_nat_recovery(), "sweep_nat_recovery")
+                    await self._run_with_timeout(
+                        self.recovery_manager.check_node_recovery(), "check_node_recovery")
+                _total = time.time() - _t0
+                logger.info(f"[JobMgmt] Cycle complete in {_total:.1f}s (role={self.role})")
             except Exception as e:  # noqa: BLE001
-                logger.info(f"Job management error: {e}")
+                logger.error(f"[JobMgmt] Loop error: {e}", exc_info=True)
 
             await asyncio.sleep(JOB_CHECK_INTERVAL)
 
@@ -12434,17 +12447,21 @@ print(json.dumps({{
 
         # Jan 7, 2026: Send immediate peer announcements for ALL nodes
         # This reduces discovery latency from 15-30s to 2-5s after startup
-        print("[DEBUG] About to call _send_startup_peer_announcements()", flush=True)
         await self._send_startup_peer_announcements()
-        print("[DEBUG] _send_startup_peer_announcements() returned", flush=True)
 
         # Jan 23, 2026: Initialize HybridCoordinator for Raft-based leader election
         # This replaces the buggy Bully algorithm when CONSENSUS_MODE=raft or hybrid.
         # The HybridCoordinator provides sub-second leader failover via PySyncObj's Raft.
-        print("[DEBUG] About to call _init_hybrid_coordinator()", flush=True)
         await self._init_hybrid_coordinator()
-        print("[DEBUG] _init_hybrid_coordinator() returned", flush=True)
 
+        return runner
+
+    async def _run_start_background_tasks(self) -> list:
+        """Start all background tasks with exception isolation.
+
+        Feb 2026: Extracted from run() for readability.
+        Returns list of asyncio tasks for the main gather loop.
+        """
         # Jan 9, 2026: Async fallback for game count seeding from peers
         # Cluster nodes don't have local canonical DBs, so fetch from coordinator
         # This fixes underserved config prioritization on worker nodes
@@ -12584,6 +12601,14 @@ print(json.dumps({{
                 )
             )
 
+        return tasks
+
+    async def _run_bootstrap_and_election(self, tasks: list) -> None:
+        """Bootstrap from peers and run initial leader election.
+
+        Feb 2026: Extracted from run() for readability.
+        Appends election retry task to the tasks list.
+        """
         # Best-effort bootstrap from seed peers before running elections. This
         # helps newly started cloud nodes quickly learn about the full cluster.
         # Jan 15, 2026 (Phase 6 P2P Resilience): Add retry logic with exponential backoff
@@ -12715,6 +12740,12 @@ print(json.dumps({{
             )
         )
 
+    async def _run_game_count_refresh(self, tasks: list) -> None:
+        """Set up game count refresh loops for selfplay scheduling.
+
+        Feb 2026: Extracted from run() for readability.
+        Appends deferred fetch and periodic refresh tasks to the tasks list.
+        """
         # Session 17.41: Deferred game counts fetch from peers
         # If local seeding returned empty (no canonical DBs), fetch from coordinator
         async def _deferred_game_counts_fetch():
@@ -12822,61 +12853,56 @@ print(json.dumps({{
             )
         )
 
-        # Run forever
-        # December 2025: Added return_exceptions=True to prevent task exceptions from crashing orchestrator
-        try:
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            # Log any task failures
-            for i, result in enumerate(results):
-                if isinstance(result, Exception):
-                    logger.error(f"Background task {i} failed: {result}")
-        except asyncio.CancelledError:
-            pass
-        finally:
-            self.running = False
-            # Stop extracted loops via LoopManager (Dec 2025)
-            loop_manager = self._get_loop_manager()
-            if loop_manager is not None and loop_manager.is_started:
-                try:
-                    results = await loop_manager.stop_all(timeout=15.0)
-                    stopped = sum(1 for ok in results.values() if ok)
-                    logger.info(f"LoopManager: stopped {stopped}/{len(results)} loops")
-                except Exception as e:  # noqa: BLE001
-                    logger.warning(f"LoopManager: stop failed: {e}")
+    async def _run_shutdown(self, runner: "web.AppRunner") -> None:
+        """Gracefully shut down all subsystems.
 
-            # Jan 2026: Shutdown loop executor thread pools (Phase 2)
+        Feb 2026: Extracted from run() for readability.
+        Called in the finally block of the main gather loop.
+        """
+        self.running = False
+        # Stop extracted loops via LoopManager (Dec 2025)
+        loop_manager = self._get_loop_manager()
+        if loop_manager is not None and loop_manager.is_started:
             try:
-                from scripts.p2p.loop_executors import LoopExecutors
-                LoopExecutors.shutdown_all(wait=True)
-            except ImportError:
-                pass  # Module not available
-            except Exception as e:  # noqa: BLE001
-                logger.warning(f"LoopExecutors shutdown failed: {e}")
-
-            # Jan 2026: Shutdown threaded loop runners (Phase 3)
-            try:
-                from scripts.p2p.threaded_loop_runner import ThreadedLoopRegistry
-                results = await ThreadedLoopRegistry.stop_all(timeout=15.0)
+                results = await loop_manager.stop_all(timeout=15.0)
                 stopped = sum(1 for ok in results.values() if ok)
-                if results:
-                    logger.info(f"ThreadedLoopRegistry: stopped {stopped}/{len(results)} runners")
-            except ImportError:
-                pass  # Module not available
+                logger.info(f"LoopManager: stopped {stopped}/{len(results)} loops")
             except Exception as e:  # noqa: BLE001
-                logger.warning(f"ThreadedLoopRegistry shutdown failed: {e}")
+                logger.warning(f"LoopManager: stop failed: {e}")
 
-            # Jan 23, 2026: Shutdown health check executor (singleton efficiency fix)
-            try:
-                if hasattr(self, "_health_check_executor") and self._health_check_executor:
-                    self._health_check_executor.shutdown(wait=False)
-                    logger.debug("Health check executor shutdown complete")
-            except Exception as e:  # noqa: BLE001
-                logger.debug(f"Health check executor shutdown failed: {e}")
+        # Jan 2026: Shutdown loop executor thread pools (Phase 2)
+        try:
+            from scripts.p2p.loop_executors import LoopExecutors
+            LoopExecutors.shutdown_all(wait=True)
+        except ImportError:
+            pass  # Module not available
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"LoopExecutors shutdown failed: {e}")
 
-            try:
-                await asyncio.wait_for(runner.cleanup(), timeout=30)
-            except asyncio.TimeoutError:
-                logger.warning("HTTP server cleanup timed out after 30s")
+        # Jan 2026: Shutdown threaded loop runners (Phase 3)
+        try:
+            from scripts.p2p.threaded_loop_runner import ThreadedLoopRegistry
+            results = await ThreadedLoopRegistry.stop_all(timeout=15.0)
+            stopped = sum(1 for ok in results.values() if ok)
+            if results:
+                logger.info(f"ThreadedLoopRegistry: stopped {stopped}/{len(results)} runners")
+        except ImportError:
+            pass  # Module not available
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"ThreadedLoopRegistry shutdown failed: {e}")
+
+        # Jan 23, 2026: Shutdown health check executor (singleton efficiency fix)
+        try:
+            if hasattr(self, "_health_check_executor") and self._health_check_executor:
+                self._health_check_executor.shutdown(wait=False)
+                logger.debug("Health check executor shutdown complete")
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"Health check executor shutdown failed: {e}")
+
+        try:
+            await asyncio.wait_for(runner.cleanup(), timeout=30)
+        except asyncio.TimeoutError:
+            logger.warning("HTTP server cleanup timed out after 30s")
 
 
 def _wait_for_tailscale_ip(timeout_seconds: int = 90, interval_seconds: float = 1.0) -> str:
