@@ -1047,8 +1047,9 @@ class JobOrchestrator(BaseOrchestrator):
             node_id = node_info["node_id"]
             allowed = node_info["allowed"]
 
-            # Try to claim work for this node using Raft or SQLite based on consensus mode
-            work_item = p2p.claim_work_distributed(node_id, allowed)
+            # Feb 2026: Wrap sync SQLite calls in to_thread to prevent event loop blocking.
+            # claim_work_distributed() does synchronous SQLite I/O internally.
+            work_item = await asyncio.to_thread(p2p.claim_work_distributed, node_id, allowed)
             if work_item is None:
                 continue
 
@@ -1067,14 +1068,14 @@ class JobOrchestrator(BaseOrchestrator):
             success = await p2p.job_coordination_manager.dispatch_queued_work(node_info["peer"], work_item)
             if success:
                 # Mark work as started using distributed method for Raft consistency
-                p2p.start_work_distributed(work_id)
+                await asyncio.to_thread(p2p.start_work_distributed, work_id)
                 dispatched += 1
                 # Reset idle timer since we assigned work
                 idle_key = f"_wq_idle_since_{node_id}"
                 setattr(p2p, idle_key, 0)
             else:
                 # Failed to dispatch, reset work status for retry
-                p2p.fail_work_distributed(work_id, "dispatch_failed")
+                await asyncio.to_thread(p2p.fail_work_distributed, work_id, "dispatch_failed")
 
         if dispatched > 0:
             p2p._last_work_queue_rebalance = now

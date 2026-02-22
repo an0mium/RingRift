@@ -1865,7 +1865,8 @@ class MasterLoopController:
     def _on_training_complete(self, event: Any) -> None:
         """Handle training completion."""
         try:
-            config_key = event.payload.get("config_key", "")
+            # train.py emits "config" field; fall back to it if "config_key" is missing
+            config_key = event.payload.get("config_key") or event.payload.get("config", "")
             policy_accuracy = event.payload.get("policy_accuracy", 0.0)
 
             if config_key in self._states:
@@ -1882,7 +1883,7 @@ class MasterLoopController:
     def _on_evaluation_complete(self, event: Any) -> None:
         """Handle evaluation completion."""
         try:
-            config_key = event.payload.get("config_key", "")
+            config_key = event.payload.get("config_key") or event.payload.get("config", "")
             win_rate = event.payload.get("win_rate", 0.0)
             passed = event.payload.get("passed", False)
 

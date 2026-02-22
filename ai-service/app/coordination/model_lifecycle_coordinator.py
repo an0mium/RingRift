@@ -765,7 +765,13 @@ class ModelLifecycleCoordinator:
         )
 
         # Construct model_id from config if available
-        model_id = f"canonical_{config_key}" if config_key else ""
+        # Feb 2026: Use normalize_nn_id to convert canonical_ → ringrift_best_
+        # for consistent Elo participant tracking (last bypass path fixed)
+        try:
+            from app.training.composite_participant import normalize_nn_id
+            model_id = normalize_nn_id(f"canonical_{config_key}") if config_key else ""
+        except ImportError:
+            model_id = f"canonical_{config_key}" if config_key else ""
 
         # Emit MODEL_SYNC_REQUESTED to trigger download from healthy nodes
         try:

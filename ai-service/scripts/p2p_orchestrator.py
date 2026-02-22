@@ -645,25 +645,6 @@ def _validate_p2p_dependencies() -> None:
 _validate_p2p_dependencies()
 
 
-@contextlib.contextmanager
-def db_connection(db_path: str | Path, timeout: float = 30.0) -> Generator[sqlite3.Connection]:
-    """Context manager for SQLite connections to prevent leaks.
-
-    Usage:
-        with db_connection(db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute(...)
-    """
-    conn = None
-    try:
-        conn = sqlite3.connect(str(db_path), timeout=timeout)
-        yield conn
-    finally:
-        if conn:
-            with contextlib.suppress(Exception):
-                conn.close()
-
-
 # =============================================================================
 # Async subprocess helper - Jan 19, 2026
 # Prevents blocking the event loop during subprocess operations
@@ -709,71 +690,6 @@ async def async_subprocess_run(
         )
 
     return await asyncio.to_thread(_run)
-
-
-async def async_db_query(
-    db_path: str | Path,
-    query: str,
-    params: tuple = (),
-    timeout: float = 30.0,
-    fetch_all: bool = True,
-) -> list | None:
-    """Run SQLite query in thread pool to avoid blocking the event loop.
-
-    Args:
-        db_path: Path to SQLite database
-        query: SQL query to execute
-        params: Query parameters (default empty)
-        timeout: Connection timeout in seconds (default 30)
-        fetch_all: If True, return all rows; if False, return one row
-
-    Returns:
-        Query results or None on error
-    """
-    def _query():
-        with db_connection(db_path, timeout=timeout) as conn:
-            cursor = conn.cursor()
-            cursor.execute(query, params)
-            if fetch_all:
-                return cursor.fetchall()
-            return cursor.fetchone()
-
-    try:
-        return await asyncio.to_thread(_query)
-    except Exception as e:
-        logger.warning(f"[async_db_query] Query failed on {db_path}: {e}")
-        return None
-
-
-async def async_db_execute(
-    db_path: str | Path,
-    query: str,
-    params: tuple = (),
-    timeout: float = 30.0,
-) -> bool:
-    """Execute SQLite write query in thread pool.
-
-    Args:
-        db_path: Path to SQLite database
-        query: SQL query to execute (INSERT, UPDATE, DELETE)
-        params: Query parameters (default empty)
-        timeout: Connection timeout in seconds (default 30)
-
-    Returns:
-        True if successful, False on error
-    """
-    def _execute():
-        with db_connection(db_path, timeout=timeout) as conn:
-            cursor = conn.cursor()
-            cursor.execute(query, params)
-            conn.commit()
-            return True
-
-    try:
-        return await asyncio.to_thread(_execute)
-    except Exception as e:
-        logger.warning(f"[async_db_execute] Execute failed on {db_path}: {e}")
-        return False
 
 
 # Centralized ramdrive utilities for auto-detection
@@ -1565,15 +1481,46 @@ class P2POrchestrator(
         storage_type: str = "auto",  # "disk", "ramdrive", or "auto"
         sync_to_disk_interval: int = 300,  # Sync ramdrive to disk every N seconds
     ):
+        # Feb 2026: Decomposed into 6 initialization phases for readability.
+        # Each phase is a separate method; ordering is critical.
+        self._init_settings(
+            node_id, host, port, known_peers, relay_peers,
+            ringrift_path, advertise_host, advertise_port,
+            auth_token, require_auth, storage_type, sync_to_disk_interval,
+        )
+
+        self._init_state()
+        self._init_advanced_features()
+        self._init_threading_and_protocols()
+        self._init_managers()
+        self._init_event_wiring()
+
+    # =========================================================================
+    # Initialization phases (Feb 2026 decomposition)
+    # =========================================================================
+
+    def _init_settings(
+        self,
+        node_id: str,
+        host: str,
+        port: int,
+        known_peers: list[str] | None,
+        relay_peers: list[str] | None,
+        ringrift_path: str | None,
+        advertise_host: str | None,
+        advertise_port: int | None,
+        auth_token: str | None,
+        require_auth: bool,
+        storage_type: str,
+        sync_to_disk_interval: int,
+    ) -> None:
+        """Phase 1: Core node identity, bootstrap, advertise host, auth, quorum."""
         self.node_id = node_id
         self.host = host
         self.port = port
 
-        # Jan 30, 2026: Detect ringrift path early for InitializationManager
         self.ringrift_path = ringrift_path or self._detect_ringrift_path()
 
-        # Jan 30, 2026: Priority 2.1 Decomposition - Use InitializationManager for bootstrap
-        # Consolidates bootstrap, storage, and advertise host resolution logic
         from scripts.p2p.managers.initialization_manager import (
             InitializationManager,
             InitializationConfig,
@@ -1584,7 +1531,6 @@ class P2POrchestrator(
             ringrift_path=self.ringrift_path,
         )
 
-        # Phase 26: Multi-seed bootstrap - now delegated to InitializationManager
         bootstrap_result = self._init_manager.resolve_bootstrap_config(
             cli_peers=known_peers,
             relay_peers=relay_peers,
@@ -1594,83 +1540,46 @@ class P2POrchestrator(
         self.relay_peers = bootstrap_result.relay_peers
         self._force_relay_mode = bootstrap_result.force_relay_mode
 
-        # Phase 29: Cluster epoch tracking for split-brain resolution
         self._cluster_epoch: int = bootstrap_result.cluster_epoch
-        # P2P Health state tracking (Dec 2025)
         self._cluster_health_degraded: bool = False
-        # Gossip-learned peer endpoints (Phase 28)
         self._gossip_learned_endpoints: dict[str, dict[str, Any]] = {}
 
-        # Phase 2.4 (Dec 29, 2025): Partition read-only mode
-        # When in minority partition, pause job dispatch to prevent data divergence
         self._partition_config = PartitionConfig()
         self._partition_readonly_mode: bool = self._partition_config.readonly_mode
         self._partition_readonly_since: float = self._partition_config.readonly_since
         self._last_partition_check: float = self._partition_config.last_check
         self._partition_check_interval: float = self._partition_config.check_interval
 
-        # Storage configuration: "disk", "ramdrive", or "auto" (detected)
-        # Jan 30, 2026: Delegated to InitializationManager
         storage_result = self._init_manager.resolve_storage_config(storage_type=storage_type)
         self.storage_type = storage_result.storage_type
         self.sync_to_disk_interval = storage_result.sync_to_disk_interval
         self.ramdrive_path = storage_result.ramdrive_path
         self.ramdrive_syncer: RamdriveSyncer | None = None
-        # Git 2.35+ enforces safe.directory for repos with different ownership.
-        # Many nodes run the orchestrator as root against a checkout owned by
-        # another user (e.g. ubuntu), so always provide a safe.directory override
-        # for all git operations.
         self._git_safe_directory = os.path.abspath(self.ringrift_path)
         self.build_version = self._detect_build_version()
         self.start_time = time.time()
         self.last_peer_bootstrap = 0.0
 
-        # Jan 26, 2026: Cache local IPs at startup to avoid DNS blocking in health endpoints
-        # Root cause: _is_self_voter() calls socket.getaddrinfo() on every request,
-        # which blocks when DNS is slow (common on Lambda nodes). Caching at startup
-        # eliminates this per-request overhead.
         self._cached_local_ips: set[str] = self._cache_local_ips()
         logger.info(f"[P2P] Cached {len(self._cached_local_ips)} local IPs for voter recognition")
 
-        # Resource detection delegation (Dec 28, 2025)
         self._resource_detector = ResourceDetector(
             ringrift_path=self.ringrift_path,
             start_time=self.start_time,
             startup_grace_period=STARTUP_JSONL_GRACE_PERIOD_SECONDS,
         )
 
-        # Public endpoint peers should use to reach us. Peers learn our host from
-        # the heartbeat socket address, but the port must be self-reported. This
-        # matters for port-mapped environments like Vast.ai.
+        # Advertise host resolution with multi-fallback chain
         self.advertise_host = (advertise_host or os.environ.get(ADVERTISE_HOST_ENV, "")).strip()
-
-        # Jan 23, 2026: Check for public IP preference BEFORE setting Tailscale IP
         prefer_public = os.environ.get("RINGRIFT_PREFER_PUBLIC_IP", "").strip().lower() in ("1", "true", "yes")
 
         if not self.advertise_host:
-            # Prefer a stable mesh address (Tailscale) when available so nodes
-            # behind NAT remain reachable and the cluster converges on a single
-            # view of peer endpoints.
-            #
-            # Jan 12, 2026: Multi-fallback IP resolution with YAML config priority.
-            # Order: 1) YAML config tailscale_ip, 2) Tailscale CLI with retry,
-            #        3) Local IP (last resort)
-            # Jan 23, 2026: If RINGRIFT_PREFER_PUBLIC_IP=1, skip Tailscale and use
-            #        public IP from YAML ssh_host or detected network interfaces.
-            #
-            # YAML fallback added because Tailscale CLI may not be ready at startup,
-            # and the pre-configured tailscale_ip in distributed_hosts.yaml is a
-            # reliable source for the correct IP.
             if not prefer_public:
                 yaml_ip = self._get_yaml_tailscale_ip()
                 if yaml_ip:
                     self.advertise_host = yaml_ip
                     logger.info(f"[P2P] Using YAML config tailscale_ip: {yaml_ip}")
             if not self.advertise_host and not prefer_public:
-                # Try Tailscale detection with retry (up to 90s - increased Jan 12, 2026)
-                # Root cause: 30s was insufficient when mac-studio boots and Tailscale
-                # takes 45-60s to initialize. This caused persistent local IP (10.0.0.62)
-                # advertisement, breaking voter quorum.
                 ts_ip = _wait_for_tailscale_ip(timeout_seconds=90, interval_seconds=1.0)
                 self.advertise_host = ts_ip or self._get_local_ip()
                 if not ts_ip:
@@ -1679,33 +1588,21 @@ class P2POrchestrator(
                         "Set RINGRIFT_ADVERTISE_HOST or ensure Tailscale is running."
                     )
             if not self.advertise_host and prefer_public:
-                # With RINGRIFT_PREFER_PUBLIC_IP=1, use ssh_host from YAML or detected public IP
-                # _validate_and_fix_advertise_host() will select the best public IP
                 logger.info("[P2P] RINGRIFT_PREFER_PUBLIC_IP=1: skipping Tailscale, will use public IP")
 
-        # Dec 30, 2025: Validate advertise_host to prevent private IP issues
-        # that cause P2P quorum loss when nodes can't reach each other
         self._validate_and_fix_advertise_host()
-
         self.advertise_port = advertise_port if advertise_port is not None else self._infer_advertise_port()
 
-        # Optional auth token used to protect mutating endpoints and cluster control.
-        # Default is allow-all unless a token is configured.
+        # Auth token resolution
         env_token = (os.environ.get(AUTH_TOKEN_ENV, "")).strip()
         token_from_arg = (auth_token or "").strip()
         token = token_from_arg or env_token
 
         if not token:
             token_file = (os.environ.get(AUTH_TOKEN_FILE_ENV, "")).strip()
-            if not token_file:
-                # Auto-discover token from standard locations
-                for candidate in [
-                    Path.home() / ".ringrift" / "cluster_auth_token",
-                    Path.home() / "Library" / "Application Support" / "RingRift" / "cluster_auth_token",
-                ]:
-                    if candidate.is_file():
-                        token_file = str(candidate)
-                        break
+            # Only read from explicitly-configured file path (env var), no auto-discovery.
+            # Auto-discovery caused all cluster POST requests to be rejected with 401
+            # because only the coordinator had the token file on disk.
             if token_file:
                 try:
                     token = Path(token_file).read_text().strip()
@@ -1719,15 +1616,7 @@ class P2POrchestrator(
                 f"--require-auth set but {AUTH_TOKEN_ENV}/{AUTH_TOKEN_FILE_ENV}/--auth-token is empty"
             )
 
-        # Optional split-brain mitigation: require a majority of "voter" nodes
-        # to be visible before assuming or renewing leadership.
-        #
-        # Voters can be configured via:
-        # - env: RINGRIFT_P2P_VOTERS="node-a,node-b,..."
-        # - ai-service/config/distributed_hosts.yaml: per-host `p2p_voter: true`
-        #
-        # Jan 2026 (Phase 1 Consolidation): Voter logic delegated to QuorumManager.
-        # The orchestrator maintains these attributes for backward compatibility.
+        # Quorum manager setup
         config_path = Path(self._get_ai_service_path()) / "config" / "distributed_hosts.yaml"
         self.quorum_manager = QuorumManager(
             config=QuorumConfig(
@@ -1739,7 +1628,6 @@ class P2POrchestrator(
         )
         self.voter_node_ids: list[str] = self.quorum_manager.load_voter_node_ids()
         self.voter_config_source: str = self.quorum_manager.voter_config_source
-        # SIMPLIFIED QUORUM: Fixed at 3 voters (or less if fewer voters exist)
         self.voter_quorum_size: int = min(VOTER_MIN_QUORUM, len(self.voter_node_ids)) if self.voter_node_ids else 0
         if self.voter_node_ids:
             print(
@@ -1747,48 +1635,25 @@ class P2POrchestrator(
                 f"quorum={self.voter_quorum_size} ({', '.join(self.voter_node_ids)})"
             )
 
-        # Jan 2, 2026: IP-to-node-name mapping for SWIM peer ID resolution
-        # SWIM identifies peers by IP:port, but voters are configured by name.
-        # This mapping translates between them.
-        # Jan 2026: Delegated to QuorumManager.
         self._ip_to_node_map: dict[str, str] = self.quorum_manager.build_ip_to_node_map()
-
-        # Jan 27, 2026: Cache cluster config from distributed_hosts.yaml
-        # Used by loop_registry.py and autonomous_queue_loop.py for relay/selfplay config
         self._cluster_config: dict[str, Any] = self._load_cluster_config_raw()
 
-        # Node state
+    def _init_state(self) -> None:
+        """Phase 2: Leadership state, peer management, job tracking, sync/manifest state."""
         self.role = NodeRole.FOLLOWER
         self.leader_id: str | None = None
 
-        # Unified Leadership State Machine (ULSM) - Jan 2026
-        # Single source of truth for leadership state transitions.
-        # Addresses silent step-down and split-brain issues.
         self._leadership_sm = LeadershipStateMachine(node_id=self.node_id)
-        # Broadcast callback is set in _setup_routes() after app is created
-
-        # Jan 23, 2026: HybridCoordinator for Raft-based leader election
-        # Replaces buggy Bully algorithm when RINGRIFT_CONSENSUS_MODE=raft or hybrid.
-        # HybridCoordinator routes is_leader() calls to PySyncObj's Raft implementation
-        # which provides proven consensus with sub-second failover.
-        self._hybrid_coordinator: Any = None  # Type: HybridCoordinator | None
+        self._hybrid_coordinator: Any = None
 
         self.verbose = bool(os.environ.get("RINGRIFT_P2P_VERBOSE", "").strip())
         self.peers: dict[str, NodeInfo] = {}
-        self._prepopulate_voter_peers()  # Jan 28, 2026: Bootstrap fix for gossip reachability
-        # Jan 12, 2026: Lock-free peer snapshot for read-heavy operations like /status
-        # PeerSnapshot maintains an immutable copy that can be read without acquiring peers_lock
+        self._prepopulate_voter_peers()
         self._peer_snapshot: PeerSnapshot[NodeInfo] = PeerSnapshot()
-        # Jan 20, 2026: Adaptive dead peer cooldown with probe-based recovery.
-        # Replaces the static 1-hour cooldown that was causing 25-40% node loss.
-        # The manager uses tiered cooldowns (30s -> 30min) based on failure frequency.
         self._cooldown_manager = get_dead_peer_cooldown_manager()
-        # Fallback dict for compatibility if cooldown manager fails to load
         self._dead_peer_timestamps: dict[str, float] = {}
 
-        # Jan 21, 2026: P2P Diagnostic Instrumentation (Phase 0)
-        # Provides comprehensive visibility into peer state transitions, connection
-        # failures, and probe effectiveness for diagnosing cluster instability.
+        # Diagnostic instrumentation
         self._peer_state_tracker = None
         self._conn_failure_tracker = None
         self._probe_tracker = None
@@ -1805,8 +1670,7 @@ class P2POrchestrator(
         except ImportError as e:
             logger.warning(f"[P2P] Diagnostic instrumentation unavailable: {e}")
 
-        # Jan 2026: P2P Stability Controller (Self-Healing Architecture)
-        # Closes the feedback loop: Diagnostics -> Symptom Detection -> Recovery Action -> Effectiveness
+        # Stability controller (self-healing)
         self._stability_controller = None
         self._adaptive_timeouts = None
         self._effectiveness_tracker = None
@@ -1833,7 +1697,6 @@ class P2POrchestrator(
                     RecoveryAction.EMIT_ALERT: self._action_emit_alert,
                 },
             )
-            # Wire effectiveness tracker to get metrics (deferred - monitoring may not exist yet)
             self._effectiveness_tracker.set_metrics_callback(
                 lambda: self.monitoring.get_stability_metrics() if hasattr(self, 'monitoring') and self.monitoring else {}
             )
@@ -1844,10 +1707,8 @@ class P2POrchestrator(
             logger.warning(f"[P2P] Stability controller init failed: {e}")
 
         self.local_jobs: dict[str, ClusterJob] = {}
-        self.active_jobs: dict[str, dict[str, Any]] = {}  # Track running jobs by type (selfplay, training, etc.)
-
-        # Network health tracking (December 30, 2025)
-        # Reference to TailscalePeerDiscoveryLoop for stats reporting in /network/health
+        self.active_jobs: dict[str, dict[str, Any]] = {}
+        self._http_session: aiohttp.ClientSession | None = None
         self._tailscale_discovery_loop: Any = None
 
         # Distributed job state tracking (leader-only)
@@ -1855,87 +1716,60 @@ class P2POrchestrator(
         self.distributed_tournament_state: dict[str, DistributedTournamentState] = {}
         self.ssh_tournament_runs: dict[str, SSHTournamentRun] = {}
         self.improvement_loop_state: dict[str, ImprovementLoopState] = {}
-        # Feb 2026: Centralized orchestrator config for general settings
-        # Must be initialized before any code that references it.
         self._orch_config = OrchestratorConfig.from_env()
-
-        # Limit CPU-heavy CMA-ES local evaluations to avoid runaway process
-        # explosions that can starve the orchestrator (especially on relay hubs).
         self.max_concurrent_cmaes_evals = self._orch_config.max_concurrent_cmaes_evals
         self._cmaes_eval_semaphore = asyncio.Semaphore(int(self.max_concurrent_cmaes_evals))
-
-        # Tournament match semaphore - limit concurrent Elo calibration matches to prevent OOM
-        # Each match can potentially load neural networks which use significant memory
-        # NOTE: Set to None here, created lazily in async context to avoid event loop issues
         self._tournament_match_semaphore: asyncio.Semaphore | None = None
 
-        # Feb 2026: Centralized sync config - must be before first use
         self._sync_config = SyncConfig()
 
-        # Phase 2: Distributed data sync state
+        # Distributed data sync state
         self.local_data_manifest: NodeDataManifest | None = None
-        self.cluster_data_manifest: ClusterDataManifest | None = None  # Leader-only or received from broadcast
-        self._cluster_manifest_received_at: float = 0.0  # When broadcast was received (followers)
+        self.cluster_data_manifest: ClusterDataManifest | None = None
+        self._cluster_manifest_received_at: float = 0.0
         self.manifest_collection_interval = self._sync_config.manifest_collection_interval
         self.last_manifest_collection = 0.0
 
-        # Dashboard/selfplay stats history (leader-only). Stored in-memory to
-        # enable lightweight throughput charts without adding DB migrations.
         self.selfplay_stats_history: list[dict[str, Any]] = []
         self.selfplay_stats_history_max_samples: int = self._orch_config.selfplay_stats_history_max_samples
-
-        # Canonical gate jobs (leader-only): dashboard-triggered runs of
-        # scripts/generate_canonical_selfplay.py.
         self.canonical_gate_jobs: dict[str, dict[str, Any]] = {}
         self.canonical_gate_jobs_lock = threading.RLock()
 
-        # Phase 2: P2P rsync coordination state
         self.active_sync_jobs: dict[str, DataSyncJob] = {}
-        self.current_sync_plan: ClusterSyncPlan | None = None  # Leader-only
-        self.pending_sync_requests: list[dict[str, Any]] = []  # Requests from non-leader nodes
+        self.current_sync_plan: ClusterSyncPlan | None = None
+        self.pending_sync_requests: list[dict[str, Any]] = []
         self.sync_in_progress = False
         self.last_sync_time = 0.0
         self.auto_sync_interval = self._sync_config.auto_sync_interval
 
-        # Training node priority sync state (leader-only)
         self.training_sync_interval = self._sync_config.training_sync_interval
         self.last_training_sync_time = 0.0
-        self.training_nodes_cache: list[str] = []  # Cached list of top GPU nodes
+        self.training_nodes_cache: list[str] = []
         self.training_nodes_cache_time = 0.0
-        self.games_synced_to_training: dict[str, int] = {}  # node_id -> last synced game count
+        self.games_synced_to_training: dict[str, int] = {}
 
-        # Circuit breaker for fault-tolerant peer communication
         self._circuit_registry = get_circuit_registry()
-
-        # Jan 3, 2026 (Sprint 10+): Per-peer circuit breakers and health scoring
-        # Finer-grained failure isolation than per-transport breakers
         self._peer_circuit_breakers: dict[str, PeerCircuitBreaker] = {}
-
-        # Feb 2026: Per-node job dispatch failure tracking with cooldown.
-        # Prevents tight retry loops when a node consistently returns HTTP 4xx/5xx.
-        # Dict maps node_id -> (consecutive_failures, last_failure_time)
         self._job_dispatch_failures: dict[str, tuple[int, float]] = {}
-        self._JOB_DISPATCH_FAILURE_THRESHOLD = 3  # consecutive failures before cooldown
-        self._JOB_DISPATCH_COOLDOWN_SECONDS = 60.0  # seconds to skip node after threshold
+        self._JOB_DISPATCH_FAILURE_THRESHOLD = 3
+        self._JOB_DISPATCH_COOLDOWN_SECONDS = 60.0
         self._peer_health_scores: dict[str, PeerHealthScore] = {}
 
-        # Feb 2026: Centralized training config
         self._training_config = TrainingConfig()
-
-        # Phase 3: Training pipeline state (leader-only)
         self.training_jobs: dict[str, TrainingJob] = {}
         self.training_thresholds: TrainingThresholds = TrainingThresholds()
         self.last_training_check: float = 0.0
         self.training_check_interval: float = self._training_config.training_check_interval
-        self.games_at_last_nnue_train: dict[str, int] = {}  # board_type -> game_count
+        self.games_at_last_nnue_train: dict[str, int] = {}
         self.games_at_last_cmaes_train: dict[str, int] = {}
 
-        # Phase 5: Automated improvement cycle manager (leader-only)
+    def _init_advanced_features(self) -> None:
+        """Phase 3: Improvement cycle, monitoring, PFSP pools, CMA-ES auto-tuners."""
         self.improvement_cycle_manager: ImprovementCycleManager | None = None
         if HAS_IMPROVEMENT_MANAGER:
             try:
                 self.improvement_cycle_manager = ImprovementCycleManager(
-                    db_path=STATE_DIR / f"{node_id}_improvement.db",
+                    db_path=STATE_DIR / f"{self.node_id}_improvement.db",
                     ringrift_path=self.ringrift_path,
                 )
                 logger.info("ImprovementCycleManager initialized")
@@ -1943,12 +1777,11 @@ class P2POrchestrator(
                 logger.error(f"Failed to initialize ImprovementCycleManager: {e}")
         self.last_improvement_cycle_check: float = 0.0
 
-        # P2P-integrated monitoring (leader starts Prometheus/Grafana)
         self.monitoring_manager: MonitoringManager | None = None
         if HAS_P2P_MONITORING:
             try:
                 self.monitoring_manager = MonitoringManager(
-                    node_id=node_id,
+                    node_id=self.node_id,
                     prometheus_port=9090,
                     grafana_port=3000,
                     config_dir=Path(self.ringrift_path) / "monitoring",
@@ -1956,94 +1789,68 @@ class P2POrchestrator(
                 logger.info("MonitoringManager initialized")
             except Exception as e:  # noqa: BLE001
                 logger.error(f"Failed to initialize MonitoringManager: {e}")
-        self._monitoring_was_leader = False  # Track leadership changes
+        self._monitoring_was_leader = False
         self.improvement_cycle_check_interval: float = self._training_config.improvement_cycle_check_interval
 
-        # P2P Auto-Deployer (leader-only): ensures P2P runs on all cluster nodes
         self.p2p_auto_deployer: P2PAutoDeployer | None = None
         self._auto_deployer_task: asyncio.Task | None = None
-
-        # Webhook notifications for alerts
         self.notifier = WebhookNotifier()
 
-        # HTTP server components for graceful restart (Jan 2026)
-        # These are set in run() and used by restart_http_server()
         self._http_app: "web.Application | None" = None
         self._http_runner: "web.AppRunner | None" = None
         self._http_sites: list["web.TCPSite"] = []
         self._http_restart_lock = asyncio.Lock()
         self._http_restart_count = 0
 
-        # Diversity tracking metrics
         self.diversity_metrics = {
-            "games_by_engine_mode": {},      # engine_mode -> count
-            "games_by_board_config": {},     # "board_players" -> count
-            "games_by_difficulty": {},       # difficulty -> count
-            "asymmetric_games": 0,           # count of asymmetric games scheduled
-            "symmetric_games": 0,            # count of symmetric games scheduled
-            "training_triggers": 0,          # count of training triggers
-            "cmaes_triggers": 0,             # count of CMA-ES triggers
-            "promotions": 0,                 # count of model promotions
-            "rollbacks": 0,                  # count of rollbacks
-            "last_reset": time.time(),       # when metrics were last reset
+            "games_by_engine_mode": {},
+            "games_by_board_config": {},
+            "games_by_difficulty": {},
+            "asymmetric_games": 0,
+            "symmetric_games": 0,
+            "training_triggers": 0,
+            "cmaes_triggers": 0,
+            "promotions": 0,
+            "rollbacks": 0,
+            "last_reset": time.time(),
         }
 
-        # === CRITICAL SELF-IMPROVEMENT LOOP METRICS ===
-        # Training progress tracking (populated by training callbacks)
-        self.training_metrics: dict[str, dict[str, float]] = {}  # config -> {loss, val_loss, epoch}
-
-        # Selfplay throughput tracking
-        self.selfplay_throughput: dict[str, float] = {}  # config -> games/hour
-
-        # Cost efficiency metrics
+        self.training_metrics: dict[str, dict[str, float]] = {}
+        self.selfplay_throughput: dict[str, float] = {}
         self.cost_metrics: dict[str, float] = {
             "gpu_hours_total": 0.0,
             "estimated_cost_usd": 0.0,
             "elo_per_gpu_hour": 0.0,
         }
-
-        # Promotion quality metrics
         self.promotion_metrics: dict[str, Any] = {
             "success_rate": 0.0,
             "avg_elo_gain": 0.0,
-            "rejections": {},  # reason -> count
+            "rejections": {},
             "total_attempts": 0,
             "successful": 0,
         }
-
-        # LEARNED LESSONS - Stuck job detection (leader-only)
-        # Track when each node's GPU first went idle with running jobs
-        self.gpu_idle_since: dict[str, float] = {}  # node_id -> timestamp when GPU went idle
-
-        # A/B Testing Framework - Compare models head-to-head with statistical significance
-        # Key: test_id (UUID), Value: ABTestState dict
+        self.gpu_idle_since: dict[str, float] = {}
         self.ab_tests: dict[str, dict[str, Any]] = {}
         self.ab_test_lock = threading.RLock()
 
-        # Elo Sync Manager - Keeps unified_elo.db consistent across cluster
         self.elo_sync_manager: EloSyncManager | None = None
         if HAS_ELO_SYNC:
             try:
                 db_path = Path(self._get_ai_service_path()) / "data" / "unified_elo.db"
-                # Use env var for coordinator, fallback to nebius-backbone-1 (stable backbone node)
                 elo_coordinator = os.environ.get("RINGRIFT_ELO_COORDINATOR", "nebius-backbone-1")
                 self.elo_sync_manager = EloSyncManager(
                     db_path=db_path,
                     coordinator_host=elo_coordinator,
-                    sync_interval=300,  # Sync every 5 minutes
+                    sync_interval=300,
                 )
                 logger.info(f"EloSyncManager initialized (db: {db_path})")
             except Exception as e:  # noqa: BLE001
                 logger.error(f"Failed to initialize EloSyncManager: {e}")
 
-        # Queue Populator - Maintains 50+ work items until 2000 Elo target met
         self._queue_populator: QueuePopulator | None = None
-        # Jan 5, 2026 (Session 17.41): Reference to QueuePopulatorLoop for handler access
         self._queue_populator_loop: Any = None
 
-        # PFSP (Prioritized Fictitious Self-Play) opponent pool (leader-only)
-        # Maintains a pool of historical models weighted by difficulty for diverse training
-        self.pfsp_pools: dict[str, Any] = {}  # config_key -> PFSPOpponentPool
+        self.pfsp_pools: dict[str, Any] = {}
         if HAS_PFSP:
             try:
                 for config_key in ["square8_2p", "square8_4p", "hex8_2p", "hexagonal_2p"]:
@@ -2057,10 +1864,8 @@ class P2POrchestrator(
             except Exception as e:  # noqa: BLE001
                 logger.error(f"Failed to initialize PFSP pools: {e}")
 
-        # CMA-ES Auto-Tuner (leader-only)
-        # Automatically triggers hyperparameter optimization when Elo plateaus
-        self.cmaes_auto_tuners: dict[str, Any] = {}  # config_key -> CMAESAutoTuner
-        self.last_cmaes_elo: dict[str, float] = {}  # config_key -> last recorded Elo
+        self.cmaes_auto_tuners: dict[str, Any] = {}
+        self.last_cmaes_elo: dict[str, float] = {}
         if HAS_PFSP and CMAESAutoTuner:
             try:
                 for config_key in ["square8_2p", "square8_4p", "hex8_2p", "hexagonal_2p"]:
@@ -2079,10 +1884,8 @@ class P2POrchestrator(
             except Exception as e:  # noqa: BLE001
                 logger.error(f"Failed to initialize CMA-ES auto-tuners: {e}")
 
-        # Locks for thread safety
-        # Use RLock (reentrant lock) to allow nested acquisitions from same thread
-        # This prevents deadlocks when helper methods like _select_best_relay are
-        # called while already holding the lock
+    def _init_threading_and_protocols(self) -> None:
+        """Phase 4: Threading locks, SWIM/Raft, failover, StateManager, MetricsManager."""
         self.peers_lock = threading.RLock()
         self.jobs_lock = threading.RLock()
         self.manifest_lock = threading.RLock()
@@ -2090,44 +1893,23 @@ class P2POrchestrator(
         self.training_lock = threading.RLock()
         self.ssh_tournament_lock = threading.RLock()
         self.relay_lock = threading.RLock()
-        # Jan 12, 2026: C1 fix - leader state lock prevents race conditions
-        # during leader elections and state transitions. Protects self.leader_id
-        # and self.role from concurrent modification in async contexts.
         self.leader_state_lock = threading.RLock()
 
-        # Jan 23, 2026: Singleton ThreadPoolExecutor for manager health checks
-        # Previously created a new executor on every health check cycle (every 30s),
-        # causing thread churn and overhead. Reusing a single executor is more efficient.
         from concurrent.futures import ThreadPoolExecutor
         self._health_check_executor = ThreadPoolExecutor(
             max_workers=4, thread_name_prefix="health_"
         )
 
-        # Jan 12, 2026: Lock-free job snapshot for /status endpoint
-        # Updates via _job_snapshot.update(self.local_jobs) after mutations
         self._job_snapshot = JobSnapshot()
 
-        # Feb 2026: Response cache for /status endpoint to prevent event loop blocking.
-        # When 7+ master_loop daemons call /status concurrently, each request collects
-        # 13+ metrics. The cache ensures only one computation runs per interval, and
-        # concurrent callers get the cached result instead of blocking.
         self._status_cache: dict | None = None
         self._status_cache_time: float = 0.0
         self._status_cache_lock: asyncio.Lock = asyncio.Lock()
         self._status_cache_ttl: float = self._orch_config.status_cache_ttl
 
-        # Jan 27, 2026: Query builder for peer collection queries (Phase 3.2)
-        # Consolidates _get_* methods with thread-safe access and consistent error handling
         self._peer_query = PeerQueryBuilder(self.peers, self.peers_lock, self.node_id)
 
-        # ============================================
-        # Phase 5: SWIM + Raft Integration (Dec 26, 2025)
-        # ============================================
-        # SWIM provides leaderless gossip-based membership with 5s failure detection
-        # Raft provides replicated work queue with sub-second failover
-        # Both are initialized here but started asynchronously in run()
-
-        # Feature flag validation - warn if flags enabled but dependencies missing
+        # SWIM + Raft Integration
         from scripts.p2p.constants import (
             SWIM_ENABLED, RAFT_ENABLED, MEMBERSHIP_MODE, CONSENSUS_MODE
         )
@@ -2161,24 +1943,16 @@ class P2POrchestrator(
                 "Falling back to Bully algorithm."
             )
 
-        # Log active P2P protocol modes
         logger.info(
             f"P2P protocols: MEMBERSHIP_MODE={MEMBERSHIP_MODE} (SWIM={'available' if SWIM_AVAILABLE else 'unavailable'}), "
             f"CONSENSUS_MODE={CONSENSUS_MODE} (Raft={'available' if PYSYNCOBJ_AVAILABLE else 'unavailable'})"
         )
 
-        # Initialize SWIM membership (from MembershipMixin)
         self._swim_initialized = self._init_swim_membership()
         if self._swim_initialized:
             logger.info("SWIM membership initialized (will start in run())")
 
-        # Initialize Raft consensus (from ConsensusMixin)
-        # Note: Raft requires advertise_host which is set above
         self._raft_init_attempted = False
-        # Raft initialization deferred to after peers are discovered
-        # to ensure we have partner addresses available
-
-        # Try early Raft initialization if we have voter nodes
         if RAFT_ENABLED and PYSYNCOBJ_AVAILABLE and self.voter_node_ids:
             try:
                 self._raft_init_attempted = True
@@ -2188,23 +1962,18 @@ class P2POrchestrator(
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"Early Raft initialization failed (will retry later): {e}")
 
-        # Initialize failover system (Phase 9: Multi-layer transport cascade)
-        # Lazy initialization - will be fully set up on first use
         try:
             self._init_failover_system()
             logger.info("Failover system initialized (transport cascade + union discovery)")
         except Exception as e:  # noqa: BLE001
             logger.debug(f"Failover system init deferred: {e}")
 
-        # State persistence (Phase 1 refactoring: delegated to StateManager)
-        self.db_path = STATE_DIR / f"{node_id}_state.db"
+        # State persistence
+        self.db_path = STATE_DIR / f"{self.node_id}_state.db"
         self.state_manager = StateManager(self.db_path, verbose=self.verbose)
         self.state_manager.init_database()
         self._cluster_epoch = self.state_manager.load_cluster_epoch()
 
-        # Sprint 4 (Jan 2, 2026): Wire circuit breaker state persistence
-        # This enables crash recovery for the global circuit breaker
-        # Sprint 5 (Jan 2, 2026): Wire transport metrics persistence
         try:
             from scripts.p2p.transport_cascade import GlobalCircuitBreaker, TransportCascade
             GlobalCircuitBreaker.set_state_manager(self.state_manager)
@@ -2213,98 +1982,61 @@ class P2POrchestrator(
         except ImportError:
             logger.debug("Transport cascade not available for persistence")
 
-        # Metrics recording (Phase 1 refactoring: delegated to MetricsManager)
         self.metrics_manager = MetricsManager(self.db_path)
 
-        # Event flags
+        # Event and election flags
         self.running = True
         self.election_in_progress = False
         self.last_election_attempt: float = 0.0
-        # Jan 22, 2026: Atomic election guard to prevent race conditions
-        # Multiple coroutines could pass the `if election_in_progress` check
-        # before any sets the flag, causing multiple simultaneous elections.
         self._election_lock = asyncio.Lock()
 
-        # LEARNED LESSONS - Lease-based leadership to prevent split-brain
-        # Leader must continuously renew lease; if lease expires, leadership is void
-        self.leader_lease_expires: float = 0.0  # timestamp when current leader's lease expires
-        self.last_lease_renewal: float = 0.0  # when we last renewed our lease (if leader)
-        self.leader_lease_id: str = ""  # unique ID for current leadership term
-        # LEADERLESS FALLBACK: Track when we last had a functioning leader.
-        # If leaderless for too long, nodes can trigger local training independently.
-        self.last_leader_seen: float = time.time()  # When we last saw a functioning leader
-        # Dec 31, 2025: Leader invalidation window - prevents gossip from re-setting stale leader
-        # After we invalidate a leader, ignore gossip leader claims for this window
-        self._leader_invalidation_until: float = 0.0  # timestamp until which we ignore gossip leader claims
-        self.last_local_training_fallback: float = 0.0  # When we last triggered local training fallback
-
-        # Jan 22, 2026: Cached jittered timeout to ensure consistent death detection across cycle.
-        # Problem: get_jittered_peer_timeout() called at two locations with different jitter each time,
-        # causing desynchronized death detection (Node A: 108s, Node B: 132s for same peer).
-        # Solution: Cache the jittered timeout for 30 seconds, ensuring all death checks in same
-        # cycle use the same timeout value across all locations.
+        # Lease-based leadership
+        self.leader_lease_expires: float = 0.0
+        self.last_lease_renewal: float = 0.0
+        self.leader_lease_id: str = ""
+        self.last_leader_seen: float = time.time()
+        self._leader_invalidation_until: float = 0.0
+        self.last_local_training_fallback: float = 0.0
         self._jittered_timeout_cache: float | None = None
         self._jittered_timeout_time: float = 0.0
+        self.last_work_from_leader: float = time.time()
+        self._last_become_leader_time: float = 0.0
+        self._last_step_down_time: float = 0.0
 
-        # Dec 30, 2025: Track when we last received work from the leader
-        # If leader exists but isn't dispatching work, nodes can self-assign after timeout
-        self.last_work_from_leader: float = time.time()  # When we last got work from leader
-
-        # Jan 2, 2026: Leader stickiness - prefer incumbent during elections
-        # Track when we last held leadership to allow re-claiming with preference
-        self._last_become_leader_time: float = 0.0  # When we last became leader
-        self._last_step_down_time: float = 0.0  # When we last stepped down from leadership
-
-        # Jan 1, 2026: Probabilistic Fallback Leadership (Provisional Leader state)
-        # When normal elections repeatedly fail, nodes can claim provisional leadership
-        # with increasing probability. Provisional leaders can dispatch work but must be
-        # confirmed by quorum acknowledgment or node_id tiebreaker if contested.
-        self._provisional_leader_claimed_at: float = 0.0  # When we claimed provisional leadership
-        self._provisional_leader_acks: set[str] = set()  # Nodes that acknowledged our provisional claim
-        self._provisional_leader_challengers: dict[str, float] = {}  # node_id -> challenge_time
-        self._last_provisional_check: float = 0.0  # Last time we checked for probabilistic claim
+        # Provisional leadership
+        self._provisional_leader_claimed_at: float = 0.0
+        self._provisional_leader_acks: set[str] = set()
+        self._provisional_leader_challengers: dict[str, float] = {}
+        self._last_provisional_check: float = 0.0
         self._provisional_claim_probability: float = PROVISIONAL_LEADER_INITIAL_PROBABILITY
 
-        # Voter-backed lease grants (split-brain resistance).
-        #
-        # When quorum gating is enabled, voters act as a lightweight consensus
-        # group by granting an exclusive leader lease to a single node at a time.
-        # A leader must renew its lease with a quorum of voters; otherwise it
-        # steps down. This prevents split-brain even if multiple nodes think
-        # they are eligible leaders.
+        # Voter-backed lease grants
         self.voter_grant_leader_id: str = ""
         self.voter_grant_lease_id: str = ""
         self.voter_grant_expires: float = 0.0
+        self._lease_epoch: int = 0
+        self._fence_token: str = ""
+        self._last_seen_epoch: int = 0
 
-        # Phase 15.1.1: Fenced lease tokens with monotonic epoch
-        # These prevent split-brain during network partitions by ensuring
-        # only one leader per epoch can issue commands.
-        self._lease_epoch: int = 0  # Monotonic, never decreases
-        self._fence_token: str = ""  # Unique per lease grant: node_id:epoch:timestamp
-        self._last_seen_epoch: int = 0  # Highest epoch seen from any leader
+        # Job completion tracking
+        self.completed_jobs: dict[str, float] = {}
+        self.jobs_started_at: dict[str, dict[str, float]] = {}
 
-        # Job completion tracking for auto-restart
-        self.completed_jobs: dict[str, float] = {}  # node_id -> last job completion time
-        self.jobs_started_at: dict[str, dict[str, float]] = {}  # node_id -> {job_id: start_time}
-
-        # NAT/relay support (for nodes without inbound connectivity).
-        # NAT-blocked nodes poll a relay endpoint for commands; the leader enqueues
-        # commands keyed by node_id.
+        # NAT/relay support
         self.last_inbound_heartbeat: float = 0.0
         self.last_relay_heartbeat: float = 0.0
         self.relay_command_queue: dict[str, list[dict[str, Any]]] = {}
         self.pending_relay_acks: set[str] = set()
         self.pending_relay_results: list[dict[str, Any]] = []
         self.relay_command_attempts: dict[str, int] = {}
-        # Background tasks list for graceful shutdown (Dec 2025)
         self._background_tasks: list[asyncio.Task] = []
 
-        # SAFEGUARDS - Rate limiting and coordinator integration (added 2025-12-15)
+        # Safeguards
         self._safeguard_config = SafeguardConfig(
             agent_mode=AGENT_MODE_ENABLED,
             coordinator_url=COORDINATOR_URL,
         )
-        self.spawn_timestamps: list[float] = []  # Timestamps of recent process spawns
+        self.spawn_timestamps: list[float] = []
         self.agent_mode = self._safeguard_config.agent_mode
         self.coordinator_url = self._safeguard_config.coordinator_url
         self.last_coordinator_check: float = self._safeguard_config.last_coordinator_check
@@ -2312,37 +2044,28 @@ class P2POrchestrator(
         logger.info(f"Safeguards: rate_limit={SPAWN_RATE_LIMIT_PER_MINUTE}/min, "
               f"load_max={LOAD_AVERAGE_MAX_MULTIPLIER}x, agent_mode={self.agent_mode}")
 
-        # Load persisted state
+    def _init_managers(self) -> None:
+        """Phase 5: All 14 managers + 6 sub-orchestrators + state loading."""
+        # Load persisted state first
         self._load_state()
-        # Jan 3, 2026: Use _set_leader() for atomic leadership assignment (Phase 4)
-        # Note: This is called during __init__ so ULSM may not exist yet, but _set_leader handles that
         if self.leader_id == self.node_id:
             self._set_leader(self.node_id, reason="startup_restore_leadership", save_state=False)
 
-        # MonitoringOrchestrator must be initialized early because _create_self_info() uses it
-        # Other orchestrators are initialized later in a block after manager setup
+        # MonitoringOrchestrator must be early (_create_self_info uses it)
         from scripts.p2p.orchestrators import MonitoringOrchestrator
         self.monitoring = MonitoringOrchestrator(self)
         logger.info("[P2P] MonitoringOrchestrator initialized (early, for _create_self_info)")
 
-        # Self info
         self.self_info = self._create_self_info()
 
-        # Phase 1 Refactoring: NodeSelector for node ranking/selection
         self.node_selector = NodeSelector(
             get_peers=lambda: self.peers,
             get_self_info=lambda: self.self_info,
             peers_lock=self.peers_lock,
             get_training_jobs=lambda: self.training_jobs,
         )
-        # December 2025: Subscribe to health events (HOST_OFFLINE, NODE_RECOVERED)
-        # to track unhealthy nodes for filtering during selection
-        # Note: NodeSelector uses its own subscribe_to_events (not mixin)
         self.node_selector.subscribe_to_events()
 
-        # Phase 2A Refactoring: SyncPlanner for data synchronization
-        # NOTE: request_peer_manifest is wired AFTER SyncPlanner creation
-        # because _request_peer_manifest is a method on this class
         self.sync_planner = SyncPlanner(
             node_id=self.node_id,
             data_directory=self.get_data_directory(),
@@ -2354,55 +2077,39 @@ class P2POrchestrator(
             check_disk_capacity=lambda: check_disk_has_capacity(),
             config=SyncPlannerConfig(),
         )
-        # December 2025: Subscribe to cluster events (LEADER_ELECTED, NODE_RECOVERED)
-        # to invalidate cached manifests and trigger re-collection
-        # Wave 7 Phase 1.1: Use retry mechanism for reliable subscription
         self.sync_planner.subscribe_to_events_with_retry()
 
-        # Phase 2B Refactoring: SelfplayScheduler for priority-based selfplay allocation
-        # All callbacks wired for full delegation (Dec 2025)
         self.selfplay_scheduler = SelfplayScheduler(
             get_cluster_elo_fn=lambda: self._get_cluster_elo_summary(),
             load_curriculum_weights_fn=lambda: self._load_curriculum_weights(),
             get_board_priority_overrides_fn=lambda: getattr(self, "board_priority_overrides", {}),
-            # Backpressure callbacks (wired Dec 2025)
             should_stop_production_fn=should_stop_production if HAS_NEW_COORDINATION else None,
             should_throttle_production_fn=should_throttle_production if HAS_NEW_COORDINATION else None,
             get_throttle_factor_fn=get_throttle_factor if HAS_NEW_COORDINATION else None,
-            # Resource targeting callbacks (wired Dec 2025)
             record_utilization_fn=record_utilization if HAS_NEW_COORDINATION else None,
             get_host_targets_fn=get_host_targets if HAS_NEW_COORDINATION else None,
             get_target_job_count_fn=get_target_job_count if HAS_NEW_COORDINATION else None,
             should_scale_up_fn=should_scale_up if HAS_NEW_COORDINATION else None,
             should_scale_down_fn=should_scale_down if HAS_NEW_COORDINATION else None,
-            # Hardware-aware limits (wired Dec 2025)
             get_max_selfplay_for_node_fn=get_max_selfplay_for_node if HAS_HW_AWARE_LIMITS else None,
             get_hybrid_selfplay_limits_fn=get_hybrid_selfplay_limits if HAS_HW_AWARE_LIMITS else None,
-            # Safeguards callback (wired Dec 2025) - halt selfplay during emergency
             is_emergency_active_fn=_safeguards.is_emergency_active if HAS_SAFEGUARDS and _safeguards else None,
             verbose=self.verbose,
         )
-        # Feb 2026: Wire orchestrator reference so auto_start_selfplay can make HTTP calls
-        # This was missing after SelfplayScheduler extraction from p2p_orchestrator.py
         self.selfplay_scheduler._orchestrator = self
-        # Subscribe to feedback loop events (December 2025)
-        # Wave 7 Phase 1.1: Use retry mechanism for reliable subscription
         self.selfplay_scheduler.subscribe_to_events_with_retry()
 
-        # Session 17.29: Seed game counts from canonical databases at startup
-        # This enables bootstrap priority boosts for underserved configs immediately
         try:
             initial_game_counts = self._seed_selfplay_scheduler_game_counts_sync()
             if initial_game_counts:
                 self.selfplay_scheduler.update_p2p_game_counts(initial_game_counts)
                 logger.info(f"[P2P] Seeded SelfplayScheduler with {len(initial_game_counts)} config game counts from canonical DBs")
                 for config_key, count in sorted(initial_game_counts.items(), key=lambda x: x[1]):
-                    if count < 500:  # Log underserved configs
+                    if count < 500:
                         logger.info(f"[P2P] Underserved config: {config_key} = {count} games")
         except Exception as e:  # noqa: BLE001
             logger.debug(f"[P2P] Failed to seed initial game counts: {e}")
 
-        # Phase 2B Refactoring: JobManager for job spawning and lifecycle
         self.job_manager = JobManager(
             ringrift_path=self.ringrift_path,
             node_id=self.node_id,
@@ -2413,12 +2120,7 @@ class P2POrchestrator(
             improvement_loop_state=self.improvement_loop_state,
             distributed_tournament_state=self.distributed_tournament_state,
         )
-        # December 2025: Subscribe to job-relevant events (HOST_OFFLINE, HOST_ONLINE)
-        # Wave 7 Phase 1.1: Use retry mechanism for reliable subscription
         self.job_manager.subscribe_to_events_with_retry()
-
-        # January 2026 Sprint 6: Wire job spawn verification between JobManager and SelfplayScheduler
-        # This enables tracking of dispatched jobs to verify they actually start running
         self.job_manager.set_spawn_registration_callback(
             self.selfplay_scheduler.register_pending_spawn
         )
@@ -2427,7 +2129,6 @@ class P2POrchestrator(
         )
         logger.info("[P2P] Spawn verification wired: JobManager <-> SelfplayScheduler")
 
-        # Phase 2B Refactoring: TrainingCoordinator for training dispatch and completion
         self.training_coordinator = TrainingCoordinator(
             ringrift_path=Path(self.ringrift_path),
             get_cluster_data_manifest=lambda: self.cluster_data_manifest,
@@ -2443,21 +2144,13 @@ class P2POrchestrator(
             auth_headers=lambda: self._auth_headers(),
             urls_for_peer=lambda node_id, endpoint: self._urls_for_peer(node_id, endpoint),
             save_state_callback=lambda: self._save_state(),
-            has_voter_quorum=lambda: self._check_quorum_health(),  # Now returns QuorumHealthLevel for degraded-mode training
+            has_voter_quorum=lambda: self._check_quorum_health(),
         )
-        # December 2025: Subscribe to training-relevant events
-        # (SELFPLAY_COMPLETE, DATA_SYNC_COMPLETED, EVALUATION_COMPLETED, REGRESSION_DETECTED)
-        # Wave 7 Phase 1.1: Use retry mechanism for reliable subscription
         self.training_coordinator.subscribe_to_events_with_retry()
 
-        # January 2026: Phase 1 P2P Orchestrator Deep Decomposition
-        # JobOrchestrationManager handles job spawning, scaling, and cluster-wide coordination
-        # NOTE: Using factory function which wires all callbacks automatically
         self.job_orchestration = create_job_orchestration_manager(self)
         logger.info("[P2P] JobOrchestrationManager initialized")
 
-        # January 2026: Aggressive Decomposition Phase 1 - Analytics Cache Manager
-        # Handles all cached analytics computations (victory stats, game analytics, MCTS stats, etc.)
         self.analytics_cache_manager = create_analytics_cache_manager(
             config=AnalyticsCacheConfig(),
             get_ai_service_path=lambda: self._get_ai_service_path(),
@@ -2468,8 +2161,6 @@ class P2POrchestrator(
         )
         logger.info("[P2P] AnalyticsCacheManager initialized")
 
-        # January 2026: Aggressive Decomposition Phase 3 - CMA-ES Coordinator
-        # Handles distributed CMA-ES hyperparameter optimization across cluster
         self.cmaes_coordinator = create_cmaes_coordinator(
             config=CMAESConfig(ai_service_path=self._get_ai_service_path()),
             get_gpu_workers=lambda: self._get_gpu_workers_for_cmaes(),
@@ -2482,176 +2173,65 @@ class P2POrchestrator(
         )
         logger.info("[P2P] CMAESCoordinator initialized")
 
-        # January 2026: Aggressive Decomposition Phase 4 - Data Sync Coordinator
-        # Handles external storage scanning (OWC, S3) for unified cluster data visibility
         self.data_sync_coordinator = create_data_sync_coordinator(
             config=DataSyncCoordinatorConfig(),
         )
         logger.info("[P2P] DataSyncCoordinator initialized")
 
-        # January 2026: Aggressive Decomposition Phase 5 - IP Discovery Manager
-        # Handles cloud and mesh IP discovery (Tailscale, Vast, AWS)
-        from scripts.p2p.managers.ip_discovery_manager import (
-            create_ip_discovery_manager,
-            IPDiscoveryConfig,
-        )
-        self.ip_discovery_manager = create_ip_discovery_manager(
-            config=IPDiscoveryConfig(),
-            orchestrator=self,
-        )
+        from scripts.p2p.managers.ip_discovery_manager import create_ip_discovery_manager, IPDiscoveryConfig
+        self.ip_discovery_manager = create_ip_discovery_manager(config=IPDiscoveryConfig(), orchestrator=self)
         logger.info("[P2P] IPDiscoveryManager initialized")
 
-        # January 2026: Aggressive Decomposition Phase 6 - Worker Pull Controller
-        # Handles work claiming from leader in pull-based model
-        from scripts.p2p.managers.worker_pull_controller import (
-            create_worker_pull_controller,
-            WorkerPullConfig,
-        )
-        self.worker_pull_controller = create_worker_pull_controller(
-            config=WorkerPullConfig(),
-            orchestrator=self,
-        )
+        from scripts.p2p.managers.worker_pull_controller import create_worker_pull_controller, WorkerPullConfig
+        self.worker_pull_controller = create_worker_pull_controller(config=WorkerPullConfig(), orchestrator=self)
         logger.info("[P2P] WorkerPullController initialized")
 
-        # January 2026: Aggressive Decomposition Phase 7 - Data Pipeline Manager
-        # Handles JSONL to DB/NPZ conversions and database consolidation
-        from scripts.p2p.managers.data_pipeline_manager import (
-            create_data_pipeline_manager,
-            DataPipelineConfig,
-        )
-        self.data_pipeline_manager = create_data_pipeline_manager(
-            config=DataPipelineConfig(),
-            orchestrator=self,
-        )
+        from scripts.p2p.managers.data_pipeline_manager import create_data_pipeline_manager, DataPipelineConfig
+        self.data_pipeline_manager = create_data_pipeline_manager(config=DataPipelineConfig(), orchestrator=self)
         logger.info("[P2P] DataPipelineManager initialized")
 
-        # January 2026: Aggressive Decomposition Phase 8 - Job Lifecycle Manager
-        # Handles stuck job detection and termination
-        from scripts.p2p.managers.job_lifecycle_manager import (
-            create_job_lifecycle_manager,
-            JobLifecycleConfig,
-        )
-        self.job_lifecycle_manager = create_job_lifecycle_manager(
-            config=JobLifecycleConfig(),
-            orchestrator=self,
-        )
+        from scripts.p2p.managers.job_lifecycle_manager import create_job_lifecycle_manager, JobLifecycleConfig
+        self.job_lifecycle_manager = create_job_lifecycle_manager(config=JobLifecycleConfig(), orchestrator=self)
         logger.info("[P2P] JobLifecycleManager initialized")
 
-        # January 2026: Aggressive Decomposition Phase 9 - Health Metrics Manager
-        # Handles health scoring, peer health tracking, and monitoring loops
-        from scripts.p2p.managers.health_metrics_manager import (
-            create_health_metrics_manager,
-            HealthMetricsConfig,
-        )
-        self.health_metrics_manager = create_health_metrics_manager(
-            config=HealthMetricsConfig(),
-            orchestrator=self,
-        )
+        from scripts.p2p.managers.health_metrics_manager import create_health_metrics_manager, HealthMetricsConfig
+        self.health_metrics_manager = create_health_metrics_manager(config=HealthMetricsConfig(), orchestrator=self)
         logger.info("[P2P] HealthMetricsManager initialized")
 
-        # January 2026: Aggressive Decomposition Phase 10 - Memory Disk Manager
-        # Handles memory pressure, disk cleanup, and selfplay job reduction
-        from scripts.p2p.managers.memory_disk_manager import (
-            create_memory_disk_manager,
-            MemoryDiskConfig,
-        )
-        self.memory_disk_manager = create_memory_disk_manager(
-            config=MemoryDiskConfig(),
-            orchestrator=self,
-        )
+        from scripts.p2p.managers.memory_disk_manager import create_memory_disk_manager, MemoryDiskConfig
+        self.memory_disk_manager = create_memory_disk_manager(config=MemoryDiskConfig(), orchestrator=self)
         logger.info("[P2P] MemoryDiskManager initialized")
 
-        # January 2026: Aggressive Decomposition Phase 11 - Tournament Manager
-        # Handles tournament coordination, match execution, and gossip-based scheduling
-        from scripts.p2p.managers.tournament_manager import (
-            create_tournament_manager,
-            TournamentConfig,
-        )
-        self.tournament_manager = create_tournament_manager(
-            config=TournamentConfig(),
-            orchestrator=self,
-        )
+        from scripts.p2p.managers.tournament_manager import create_tournament_manager, TournamentConfig
+        self.tournament_manager = create_tournament_manager(config=TournamentConfig(), orchestrator=self)
         logger.info("[P2P] TournamentManager initialized")
 
-        # January 2026: Aggressive Decomposition Phase 12 - Recovery Manager
-        # Handles NAT recovery and node recovery for cluster self-healing
-        from scripts.p2p.managers.recovery_manager import (
-            create_recovery_manager,
-            RecoveryConfig,
-        )
-        self.recovery_manager = create_recovery_manager(
-            config=RecoveryConfig(),
-            orchestrator=self,
-        )
+        from scripts.p2p.managers.recovery_manager import create_recovery_manager, RecoveryConfig
+        self.recovery_manager = create_recovery_manager(config=RecoveryConfig(), orchestrator=self)
         logger.info("[P2P] RecoveryManager initialized")
 
-        # January 27, 2026: Phase 14 - HeartbeatManager for heartbeat operations
-        from scripts.p2p.managers.heartbeat_manager import (
-            HeartbeatConfig,
-            create_heartbeat_manager,
-        )
-        self.heartbeat_manager = create_heartbeat_manager(
-            config=HeartbeatConfig(),
-            orchestrator=self,
-        )
+        from scripts.p2p.managers.heartbeat_manager import HeartbeatConfig, create_heartbeat_manager
+        self.heartbeat_manager = create_heartbeat_manager(config=HeartbeatConfig(), orchestrator=self)
         logger.info("[P2P] HeartbeatManager initialized")
 
-        # January 27, 2026: Phase 15 - JobCoordinationManager for job coordination
-        from scripts.p2p.managers.job_coordination_manager import (
-            JobCoordinationConfig,
-            create_job_coordination_manager,
-        )
-        self.job_coordination_manager = create_job_coordination_manager(
-            config=JobCoordinationConfig(),
-            orchestrator=self,
-        )
+        from scripts.p2p.managers.job_coordination_manager import JobCoordinationConfig, create_job_coordination_manager
+        self.job_coordination_manager = create_job_coordination_manager(config=JobCoordinationConfig(), orchestrator=self)
         logger.info("[P2P] JobCoordinationManager initialized")
 
-        # =====================================================================
-        # January 28, 2026: Sub-Orchestrators (Composition Pattern)
-        # These orchestrators handle specific domains and delegate to managers
-        # =====================================================================
+        # Sub-Orchestrators
         from scripts.p2p.orchestrators import (
-            JobOrchestrator,
-            LeadershipOrchestrator,
-            MonitoringOrchestrator,
-            PeerNetworkOrchestrator,
-            ProcessSpawnerOrchestrator,
-            SyncOrchestrator,
+            JobOrchestrator, LeadershipOrchestrator,
+            PeerNetworkOrchestrator, ProcessSpawnerOrchestrator, SyncOrchestrator,
         )
-
         self.leadership = LeadershipOrchestrator(self)
-        logger.info("[P2P] LeadershipOrchestrator initialized")
-
         self.network = PeerNetworkOrchestrator(self)
-        logger.info("[P2P] PeerNetworkOrchestrator initialized")
-
         self.sync = SyncOrchestrator(self)
-        logger.info("[P2P] SyncOrchestrator initialized")
-
         self.jobs = JobOrchestrator(self)
-        logger.info("[P2P] JobOrchestrator initialized")
-
         self.process_spawner = ProcessSpawnerOrchestrator(self)
-        logger.info("[P2P] ProcessSpawnerOrchestrator initialized")
-
-        # Note: self.monitoring was initialized earlier (before _create_self_info())
-        # All orchestrators initialized (6 total):
-        # self.leadership = LeadershipOrchestrator(self)
-        # self.network = PeerNetworkOrchestrator(self)
-        # self.sync = SyncOrchestrator(self)
-        # self.jobs = JobOrchestrator(self)
-        # self.process_spawner = ProcessSpawnerOrchestrator(self)
-        # self.monitoring = MonitoringOrchestrator(self)
-
-        # January 4, 2026: Phase 5 - WorkDiscoveryManager for multi-channel work discovery
-        # This enables workers to find work even during leader elections or partitions
-        # Jan 30, 2026: Use jobs orchestrator directly
         self.jobs.initialize_work_discovery_manager()
 
-        # December 2025: Wire feedback loops for self-improvement
-        # This connects curriculum adjustments to Elo changes, evaluation results, etc.
-        # Feb 2026: Delegated to scripts/p2p/event_wiring.py
+    def _init_event_wiring(self) -> None:
+        """Phase 6: Event subscriptions, feedback loops, SWIM callbacks, LoopManager."""
         from scripts.p2p.event_wiring import (
             wire_feedback_loops,
             subscribe_to_daemon_events,
@@ -2659,17 +2239,10 @@ class P2POrchestrator(
             subscribe_to_manager_events,
         )
         wire_feedback_loops(self)
-
-        # December 2025: Subscribe to daemon status events for observability
         daemon_events_ok = subscribe_to_daemon_events(self)
-
-        # December 2025: Subscribe to training feedback signals for dynamic orchestration
         feedback_signals_ok = subscribe_to_feedback_signals(self)
-
-        # December 2025: Subscribe to manager lifecycle events for coordination
         manager_events_ok = subscribe_to_manager_events(self)
 
-        # Dec 2025: Store subscription status for health checks via /status endpoint
         self._event_subscription_status = {
             "daemon_events": daemon_events_ok,
             "feedback_signals": feedback_signals_ok,
@@ -2678,7 +2251,6 @@ class P2POrchestrator(
             "timestamp": time.time(),
         }
 
-        # Log subscription status for debugging integration issues
         if self._event_subscription_status["all_healthy"]:
             logger.info("[P2P] Event subscriptions: daemon=✓, feedback=✓, manager=✓")
         else:
@@ -2689,35 +2261,23 @@ class P2POrchestrator(
                 f"manager={'✓' if manager_events_ok else '✗'}"
             )
 
-        # December 2025 (Wave 7 Phase 1.2): Critical subscription failure mode
-        # These subscriptions are required for the training pipeline to function.
-        # Without them, events like DATA_SYNC_COMPLETED and TRAINING_COMPLETED
-        # won't trigger downstream actions, causing the pipeline to stall silently.
-        CRITICAL_SUBSCRIPTION_GROUPS = ["manager_events"]  # Contains DATA_SYNC_COMPLETED, TRAINING_COMPLETED
+        CRITICAL_SUBSCRIPTION_GROUPS = ["manager_events"]
         self._event_subscription_status["critical_failed"] = []
-
         for group in CRITICAL_SUBSCRIPTION_GROUPS:
             if not self._event_subscription_status.get(group, False):
                 self._event_subscription_status["critical_failed"].append(group)
 
         if self._event_subscription_status["critical_failed"]:
             failed_groups = self._event_subscription_status["critical_failed"]
-            msg = f"[P2P] CRITICAL: Event subscription groups failed: {failed_groups}"
-            logger.critical(msg)
-
-            # Optional: fail startup on critical subscription failure
-            # Enable via environment variable for strict production deployments
+            logger.critical(f"[P2P] CRITICAL: Event subscription groups failed: {failed_groups}")
             if os.environ.get("RINGRIFT_FAIL_ON_SUBSCRIPTION_FAILURE", "").lower() == "true":
                 raise RuntimeError(
                     f"Critical event subscriptions failed: {failed_groups}. "
                     "Set RINGRIFT_FAIL_ON_SUBSCRIPTION_FAILURE=false to allow startup anyway."
                 )
 
-        # NOTE: _manager_health_status validation is deferred to after _loop_manager
-        # initialization below (line ~2730). This avoids AttributeError on _loop_manager.
-
         print(
-            f"[P2P] Initialized node {node_id} on {host}:{port} "
+            f"[P2P] Initialized node {self.node_id} on {self.host}:{self.port} "
             f"(advertise {self.advertise_host}:{self.advertise_port})"
         )
         logger.info(f"RingRift path: {self.ringrift_path}")
@@ -2730,7 +2290,7 @@ class P2POrchestrator(
         else:
             logger.info(f"Auth: disabled (set {AUTH_TOKEN_ENV} to enable)")
 
-        # Hybrid transport for HTTP/SSH fallback (self-healing Vast connectivity)
+        # Hybrid transport
         self.hybrid_transport: HybridTransport | None = None
         if HAS_HYBRID_TRANSPORT:
             try:
@@ -2739,38 +2299,24 @@ class P2POrchestrator(
             except Exception as e:  # noqa: BLE001
                 logger.info(f"HybridTransport: failed to initialize: {e}")
 
-        # SWIM-based leaderless membership (gossip protocol)
-        # This provides faster failure detection (<5s vs 60s+) and O(1) bandwidth
-        # Jan 22, 2026: Register SWIM callbacks BEFORE creating manager to wire
-        # SWIM failure detection to gossip layer. Previously SWIM detected failures
-        # but never synced state, causing split-brain membership views.
+        # SWIM callbacks and manager
         set_swim_callbacks(
             on_alive=self._on_swim_member_alive,
             on_failed=self._on_swim_member_failed,
         )
-        self._swim_manager = get_swim_manager(node_id=node_id, bind_port=7947)
+        self._swim_manager = get_swim_manager(node_id=self.node_id, bind_port=7947)
         self._swim_started = False
 
-        # SyncRouter: Intelligent data routing with quality-based priority (December 2025)
-        # Lazy-loaded to avoid import overhead on startup
         self._sync_router: SyncRouter | None = None
         self._sync_router_wired = False
 
-        # Phase 4: LoopManager for extracted loops (Dec 2025)
+        # LoopManager
         self._loop_manager: LoopManager | None = None
         self._loops_registered = False
-        self._autonomous_queue_loop = None  # Jan 4, 2026: Phase 2 P2P Resilience
-        self._quorum_crisis_loop = None  # Jan 2026: Aggressive peer discovery during quorum loss
-
-        # Jan 11, 2026: Track startup time for voter health grace period
-        # During the first STARTUP_GRACE_PERIOD seconds, we don't warn about offline voters
-        # because heartbeats haven't been exchanged yet
+        self._autonomous_queue_loop = None
+        self._quorum_crisis_loop = None
         self._startup_time = time.time()
 
-        # December 27, 2025: Validate manager health at startup
-        # This catches initialization issues early rather than at first use
-        # NOTE: Must be called AFTER _loop_manager is initialized (was causing AttributeError)
-        # Jan 28, 2026: Uses health_metrics_manager directly
         self._manager_health_status = self.health_metrics_manager.validate_manager_health()
 
     def _get_loop_manager(self) -> "LoopManager | None":
@@ -4488,6 +4034,21 @@ class P2POrchestrator(
         if not self.auth_token:
             return {}
         return {"Authorization": f"Bearer {self.auth_token}"}
+
+    @property
+    def http_session(self) -> "aiohttp.ClientSession":
+        """Shared HTTP client session for outbound requests.
+
+        Used by loop_registry (manifest collection, peer recovery probes).
+        Lazily created and re-created if closed.
+        """
+        if not hasattr(self, "_http_session") or self._http_session is None or self._http_session.closed:
+            timeout = aiohttp.ClientTimeout(total=30)
+            self._http_session = aiohttp.ClientSession(
+                timeout=timeout,
+                headers=self._auth_headers(),
+            )
+        return self._http_session
 
     def _get_leader_peer(self) -> NodeInfo | None:
         if self.leadership.check_is_leader():
@@ -7938,7 +7499,10 @@ class P2POrchestrator(
         await self.worker_pull_controller.report_work_result(work_item, success)
 
     async def _execute_claimed_work(self, work_item: dict[str, Any]) -> bool:
-        """Execute a claimed work item locally."""
+        """Execute a claimed work item locally.
+
+        Feb 2026: Thin dispatcher - delegates to scripts/p2p/work_executors/.
+        """
         work_type = work_item.get("work_type", "")
         config = work_item.get("config", {})
         work_id = work_item.get("work_id", "")
@@ -7948,394 +7512,36 @@ class P2POrchestrator(
             self.job_orchestration.record_work_executed(work_type)
 
         try:
+            from scripts.p2p.work_executors import (
+                execute_training_work,
+                execute_selfplay_work,
+                execute_tournament_work,
+                execute_gauntlet_work,
+            )
+
             if work_type == "training":
-                # Jan 21, 2026: Check if this node should run training
-                # Prevents coordinator (mac-studio) from running training locally
-                if not _is_training_enabled_for_node():
-                    logger.info(
-                        f"Skipping training work {work_id}: training_enabled=false for this node"
-                    )
-                    return True  # Return True to indicate "handled" (just skipped)
-
-                # Start training job - January 2026: Fixed to actually execute training
-                # Previously this was a NO-OP that just logged and returned True
-                board_type = config.get("board_type", "square8")
-                num_players = config.get("num_players", 2)
-                epochs = config.get("epochs", 20)  # Jan 2026: Reduced from 50 to prevent overfitting
-                batch_size = config.get("batch_size", 256)
-                learning_rate = config.get("learning_rate", 1e-3)
-                # Jan 21, 2026: Default to v2 (most canonical models are v2)
-                # v5/v5-heavy should only be used when explicitly requested
-                model_version = config.get("model_version", "v2")
-
-                # Build config key and model filename
-                config_key = f"{board_type}_{num_players}p"
-                # Feb 2026: Save to candidate_ instead of canonical_ to prevent
-                # overwriting the production model before evaluation confirms improvement.
-                # Promotion copies candidate_ → canonical_ after Elo gate passes.
-                if model_version and model_version != "v2":
-                    model_filename = f"candidate_{config_key}_{model_version}.pth"
-                else:
-                    model_filename = f"candidate_{config_key}.pth"
-
-                # Build training command
-                cmd = [
-                    sys.executable, "-m", "app.training.train",
-                    "--board-type", board_type,
-                    "--num-players", str(num_players),
-                    "--model-version", model_version,
-                    "--epochs", str(epochs),
-                    "--batch-size", str(batch_size),
-                    "--learning-rate", str(learning_rate),
-                    "--save-path", f"models/{model_filename}",
-                    "--allow-stale-data",
-                    "--max-data-age-hours", "168",  # 7 days tolerance
-                ]
-
-                logger.info(
-                    f"Executing training work {work_id}: {config_key} with {model_version} "
-                    f"(epochs={epochs}, batch={batch_size})"
+                return await execute_training_work(
+                    work_item, config, self.node_id,
+                    ringrift_path=Path(__file__).parent.parent,
+                    job_orchestration=getattr(self, "job_orchestration", None),
                 )
-
-                # Feb 2026: Await training subprocess and capture results.
-                # Previously used asyncio.create_task() (fire-and-forget) which
-                # returned True immediately, causing work completion to report
-                # loss=0.0000 and empty model_path for ALL training work.
-                try:
-                    proc = await asyncio.create_subprocess_exec(
-                        *cmd,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.STDOUT,
-                        cwd=str(Path(__file__).parent.parent),  # ai-service directory
-                    )
-                    stdout, _ = await proc.communicate()
-                    output = stdout.decode() if stdout else ""
-
-                    if proc.returncode == 0:
-                        # Parse training output for loss value
-                        final_loss = 0.0
-                        training_samples = 0
-                        for line in reversed(output.splitlines()):
-                            if "loss" in line.lower() and "=" in line:
-                                # Match patterns like "loss=0.1234" or "Loss: 0.1234"
-                                import re
-                                loss_match = re.search(r'loss[=:\s]+([0-9]+\.?[0-9]*)', line.lower())
-                                if loss_match:
-                                    final_loss = float(loss_match.group(1))
-                                    break
-                            if "samples" in line.lower() and final_loss > 0:
-                                samples_match = re.search(r'(\d+)\s*samples', line.lower())
-                                if samples_match:
-                                    training_samples = int(samples_match.group(1))
-
-                        model_path = f"models/{model_filename}"
-                        logger.info(
-                            f"Training completed successfully: {config_key}/{model_version} "
-                            f"(work_id={work_id}, loss={final_loss:.4f}, samples={training_samples})"
-                        )
-
-                        # Populate work_item result so report_work_result sends real data
-                        work_item["result"] = {
-                            "model_path": model_path,
-                            "final_loss": final_loss,
-                            "training_samples": training_samples,
-                            "config_key": config_key,
-                            "model_version": model_version,
-                        }
-
-                        # Emit training completed event
-                        try:
-                            from app.distributed.data_events import DataEventType
-                            from app.coordination.event_router import emit_event
-                            emit_event(DataEventType.TRAINING_COMPLETED, {
-                                "config_key": config_key,
-                                "board_type": board_type,
-                                "num_players": num_players,
-                                "model_version": model_version,
-                                "model_path": model_path,
-                                "final_loss": final_loss,
-                                "training_samples": training_samples,
-                                "work_id": work_id,
-                            })
-                        except ImportError:
-                            pass
-                        return True
-                    else:
-                        truncated = output[:2000] if output else "no output"
-                        logger.error(
-                            f"Training failed: {config_key}/{model_version}: "
-                            f"returncode={proc.returncode}, output={truncated}"
-                        )
-                        return False
-                except Exception as e:
-                    logger.exception(f"Training subprocess error for {config_key}: {e}")
-                    return False
-
             elif work_type == "selfplay":
-                # Jan 5, 2026: Check if this node should do selfplay
-                # Prevents coordinator (mac-studio) from spawning selfplay despite claiming work
-                if not _is_selfplay_enabled_for_node():
-                    logger.info(
-                        f"Skipping selfplay work {work_id}: selfplay_enabled=false for this node"
-                    )
-                    return True  # Return True to indicate "handled" (just skipped)
-
-                # Start selfplay job
-                board_type = config.get("board_type", "square8")
-                num_players = config.get("num_players", 2)
-                num_games = config.get("num_games", 500)
-                engine_mode = config.get("engine_mode", "mixed")
-                engine_extra_args = config.get("engine_extra_args")  # December 2025: for budget override
-                # Jan 21, 2026: Default to v2 (most canonical models are v2)
-                selfplay_model_version = config.get("model_version", "v2")
-
-                # Delegate to JobManager (Phase 2B refactoring, Dec 2025)
-                asyncio.create_task(self.job_manager.run_gpu_selfplay_job(
-                    job_id=f"pull-{work_id}",
-                    board_type=board_type,
-                    num_players=num_players,
-                    num_games=num_games,
-                    engine_mode=engine_mode,
-                    engine_extra_args=engine_extra_args,
-                    model_version=selfplay_model_version,  # Jan 5, 2026: Architecture selection
-                ))
-
-                # Track diversity metrics for monitoring (Phase 2B, Dec 2025)
-                self.selfplay_scheduler.track_diversity({
-                    "board_type": board_type,
-                    "num_players": num_players,
-                    "engine_mode": engine_mode,
-                })
-                return True
-
+                return await execute_selfplay_work(
+                    work_item, config, self.job_manager, self.selfplay_scheduler,
+                )
             elif work_type == "gpu_cmaes":
-                # Start CMA-ES optimization
                 logger.info(f"Executing GPU CMA-ES work: {config}")
                 return True
-
             elif work_type == "tournament":
-                # Start tournament evaluation
-                # Jan 4, 2026: Fixed to actually execute tournament via JobManager
-                # Previously this was a no-op that just logged and returned True
-                from scripts.p2p.models import DistributedTournamentState
-
-                board_type = config.get("board_type", "square8")
-                num_players = config.get("num_players", 2)
-                games_per_pairing = config.get("games", 2)
-                job_id = f"tournament-{work_id}"
-
-                # Discover models for this config
-                config_key = f"{board_type}_{num_players}p"
-                agent_ids = []
-                try:
-                    # Try to get models from model registry or filesystem
-                    from app.models.discovery import discover_models
-                    models = discover_models(
-                        board_type=board_type,
-                        num_players=num_players,
-                        model_type="nn",
-                    )
-                    # Sort by modified time (most recent first) and take top 5
-                    models.sort(key=lambda m: m.modified_at or 0, reverse=True)
-                    agent_ids = [str(m.path) for m in models[:5]] if models else []
-                except (ImportError, ValueError, AttributeError, RuntimeError):
-                    pass
-
-                # Fallback: use canonical model if available
-                if len(agent_ids) < 2:
-                    canonical_path = f"models/canonical_{config_key}.pth"
-                    if Path(canonical_path).exists():
-                        agent_ids = [canonical_path]
-                    # Add heuristic baseline for comparison
-                    # Note: use plain "heuristic" not "heuristic:config_key" - the
-                    # colon-prefixed form expects comma-separated float weights, not
-                    # a config key. Board type and num_players are passed separately.
-                    agent_ids.append("heuristic")
-
-                if len(agent_ids) < 2:
-                    logger.warning(
-                        f"Tournament {work_id}: Not enough agents for {config_key} "
-                        f"(found {len(agent_ids)}), skipping"
-                    )
-                    return False
-
-                logger.info(
-                    f"Executing tournament work {work_id}: {board_type}/{num_players}p "
-                    f"with {len(agent_ids)} agents"
+                return await execute_tournament_work(
+                    work_item, config, self.peers, self.peers_lock,
+                    self.distributed_tournament_state, self.job_manager,
                 )
-
-                # Create tournament state (matches /tournament/start handler pattern)
-                pairings = []
-                for i, a1 in enumerate(agent_ids):
-                    for a2 in agent_ids[i + 1:]:
-                        for game_num in range(games_per_pairing):
-                            pairings.append({
-                                "agent1": a1,
-                                "agent2": a2,
-                                "game_num": game_num,
-                                "status": "pending",
-                            })
-
-                state = DistributedTournamentState(
-                    job_id=job_id,
-                    board_type=board_type,
-                    num_players=num_players,
-                    agent_ids=agent_ids,
-                    games_per_pairing=games_per_pairing,
-                    total_matches=len(pairings),
-                    pending_matches=pairings,
-                    status="running",
-                    started_at=time.time(),
-                    last_update=time.time(),
-                )
-
-                # Find available workers
-                with self.peers_lock:
-                    workers = [p.node_id for p in self.peers.values() if p.is_healthy()]
-                state.worker_nodes = workers
-
-                # Register state before running
-                self.distributed_tournament_state[job_id] = state
-
-                # Run tournament via job manager
-                async def _run_tournament_task():
-                    try:
-                        await self.job_manager.run_distributed_tournament(job_id)
-                    except Exception as e:
-                        logger.exception(f"Tournament task failed for {job_id}: {e}")
-
-                asyncio.create_task(_run_tournament_task())
-                return True
-
             elif work_type == "gauntlet":
-                # January 27, 2026: Added gauntlet work execution
-                # January 28, 2026: Return False when skipping so work can be reassigned
-                # February 2026: Fixed to call run_baseline_gauntlet directly instead of
-                # deprecated quick_gauntlet.py subprocess, and properly report results
-                # back to leader with win_rate data for auto-promotion pipeline.
-                from app.config.env import env
-                if not env.gauntlet_enabled:
-                    logger.warning(
-                        f"Rejecting gauntlet work {work_id}: gauntlet_enabled=false for this node"
-                    )
-                    return False  # Return False so work can be reassigned to a GPU node
-
-                board_type = config.get("board_type", "square8")
-                num_players = config.get("num_players", 2)
-                model_path = config.get("candidate_model", "")
-                games = config.get("games", 100)
-
-                if not model_path:
-                    logger.warning(f"Gauntlet work {work_id}: No model_path specified")
-                    return False
-
-                # Check model exists locally
-                if not Path(model_path).exists():
-                    # Try candidate or canonical path
-                    config_key_check = f"{board_type}_{num_players}p"
-                    candidate_path = f"models/candidate_{config_key_check}.pth"
-                    canonical_path = f"models/canonical_{config_key_check}.pth"
-                    if Path(candidate_path).exists():
-                        model_path = candidate_path
-                    elif Path(canonical_path).exists():
-                        model_path = canonical_path
-                    else:
-                        logger.warning(f"Gauntlet work {work_id}: Model not found: {model_path}")
-                        return False
-
-                logger.info(
-                    f"Executing gauntlet work {work_id}: {model_path} "
-                    f"({board_type}/{num_players}p, {games} games)"
+                return await execute_gauntlet_work(
+                    work_item, config, self.node_id,
+                    ringrift_path=Path(__file__).parent.parent,
                 )
-
-                # Run gauntlet directly and store results in work_item for reporting.
-                # Unlike selfplay/training which run as fire-and-forget background tasks,
-                # gauntlet must run synchronously so results are available when the
-                # WorkerPullLoop calls _report_result(work_item, success).
-                config_key = f"{board_type}_{num_players}p"
-                try:
-                    from app.training.game_gauntlet import (
-                        run_baseline_gauntlet,
-                        BaselineOpponent,
-                    )
-
-                    # Run gauntlet in thread to avoid blocking event loop
-                    gauntlet_result = await asyncio.to_thread(
-                        run_baseline_gauntlet,
-                        model_path=model_path,
-                        board_type=board_type,
-                        num_players=num_players,
-                        games_per_opponent=max(games // 4, 10),  # Divide by ~4 opponents
-                        opponents=[
-                            BaselineOpponent.RANDOM,
-                            BaselineOpponent.HEURISTIC,
-                        ],
-                        verbose=False,
-                        early_stopping=True,
-                        parallel_opponents=True,
-                    )
-
-                    # Build result dict with full win rate data
-                    result_data = {
-                        "config_key": config_key,
-                        "board_type": board_type,
-                        "num_players": num_players,
-                        "model_path": model_path,
-                        "work_id": work_id,
-                        "success": True,
-                        "win_rates": {},
-                        "opponent_results": {},
-                        "games_played": getattr(gauntlet_result, "total_games", 0),
-                        "total_games": getattr(gauntlet_result, "total_games", 0),
-                        "estimated_elo": getattr(gauntlet_result, "estimated_elo", 0.0),
-                        "elo": getattr(gauntlet_result, "estimated_elo", 0.0),
-                        "passed": getattr(gauntlet_result, "passed", False),
-                    }
-
-                    # Extract per-opponent results
-                    opponent_results = getattr(gauntlet_result, "opponent_results", {})
-                    for opp_name, opp_stats in opponent_results.items():
-                        opp_name_str = str(opp_name)
-                        if isinstance(opp_stats, dict):
-                            result_data["win_rates"][opp_name_str] = opp_stats.get("win_rate", 0.0)
-                            result_data["opponent_results"][opp_name_str] = opp_stats
-                        # Extract vs_random_rate/vs_heuristic_rate for auto-promotion
-                        if "random" in opp_name_str.lower():
-                            result_data["vs_random_rate"] = opp_stats.get("win_rate", 0.0) if isinstance(opp_stats, dict) else 0.0
-                        elif "heuristic" in opp_name_str.lower():
-                            result_data["vs_heuristic_rate"] = opp_stats.get("win_rate", 0.0) if isinstance(opp_stats, dict) else 0.0
-
-                    logger.info(
-                        f"Gauntlet completed: {model_path} (work_id={work_id}) "
-                        f"win_rate={getattr(gauntlet_result, 'win_rate', 0):.1%}, "
-                        f"elo={result_data['estimated_elo']}, "
-                        f"games={result_data['games_played']}"
-                    )
-
-                    # Store results in work_item so WorkerPullLoop._report_result
-                    # sends them to the leader via /work/complete
-                    work_item["result"] = result_data
-
-                    # Also emit EVALUATION_COMPLETED locally for any local subscribers
-                    try:
-                        from app.coordination.event_emission_helpers import safe_emit_event
-                        safe_emit_event(
-                            "EVALUATION_COMPLETED",
-                            result_data,
-                            context="gauntlet_worker",
-                        )
-                    except ImportError:
-                        pass
-
-                    return True
-
-                except ImportError as e:
-                    logger.error(f"Gauntlet modules not available: {e}")
-                    return False
-                except Exception as e:
-                    logger.exception(f"Gauntlet execution error for {model_path}: {e}")
-                    return False
-
             else:
                 logger.warning(f"Unknown work type: {work_type}")
                 return False
@@ -13008,20 +12214,38 @@ print(json.dumps({{
                 return False
 
     async def run(self):
-        """Main entry point - start the orchestrator."""
+        """Main entry point - start the orchestrator.
+
+        Feb 2026: Decomposed into lifecycle phases for readability.
+        """
         if not HAS_AIOHTTP:
             logger.error("aiohttp is required. Install with: pip install aiohttp")
             raise RuntimeError("aiohttp is required but not available - install with: pip install aiohttp")
 
-        # Feb 2026: Limit the default ThreadPoolExecutor to 4 workers.
-        # Without this, asyncio.to_thread() uses min(32, os.cpu_count()+4) = 20 workers
-        # on 16-core Mac Studio. With 30+ daemons wrapping SQLite in to_thread(), all 20
-        # threads run concurrent DB operations, burning 400%+ CPU. Cap at 4 to bound CPU.
+        # Cap thread pool to 4 workers to reduce CPU from 400% to ~100%
         import concurrent.futures
         loop = asyncio.get_running_loop()
         loop.set_default_executor(
             concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="p2p_")
         )
+
+        runner = await self._run_http_setup()
+        tasks = await self._run_start_background_tasks()
+        await self._run_bootstrap_and_election(tasks)
+        await self._run_game_count_refresh(tasks)
+
+        # Run forever
+        try:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.error(f"Background task {i} failed: {result}")
+        except asyncio.CancelledError:
+            pass
+        finally:
+            await self._run_shutdown(runner)
+
+    async def _run_http_setup(self) -> "web.AppRunner":
 
         # Start isolated health server FIRST (January 2026)
         # This ensures /health endpoint is always responsive even if main loop blocks

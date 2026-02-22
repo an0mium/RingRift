@@ -983,11 +983,23 @@ class WorkQueue:
         self._ensure_db()
         if not self._db_initialized:
             raise RuntimeError("WorkQueue database not initialized")
-        conn = sqlite3.connect(str(self.db_path), timeout=timeout)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA busy_timeout=10000")
-        return conn
+        try:
+            conn = sqlite3.connect(str(self.db_path), timeout=timeout)
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.execute("PRAGMA busy_timeout=10000")
+            return conn
+        except sqlite3.ProgrammingError as e:
+            if "closed database" in str(e).lower():
+                # Feb 2026: Connection wrapper may have been prematurely closed.
+                # Re-create a fresh connection.
+                logger.warning(f"[WorkQueue] Retrying after closed database: {e}")
+                conn = sqlite3.connect(str(self.db_path), timeout=timeout)
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=NORMAL")
+                conn.execute("PRAGMA busy_timeout=10000")
+                return conn
+            raise
 
     @contextmanager
     def _db_connection(self, timeout: float = 10.0):

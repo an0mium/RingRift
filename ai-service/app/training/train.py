@@ -5275,6 +5275,7 @@ def train_model(
                             "final_train_loss": float(avg_train_loss),
                             "final_val_loss": float(avg_val_loss),
                             "config": f"{config.board_type.value}_{num_players}p",
+                            "config_key": f"{config.board_type.value}_{num_players}p",
                             "checkpoint_path": str(final_checkpoint_path),
                             "trigger_evaluation": True,  # Trigger automatic evaluation
                             # model_path for FeedbackLoopController (Dec 2025 integration fix)
@@ -5370,6 +5371,7 @@ def train_model(
                         "final_train_loss": float(avg_train_loss),
                         "final_val_loss": float(avg_val_loss),
                         "config": _config_key,
+                        "config_key": _config_key,
                         "board_type": config.board_type.value,
                         "num_players": num_players,
                         "duration_seconds": _training_duration,

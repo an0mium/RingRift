@@ -921,7 +921,7 @@ class EvaluationDaemon(HandlerBase):
                 # the in-memory _dispatched_evaluations mapping
                 if self._persistent_queue and board_type and num_players:
                     config_key = f"{board_type}_{num_players}p"
-                    matched = self._match_running_evaluation(
+                    matched = await self._match_running_evaluation(
                         config_key, model_path, estimated_elo, result
                     )
                     if matched:
@@ -948,7 +948,7 @@ class EvaluationDaemon(HandlerBase):
             logger.debug(f"[EvaluationDaemon] Poll error: {e}")
             self._poll_completions_stats["errors"] += 1
 
-    def _match_running_evaluation(
+    async def _match_running_evaluation(
         self,
         config_key: str,
         model_path: str,
@@ -968,20 +968,12 @@ class EvaluationDaemon(HandlerBase):
             return False
 
         try:
-            stuck = self._persistent_queue.get_stuck_evaluations(timeout_seconds=0)
-            # Also check non-stuck running evaluations
             from app.coordination.evaluation_queue import RequestStatus
-            with self._persistent_queue._lock:
-                with self._persistent_queue._get_connection() as conn:
-                    rows = conn.execute(
-                        """
-                        SELECT * FROM evaluation_requests
-                        WHERE status = ? AND config_key = ?
-                        ORDER BY started_at DESC
-                        LIMIT 5
-                        """,
-                        (RequestStatus.RUNNING, config_key),
-                    ).fetchall()
+
+            # Query RUNNING evaluations for this config from persistent queue
+            rows = await asyncio.to_thread(
+                self._query_running_evaluations, config_key
+            )
 
             for row in rows:
                 request_id = row["request_id"]
@@ -1002,19 +994,35 @@ class EvaluationDaemon(HandlerBase):
                 num_players = row["num_players"]
                 effective_model = model_path or row_model
                 if board_type and num_players and effective_model:
-                    # Use fire-and-forget since we're in a sync context helper
-                    asyncio.ensure_future(self._emit_evaluation_completed(
+                    await self._emit_evaluation_completed(
                         model_path=effective_model,
                         board_type=board_type,
                         num_players=num_players,
                         result=result,
-                    ))
+                    )
                 return True
 
         except Exception as e:  # noqa: BLE001
             logger.debug(f"[EvaluationDaemon] Match running evaluation error: {e}")
 
         return False
+
+    def _query_running_evaluations(self, config_key: str) -> list:
+        """Query RUNNING evaluations from persistent queue (blocking, run in thread)."""
+        from app.coordination.evaluation_queue import RequestStatus
+
+        with self._persistent_queue._lock:
+            with self._persistent_queue._get_connection() as conn:
+                conn.row_factory = __import__("sqlite3").Row
+                return conn.execute(
+                    """
+                    SELECT * FROM evaluation_requests
+                    WHERE status = ? AND config_key = ?
+                    ORDER BY started_at DESC
+                    LIMIT 5
+                    """,
+                    (RequestStatus.RUNNING, config_key),
+                ).fetchall()
 
     async def _evaluation_worker(self) -> None:
         """Worker that processes evaluation requests from the queue."""
