@@ -2165,8 +2165,14 @@ class GossipProtocolMixin(GossipPersistenceMixin, GossipPartitionMixin, _GossipM
         _lease_ok = now < getattr(self, "leader_lease_expires", 0)
         _is_self = (peer_leader == getattr(self, "node_id", None))
         if peer_term > local_term and peer_leader and not (_forced and _lease_ok and not _is_self):
-            self._leader_term = peer_term
-            self.leader_id = peer_leader
+            # Feb 23, 2026: Non-coordinator cannot become leader via gossip term adoption
+            import os
+            _is_coord = os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() in ("true", "1", "yes")
+            if _is_self and not _is_coord:
+                pass  # Skip self-leadership for non-coordinators
+            else:
+                self._leader_term = peer_term
+                self.leader_id = peer_leader
             self.last_leader_seen = now
             if hasattr(self, "self_info") and self.self_info:
                 self.self_info.leader_term = peer_term
@@ -2397,6 +2403,17 @@ class GossipProtocolMixin(GossipPersistenceMixin, GossipPartitionMixin, _GossipM
             agreement_ratio = peers_reporting_us_as_leader / total_peers_with_leader_info
             if agreement_ratio < 0.5:
                 return
+
+        # Feb 23, 2026: Non-coordinator nodes must never accept self-leadership.
+        # GPU workers should only follow, never lead, regardless of gossip consensus.
+        import os
+        _is_coordinator = os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() in ("true", "1", "yes")
+        if not _is_coordinator:
+            self._log_info(
+                f"[Leadership] Rejecting gossip self-leadership: non-coordinator node "
+                f"({peers_reporting_us_as_leader} peers report us as leader)"
+            )
+            return
 
         # Accept leadership - peers already consider us leader
         self._log_warning(
@@ -2909,10 +2926,19 @@ class GossipProtocolMixin(GossipPersistenceMixin, GossipPartitionMixin, _GossipM
                     except ImportError:
                         NodeRole = None
 
-                    if NodeRole and self.role == NodeRole.LEADER:
-                        self._log_info(f"Stepping down: higher epoch cluster has leader {incoming_leader}")
-                        self.role = NodeRole.FOLLOWER
-                    self.leader_id = incoming_leader
+                    # Feb 23, 2026: Non-coordinator cannot become leader via anti-entropy
+                    import os
+                    _is_coord_ae2 = os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() in ("true", "1", "yes")
+                    _incoming_is_self = incoming_leader == getattr(self, "node_id", None)
+                    if _incoming_is_self and not _is_coord_ae2:
+                        self._log_info(
+                            f"Rejecting anti-entropy self-leadership (non-coordinator)"
+                        )
+                    else:
+                        if NodeRole and self.role == NodeRole.LEADER:
+                            self._log_info(f"Stepping down: higher epoch cluster has leader {incoming_leader}")
+                            self.role = NodeRole.FOLLOWER
+                        self.leader_id = incoming_leader
 
     async def _gossip_anti_entropy_repair(self) -> None:
         """DECENTRALIZED: Periodic full state reconciliation with random peer.

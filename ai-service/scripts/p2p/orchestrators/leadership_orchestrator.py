@@ -283,6 +283,18 @@ class LeadershipOrchestrator(BaseOrchestrator):
             )
             return True  # We're still the leader
 
+        # Feb 23, 2026: Non-coordinator nodes must NEVER become leader.
+        # This is the canonical guard — blocks ALL code paths (elections, gossip,
+        # emergency fallback, persisted state, etc.) from making a GPU worker leader.
+        import os
+        _is_coordinator = os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() in ("true", "1", "yes")
+        if not _is_coordinator and new_leader_id == node_id:
+            self._log_info(
+                f"[LeaderSet] Blocked: non-coordinator cannot become leader "
+                f"(reason={reason})"
+            )
+            return False
+
         # Determine new role based on leader_id
         if new_leader_id is None:
             new_role = NodeRole.FOLLOWER
