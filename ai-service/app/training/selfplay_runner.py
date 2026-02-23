@@ -1998,7 +1998,8 @@ class GumbelMCTSSelfplayRunner(SelfplayRunner):
                 moves_list, probs_list = mcts.get_visit_distribution()
                 if moves_list and probs_list:
                     # Convert to dict format: {move_key: probability}
-                    move_probs = {str(m): float(p) for m, p in zip(moves_list, probs_list)}
+                    from app.training.mcts_labeling import build_move_key
+                    move_probs = {build_move_key(m): float(p) for m, p in zip(moves_list, probs_list)}
                 else:
                     move_probs = None
             except (AttributeError, TypeError, ValueError):

@@ -234,6 +234,7 @@ from app.db import GameReplayDB
 from app.models import AIConfig, BoardType, GameState, Move, Position
 from app.training.canonical_sources import enforce_canonical_sources
 from app.training.data_quality import embed_checksums_in_save_kwargs
+from app.training.mcts_labeling import build_move_key
 
 # Unified game discovery
 try:
@@ -374,6 +375,41 @@ def _normalize_hex_move_coords(move: Move, board_type: BoardType, board_size: in
         move_number=move.move_number,
         phase=move.phase,
     )
+
+
+import re
+
+# Regex patterns for parsing full repr move_probs keys (from descent_ai's str(m) format)
+_RE_MOVE_TYPE = re.compile(r"type=<MoveType\.\w+:\s*'(\w+)'>")
+_RE_FROM_POS = re.compile(r"from_pos=Position\(x=(-?\d+),\s*y=(-?\d+)")
+_RE_TO_POS = re.compile(r"\bto=Position\(x=(-?\d+),\s*y=(-?\d+)")
+
+
+def _normalize_db_move_key(key: str) -> str:
+    """Normalize a move_probs DB key to build_move_key format for matching.
+
+    Handles two formats:
+    1. Short format (from build_move_key): "place_ring_-4,4" -> unchanged
+    2. Full repr format (from str(m)): "id='simulated' type=<MoveType.PLACE_RING: 'place_ring'>
+       ... to=Position(x=-4, y=4, z=0) ..." -> "place_ring_-4,4"
+    """
+    if not key.startswith("id="):
+        return key  # Already in short format
+
+    type_match = _RE_MOVE_TYPE.search(key)
+    if not type_match:
+        return key
+    type_val = type_match.group(1)
+
+    from_match = _RE_FROM_POS.search(key)
+    to_match = _RE_TO_POS.search(key)
+
+    result = type_val
+    if from_match:
+        result += f"_{from_match.group(1)},{from_match.group(2)}"
+    if to_match:
+        result += f"_{to_match.group(1)},{to_match.group(2)}"
+    return result
 
 
 from app.training.encoding import get_encoder_for_board_type
@@ -680,6 +716,8 @@ def export_replay_dataset_multi(
     games_deduplicated = 0
     games_skipped_recovery = 0
     games_partial = 0  # Games where replay failed but samples were extracted using DB winner
+    soft_target_hits = 0  # Moves where MCTS soft targets were successfully matched
+    soft_target_misses = 0  # Moves with move_probs where no keys could be matched
     newest_game_time: str | None = None  # Track newest game timestamp for freshness metadata
 
     # Build query filters
@@ -1083,6 +1121,7 @@ def export_replay_dataset_multi(
 
             current_state = initial_state
             replay_succeeded = True
+            move_probs_key_map: dict[int, dict[str, int]] = {}  # move_index -> {key: policy_idx}
             for move_index, move in enumerate(moves):
                 if max_safe_move_index is not None and move_index > max_safe_move_index:
                     break
@@ -1175,6 +1214,28 @@ def export_replay_dataset_multi(
                             heuristic_vec = np.zeros(effective_num_heuristics, dtype=np.float32)
                             logger.debug(f"Heuristic extraction failed at move {move_index}: {e}")
 
+                # Build key→policy_idx mapping for MCTS soft targets
+                # Maps build_move_key format -> policy index for all legal moves.
+                # DB keys (short or full repr) are normalized to build_move_key format at lookup time.
+                if game_move_probs.get(move_index):
+                    try:
+                        valid_moves = GameEngine.get_valid_moves(state_before, state_before.current_player)
+                        key_map: dict[str, int] = {}
+                        norm_board = _normalize_hex_board_size(state_before.board)
+                        board_size_for_norm = 25 if board_type == BoardType.HEXAGONAL else initial_state.board.size
+                        for m in valid_moves:
+                            short_key = build_move_key(m)
+                            norm_m = _normalize_hex_move_coords(m, board_type, board_size_for_norm)
+                            if use_board_aware_encoding:
+                                p_idx = encode_move_for_board(norm_m, norm_board)
+                            else:
+                                p_idx = encoder.encode_move(norm_m, norm_board)
+                            if p_idx != INVALID_MOVE_INDEX:
+                                key_map[short_key] = p_idx
+                        move_probs_key_map[move_index] = key_map
+                    except Exception as e:
+                        logger.debug(f"Failed to build move key map at move {move_index}: {e}")
+
                 game_samples.append((
                     stacked, globals_vec, idx, state_before.current_player,
                     move_index, phase_str, move_type_str, heuristic_vec
@@ -1250,35 +1311,30 @@ def export_replay_dataset_multi(
                 # Use soft targets from move_probs if available, otherwise 1-hot
                 soft_probs = game_move_probs.get(move_index)
                 if soft_probs:
-                    # Convert move_probs dict to sparse policy representation
-                    # Keys are in format "{to_x},{to_y}" or "{from_x},{from_y}->{to_x},{to_y}"
+                    # Look up pre-computed key→policy_idx mapping built during replay
+                    # Normalize DB keys (short or full repr) to build_move_key format
+                    key_map = move_probs_key_map.get(move_index, {})
                     soft_indices = []
                     soft_values = []
                     for move_key, prob in soft_probs.items():
-                        # Parse move key to get position
-                        try:
-                            if "->" in move_key:
-                                # Format: "from_x,from_y->to_x,to_y"
-                                parts = move_key.split("->")
-                                to_part = parts[1]
-                            else:
-                                # Format: "to_x,to_y"
-                                to_part = move_key
-                            to_x, to_y = map(int, to_part.split(","))
-                            # Encode position as flat index (board_size * y + x)
-                            board_size = initial_state.board.size
-                            move_idx = to_y * board_size + to_x
-                            soft_indices.append(move_idx)
+                        normalized_key = _normalize_db_move_key(move_key)
+                        policy_idx = key_map.get(normalized_key)
+                        if policy_idx is not None and prob > 0:
+                            soft_indices.append(policy_idx)
                             soft_values.append(float(prob))
-                        except (ValueError, IndexError):
-                            continue  # Skip malformed move keys
                     if soft_indices:
+                        # Normalize probabilities to sum to 1
+                        total = sum(soft_values)
+                        if total > 0:
+                            soft_values = [v / total for v in soft_values]
                         policy_indices_list.append(np.array(soft_indices, dtype=np.int32))
                         policy_values_list.append(np.array(soft_values, dtype=np.float32))
+                        soft_target_hits += 1
                     else:
-                        # Fallback to 1-hot if parsing failed
+                        # Fallback to 1-hot if no keys matched
                         policy_indices_list.append(np.array([idx], dtype=np.int32))
                         policy_values_list.append(np.array([1.0], dtype=np.float32))
+                        soft_target_misses += 1
                 else:
                     # No soft targets available - use 1-hot encoding
                     policy_indices_list.append(np.array([idx], dtype=np.int32))
@@ -1599,6 +1655,10 @@ def export_replay_dataset_multi(
     if games_partial > 0:
         print(f"  Partial games: {games_partial} games had replay errors but samples extracted using DB winner")
     print(f"Engine modes: {dict(mode_counts)} | Gumbel/MCTS: {gumbel_pct:.1f}% (3x weight in training)")
+    if soft_target_hits > 0 or soft_target_misses > 0:
+        total_soft = soft_target_hits + soft_target_misses
+        pct = 100.0 * soft_target_hits / total_soft if total_soft > 0 else 0
+        print(f"  MCTS soft targets: {soft_target_hits}/{total_soft} matched ({pct:.1f}%), {soft_target_misses} fell back to 1-hot")
 
     # Phase 4A.4: Register NPZ file with ClusterManifest for cluster-wide discovery
     try:

@@ -479,7 +479,8 @@ class MixedOpponentSelfplayRunner(SelfplayRunner):
                         try:
                             moves_list, probs_list = self._player1_mcts.get_visit_distribution()
                             if moves_list and probs_list:
-                                move_probs = {str(m): float(p) for m, p in zip(moves_list, probs_list)}
+                                from app.training.mcts_labeling import build_move_key
+                                move_probs = {build_move_key(m): float(p) for m, p in zip(moves_list, probs_list)}
                         except (AttributeError, TypeError, ValueError) as e:
                             logger.debug(f"Could not extract move_probs: {e}")
                 except Exception as e:
