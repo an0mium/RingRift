@@ -8953,11 +8953,10 @@ print(json.dumps({{
                     self.leader_id = None
                     self.leader_lease_id = ""
                     self.leader_lease_expires = 0
-                    try:
-                        from scripts.p2p.models import NodeRole
-                        self.role = NodeRole.FOLLOWER
-                    except ImportError:
-                        pass
+                    # NodeRole already imported at module level from scripts.p2p.types
+                    # Do NOT use local import here - it shadows the global, causing
+                    # UnboundLocalError at lines 9020+ when this branch doesn't execute.
+                    self.role = NodeRole.FOLLOWER
 
                 # Jan 20, 2026: Check for and fix leadership state desync every heartbeat
                 # This recovers from gossip race conditions where leader_id/role diverge
