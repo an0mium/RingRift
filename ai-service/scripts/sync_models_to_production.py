@@ -8,6 +8,7 @@ Compares model mtimes between local models/ directory and the production
 server's /ai/model_freshness endpoint, then rsyncs stale models and triggers
 a hot-reload via /ai/reload_models.
 """
+from __future__ import annotations
 
 import json
 import os
