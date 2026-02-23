@@ -514,7 +514,7 @@ def _register_data_management(
     """Register DataManagementLoop."""
     try:
         from scripts.p2p.loops import DataManagementLoop
-        from app.utils.disk_utils import check_disk_has_capacity
+        from scripts.p2p.resource_utils import check_disk_has_capacity
         from app.db.database_repair import check_and_repair_databases
 
         def _check_disk_capacity_wrapper(threshold: float) -> tuple[bool, float]:
@@ -1297,7 +1297,7 @@ def _register_training_sync(
     """Register TrainingSyncLoop."""
     try:
         from scripts.p2p.loops import TrainingSyncLoop
-        from app.utils.disk_utils import check_disk_has_capacity
+        from scripts.p2p.resource_utils import check_disk_has_capacity
 
         training_sync = TrainingSyncLoop(
             is_leader=ctx.is_leader,
