@@ -1884,7 +1884,7 @@ class MasterLoopController:
     def _on_selfplay_complete(self, event: Any) -> None:
         """Handle selfplay completion."""
         try:
-            config_key = event.payload.get("config_key", "")
+            config_key = event.payload.get("config_key") or event.payload.get("config", "")
             games_added = event.payload.get("games_added", 0)
 
             if config_key in self._states:
@@ -1972,7 +1972,7 @@ class MasterLoopController:
     def _on_promotion_complete(self, event: Any) -> None:
         """Handle promotion completion."""
         try:
-            config_key = event.payload.get("config_key", "")
+            config_key = event.payload.get("config_key") or event.payload.get("config", "")
             success = event.payload.get("success", False)
 
             if config_key in self._states:

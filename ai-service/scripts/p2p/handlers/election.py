@@ -628,6 +628,24 @@ class ElectionHandlersMixin(BaseP2PHandler):
                 self.role = NodeRole.FOLLOWER
                 self.election_in_progress = False
 
+                # Feb 22, 2026: Clear any previous forced leader override for THIS node.
+                # Without this, a node that previously forced itself as leader keeps
+                # _forced_leader_override=True, causing it to reject all subsequent
+                # leader announcements — even after accepting a new forced leader.
+                # This was the root cause of Lambda GPU nodes refusing to follow
+                # local-mac and never claiming work from the queue.
+                self._forced_leader_override = False
+                self.leader_lease_expires = 0  # Clear stale self-lease
+
+                # Sync ULSM state machine to FOLLOWER
+                if hasattr(self, "_leadership_sm") and self._leadership_sm:
+                    try:
+                        from scripts.p2p.leadership_state_machine import LeaderState
+                        self._leadership_sm._state = LeaderState.FOLLOWER
+                        self._leadership_sm._leader_id = target_leader_id
+                    except ImportError:
+                        pass
+
                 # Feb 2026: Adopt the forced leader's term
                 forced_term = int(data.get("leader_term", 0) or 0)
                 if forced_term > 0:
