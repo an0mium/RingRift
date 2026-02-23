@@ -144,6 +144,9 @@ class PersistedLeaderState:
     voter_node_ids: list[str] = field(default_factory=list)
     voter_config_source: str = ""
 
+    # Feb 2026: Persisted forced leader override survives restarts
+    forced_leader_override: bool = False
+
     # Phase 15.1.1 (Dec 2025): Fenced lease tokens for split-brain protection
     # These must be persisted to prevent stale leaders after restart
     lease_epoch: int = 0  # Monotonic epoch, never decreases
@@ -270,7 +273,7 @@ class StateManager:
         was_leader = leader_state.leader_id == node_id
         lease_expired = leader_state.leader_lease_expires < now
 
-        if was_leader or lease_expired:
+        if (was_leader or lease_expired) and not leader_state.forced_leader_override:
             # Force re-election - don't trust old lease after restart
             old_leader = leader_state.leader_id
             old_expiry = leader_state.leader_lease_expires
@@ -292,6 +295,14 @@ class StateManager:
                     f"Old leader: {old_leader}, expired at: {old_expiry:.0f}, "
                     f"now: {now:.0f}"
                 )
+        elif leader_state.forced_leader_override and was_leader:
+            # Refresh lease instead of clearing — forced override survives restart
+            leader_state.leader_lease_expires = now + 90.0
+            leader_state.last_lease_renewal = now
+            leader_state.role = "leader"
+            logger.info(
+                "P0.5: Forced leader override active — refreshed lease instead of invalidating"
+            )
 
     def init_database(self) -> None:
         """Initialize SQLite database schema for state persistence.
@@ -579,6 +590,10 @@ class StateManager:
                 if raw_config_source := state_rows.get("voter_config_source"):
                     state.leader_state.voter_config_source = str(raw_config_source)
 
+                # Feb 2026: Load forced leader override flag
+                if state_rows.get("forced_leader_override") == "1":
+                    state.leader_state.forced_leader_override = True
+
                 # P0.5 Dec 2025: Invalidate stale leader lease on restart
                 # Without this, node may think it's still leader after restart
                 # even if a new leader was elected during downtime
@@ -704,6 +719,7 @@ class StateManager:
                     ("voter_grant_leader_id", leader_state.voter_grant_leader_id or ""),
                     ("voter_grant_lease_id", leader_state.voter_grant_lease_id or ""),
                     ("voter_grant_expires", str(float(leader_state.voter_grant_expires or 0.0))),
+                    ("forced_leader_override", "1" if leader_state.forced_leader_override else "0"),
                 ]
                 cursor.executemany(
                     "INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)",

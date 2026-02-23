@@ -4296,6 +4296,11 @@ class P2POrchestrator(
                     f"last_seen={self._last_seen_epoch}"
                 )
 
+            # Feb 2026: Restore forced leader override from persisted state
+            if getattr(ls, "forced_leader_override", False):
+                self._forced_leader_override = True
+                logger.info("[P2P] Restored forced_leader_override from persisted state")
+
             # Optional persisted voter configuration (convergence helper). Only
             # apply when voters are not explicitly configured via env/config.
             if (
@@ -4383,6 +4388,8 @@ class P2POrchestrator(
                 lease_epoch=int(getattr(self, "_lease_epoch", 0) or 0),
                 fence_token=str(getattr(self, "_fence_token", "") or ""),
                 last_seen_epoch=int(getattr(self, "_last_seen_epoch", 0) or 0),
+                # Feb 2026: Persist forced leader override across restarts
+                forced_leader_override=getattr(self, "_forced_leader_override", False),
             )
 
             # Delegate to StateManager
@@ -12595,16 +12602,18 @@ print(json.dumps({{
         # Feb 2026 (1d): Refresh self_info with current metrics before first gossip.
         # Prevents broadcasting stale training_jobs/selfplay_jobs counts from
         # persisted state that hasn't been validated against running PIDs yet.
+        # Feb 23, 2026: Run in thread to avoid blocking the event loop (10-30s on macOS).
         try:
-            self._update_self_info()
+            await asyncio.to_thread(self._update_self_info)
             logger.info("[P2P] Pre-gossip self_info refresh complete")
         except Exception as e:
             logger.warning(f"[P2P] Pre-gossip self_info refresh failed: {e}")
 
         # Feb 2026 (3a): Detect orphan GPU processes from previous sessions.
         # These can occupy GPU memory and block work claiming.
+        # Feb 23, 2026: Run in thread to avoid blocking the event loop.
         try:
-            self._cleanup_orphan_gpu_processes()
+            await asyncio.to_thread(self._cleanup_orphan_gpu_processes)
         except Exception as e:
             logger.warning(f"[P2P] Orphan GPU detection failed: {e}")
 
@@ -12812,6 +12821,26 @@ print(json.dumps({{
                 logger.warning("Skipping startup election: no voter quorum available (will retry)")
             else:
                 await self._start_election()
+
+        # Feb 2026: Auto-force leadership for preferred_leader from cluster config.
+        # This ensures the coordinator always becomes leader after P2P restart,
+        # preventing split-brain where remote nodes elect a different leader.
+        if not getattr(self, "_forced_leader_override", False):
+            try:
+                from app.config.cluster_config import load_cluster_config
+                preferred = load_cluster_config()._raw_config.get("preferred_leader", "")
+            except Exception:
+                preferred = ""
+            if preferred and preferred == self.node_id:
+                self._forced_leader_override = True
+                self.role = NodeRole.LEADER
+                self.leader_id = self.node_id
+                self.leader_lease_expires = time.time() + 90.0
+                self.last_leader_seen = time.time()
+                self._leader_term = (getattr(self, "_leader_term", 0) or 0) + 1
+                self._election_grace_until = time.time() + 120.0
+                self._save_state()
+                logger.warning("[P2P] Auto-forced leadership: this node is preferred_leader")
 
         # December 29, 2025: Add background task to retry election if still no leader
         # This handles cases where initial election fails or quorum wasn't available
