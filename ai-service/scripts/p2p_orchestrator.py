@@ -8932,6 +8932,24 @@ print(json.dumps({{
 
         while self.running:
             try:
+                # Feb 23, 2026: SAFETY NET — force non-coordinator nodes to follower.
+                # Many code paths (gossip, anti-entropy, Raft, etc.) bypass _set_leader()
+                # and directly set self.leader_id = self.node_id. This catch-all check
+                # clears self-leadership every heartbeat cycle (~10s) for non-coordinators.
+                _is_coordinator = os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() in ("true", "1", "yes")
+                if not _is_coordinator and self.leader_id == self.node_id:
+                    logger.info(
+                        "[HeartbeatLoop] Non-coordinator has self-leadership, clearing"
+                    )
+                    self.leader_id = None
+                    self.leader_lease_id = ""
+                    self.leader_lease_expires = 0
+                    try:
+                        from scripts.p2p.models import NodeRole
+                        self.role = NodeRole.FOLLOWER
+                    except ImportError:
+                        pass
+
                 # Jan 20, 2026: Check for and fix leadership state desync every heartbeat
                 # This recovers from gossip race conditions where leader_id/role diverge
                 try:
