@@ -849,6 +849,19 @@ class LeadershipOrchestrator(BaseOrchestrator):
 
         # Case 1: gossip_desync - leader_id=self but role!=LEADER
         if leader_id_is_self and not role_is_leader:
+            # Feb 23, 2026: Non-coordinator should step DOWN, not promote to leader
+            import os
+            _is_coord_desync = os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() in ("true", "1", "yes")
+            if not _is_coord_desync:
+                self._log_info(
+                    f"[LeadershipRecovery] Non-coordinator clearing self-leadership "
+                    f"(leader_id={leader_id})"
+                )
+                self._p2p.leader_id = None
+                self._p2p.leader_lease_id = ""
+                self._p2p.leader_lease_expires = 0
+                self._p2p.role = NodeRole.FOLLOWER
+                return True
             self._log_warning(
                 f"[LeadershipRecovery] Fixing gossip_desync: "
                 f"leader_id={leader_id}, role={role} -> LEADER"
@@ -930,6 +943,12 @@ class LeadershipOrchestrator(BaseOrchestrator):
         Returns:
             True if reconciliation action was taken, False otherwise.
         """
+        # Feb 23, 2026: Non-coordinator nodes must never reconcile into self-leadership.
+        import os
+        _is_coordinator = os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() in ("true", "1", "yes")
+        if not _is_coordinator:
+            return False  # GPU workers should never claim leadership via reconciliation
+
         leadership_sm = getattr(self._p2p, "_leadership_sm", None)
         if not leadership_sm:
             return False
