@@ -2905,6 +2905,7 @@ class P2POrchestrator(
             "node_id": self.node_id,
             "role": self.role.value if hasattr(self.role, "value") else str(self.role),
             "leader_id": self.leader_id,
+            "forced_leader_override": getattr(self, "_forced_leader_override", False),
             "active_peers": active_peers,
             "total_peers": len(self.peers),
             "uptime_seconds": uptime_seconds,
@@ -6233,6 +6234,7 @@ class P2POrchestrator(
             "node_id": self.node_id,
             "role": self.role.value,
             "leader_id": self.leader_id,
+            "forced_leader_override": getattr(self, "_forced_leader_override", False),
             "effective_leader_id": (effective_leader.node_id if effective_leader else None),
             # Jan 1, 2026: Provisional leadership status
             "is_provisional_leader": self.role == NodeRole.PROVISIONAL_LEADER,
