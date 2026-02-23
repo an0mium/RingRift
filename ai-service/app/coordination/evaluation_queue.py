@@ -382,6 +382,97 @@ class PersistentEvaluationQueue:
 
                 return self._row_to_request(row)
 
+    def claim_siblings(self, model_path: str, exclude_request_id: str) -> list[str]:
+        """Claim all other pending entries for the same model_path.
+
+        Feb 2026: When multi-harness evaluation runs ALL harnesses for a model,
+        we need to also claim the other per-harness queue entries to prevent
+        redundant evaluations (4x duplication bug).
+
+        Args:
+            model_path: Model path to find siblings for
+            exclude_request_id: Request ID already claimed (skip this one)
+
+        Returns:
+            List of sibling request IDs that were claimed
+        """
+        with self._lock:
+            with self._get_connection() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT request_id FROM evaluation_requests
+                    WHERE model_path = ? AND status = ? AND request_id != ?
+                    """,
+                    (model_path, RequestStatus.PENDING, exclude_request_id),
+                ).fetchall()
+
+                sibling_ids = [row["request_id"] for row in rows]
+                if sibling_ids:
+                    placeholders = ",".join("?" * len(sibling_ids))
+                    conn.execute(
+                        f"""
+                        UPDATE evaluation_requests
+                        SET status = ?, started_at = ?, attempts = attempts + 1
+                        WHERE request_id IN ({placeholders})
+                        """,
+                        [RequestStatus.RUNNING, time.time()] + sibling_ids,
+                    )
+                    conn.commit()
+                    logger.info(
+                        f"[EvaluationQueue] Claimed {len(sibling_ids)} sibling entries "
+                        f"for {model_path}"
+                    )
+
+                return sibling_ids
+
+    def complete_batch(self, request_ids: list[str], elo: float) -> None:
+        """Mark multiple requests as completed.
+
+        Feb 2026: Used to complete sibling harness entries after multi-harness
+        evaluation finishes.
+        """
+        if not request_ids:
+            return
+        with self._lock:
+            with self._get_connection() as conn:
+                placeholders = ",".join("?" * len(request_ids))
+                conn.execute(
+                    f"""
+                    UPDATE evaluation_requests
+                    SET status = ?, completed_at = ?, result_elo = ?, error = ''
+                    WHERE request_id IN ({placeholders})
+                    """,
+                    [RequestStatus.COMPLETED, time.time(), elo] + request_ids,
+                )
+                conn.commit()
+                logger.info(
+                    f"[EvaluationQueue] Batch completed {len(request_ids)} entries -> Elo {elo:.0f}"
+                )
+
+    def fail_batch(self, request_ids: list[str], error: str) -> None:
+        """Mark multiple requests as failed.
+
+        Feb 2026: Used to fail sibling harness entries when multi-harness
+        evaluation fails.
+        """
+        if not request_ids:
+            return
+        with self._lock:
+            with self._get_connection() as conn:
+                placeholders = ",".join("?" * len(request_ids))
+                conn.execute(
+                    f"""
+                    UPDATE evaluation_requests
+                    SET status = ?, error = ?
+                    WHERE request_id IN ({placeholders})
+                    """,
+                    [RequestStatus.FAILED, error] + request_ids,
+                )
+                conn.commit()
+                logger.info(
+                    f"[EvaluationQueue] Batch failed {len(request_ids)} entries: {error}"
+                )
+
     def complete(self, request_id: str, elo: float) -> None:
         """Mark a request as completed with Elo result.
 

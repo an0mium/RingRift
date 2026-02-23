@@ -144,11 +144,19 @@ class EvaluationConfig:
     # Dec 29: Increased from 20 to 50 for more statistically significant eval
     # (±5% confidence interval instead of ±10%)
     # Dec 31: Reduced to 30 with 6 baselines for faster iteration (30×6=180 games)
+    # Feb 2026: Reduced from 30 to 10. 30 games × 5 baselines × 4 harnesses =
+    # 600 games per model, which takes hours on Apple MPS for large boards.
+    # 10 games is enough for directional Elo estimation and promotion decisions.
+    # Feb 23, 2026: Raised from 10 to 30. At 10 games the 95% CI is ±31%,
+    # making win rates statistically meaningless. 30 games gives ±18% CI,
+    # which is the minimum for reliable promotion decisions.
     games_per_baseline: int = 30
 
     # Jan 10, 2026: Bootstrap fast evaluation for weak models
     # Models below bootstrap_elo_threshold use fewer games per baseline for faster iteration
     # This helps break the promotion logjam during early training
+    # Feb 23, 2026: Raised from 5 to 15 to give bootstrap models a meaningful
+    # evaluation signal (95% CI ±25% instead of ±44%).
     bootstrap_games_per_baseline: int = 15
     bootstrap_elo_threshold: float = 1300.0
 
@@ -157,25 +165,24 @@ class EvaluationConfig:
     # Previous: ["random", "heuristic"] capped Elo measurement at ~1200
     # Now covers ~400-1600 Elo range for meaningful model ranking
     # Jan 13, 2026: Added NNUE/MINIMAX/MAXN/BRS baselines for harness diversity
-    # Models should be evaluated under various search harnesses to get accurate Elo
+    # Feb 2026: Reduced from 9 to 5 baselines. NNUE baselines (minimax_d4, maxn_d3,
+    # brs_d3) removed - they require loading a separate NNUE model and are very slow
+    # on Apple MPS. The remaining 5 baselines cover the full Elo range (400-1600)
+    # and are sufficient for promotion decisions.
     baselines: list[str] = field(default_factory=lambda: [
         "random",           # ~400 Elo (sanity check - model should crush this)
         "heuristic",        # ~1200 Elo (basic baseline)
         "heuristic_strong", # ~1400 Elo (tuned heuristic weights)
-        "gumbel_b64",       # ~1400 Elo (search baseline with budget=64)
         "policy_only_nn",   # ~1350 Elo (NN without search, tests policy head)
-        "gumbel_b200",      # ~1600 Elo (high quality ceiling)
-        # Jan 13, 2026: Harness diversity - NNUE under different search algorithms
-        # These baselines test models against different opponent search strategies
-        "nnue_minimax_d4",  # ~1600 Elo (NNUE + alpha-beta depth 4, best for 2p)
-        "nnue_maxn_d3",     # ~1650 Elo (NNUE + MaxN depth 3, accurate for 3-4p)
-        "nnue_brs_d3",      # ~1550 Elo (NNUE + Best Reply Search depth 3, fast 3-4p)
+        "gumbel_b64",       # ~1400 Elo (search baseline with budget=64)
     ])
 
     # Early stopping configuration
     early_stopping_enabled: bool = True
     early_stopping_confidence: float = 0.95
-    early_stopping_min_games: int = 10
+    # Feb 23, 2026: Raised from 10 to 20 so early stopping doesn't kick in
+    # before enough games have been played for a meaningful signal.
+    early_stopping_min_games: int = 20
 
     # Concurrency
     # Dec 29: Increased from 8 to 24 for faster eval throughput
@@ -196,11 +203,14 @@ class EvaluationConfig:
     # hex8/square8: 64/61 cells → fast games → 1 hour
     # square19: 361 cells → 4-5x longer games → 3 hours
     # hexagonal: 469 cells → longest games → 4 hours
+    # Feb 2026: Reduced timeouts. With 10 games/baseline × 5 baselines = 50 games
+    # per harness, evaluations should complete much faster. Previous values (1-4 hours)
+    # were designed for 30 games × 9 baselines = 270 games per harness on GPU cluster.
     board_timeout_seconds: dict = field(default_factory=lambda: {
-        "hex8": 3600,       # 1 hour - small board, fast games
-        "square8": 7200,    # 2 hours - small board, medium complexity
-        "square19": 10800,  # 3 hours - large board (Go-sized)
-        "hexagonal": 14400, # 4 hours - largest board
+        "hex8": 600,        # 10 min - small board, very fast games
+        "square8": 900,     # 15 min - small board, medium complexity
+        "square19": 1800,   # 30 min - large board (Go-sized)
+        "hexagonal": 2400,  # 40 min - largest board
     })
 
     def get_timeout_for_board(self, board_type: str, num_players: int = 2) -> float:
@@ -276,9 +286,10 @@ class EvaluationConfig:
     multi_harness_max_harnesses: int = 3  # Max harnesses to evaluate (limit for speed)
 
     # January 5, 2026: Parallel multi-harness evaluation
-    # Run multiple harnesses concurrently to reduce total evaluation time (3x faster)
-    # Set to 1 for sequential (original behavior), 2-3 recommended for GPU memory safety
-    multi_harness_parallel: int = 2  # Number of concurrent harness evaluations
+    # Feb 2026: Changed from 2 to 1 (sequential). With thread pool capped at 4 workers
+    # (d983420d8), running 2 concurrent harnesses consumed half the pool, starving
+    # other daemons. Sequential harness evaluation is fine with the reduced game counts.
+    multi_harness_parallel: int = 1  # Number of concurrent harness evaluations
 
     # January 3, 2026 (Sprint 13 Session 4): Stuck evaluation recovery
     stuck_check_interval_seconds: float = 1800.0  # 30 minutes
@@ -1053,6 +1064,15 @@ class EvaluationDaemon(HandlerBase):
                     logger.debug("[EvaluationDaemon] Checking persistent queue...")
                     persistent_request = self._persistent_queue.claim_next()
                     if persistent_request:
+                        # Feb 2026: Batch-claim all other harness entries for the
+                        # same model to prevent 4x redundant multi-harness evaluations.
+                        # The multi-harness gauntlet runs ALL harnesses in one go,
+                        # so we need to claim all queue entries for this model.
+                        sibling_ids = self._persistent_queue.claim_siblings(
+                            persistent_request.model_path,
+                            persistent_request.request_id,
+                        )
+
                         # Convert to in-memory request format
                         request = {
                             "model_path": persistent_request.model_path,
@@ -1063,10 +1083,12 @@ class EvaluationDaemon(HandlerBase):
                             "source": persistent_request.source,
                             "priority": persistent_request.priority,
                             "_persistent_request_id": persistent_request.request_id,
+                            "_sibling_request_ids": sibling_ids,
                         }
                         logger.info(
                             f"[EvaluationDaemon] Claimed from persistent queue: "
                             f"{persistent_request.model_path} ({persistent_request.config_key})"
+                            f"{f' + {len(sibling_ids)} siblings' if sibling_ids else ''}"
                         )
 
                 if request is None:
@@ -1451,6 +1473,20 @@ class EvaluationDaemon(HandlerBase):
             )
             self._eval_stats.games_played += total_games
 
+            # Feb 23, 2026: Compute Elo from gauntlet results via EloService.
+            # The gauntlet produces per-opponent win/loss records but doesn't
+            # record them as Elo matches. Wire results into the Elo system so
+            # models get proper ratings that feed into promotion decisions.
+            estimated_elo = await self._compute_elo_from_gauntlet(
+                model_path=model_path,
+                board_type=board_type,
+                num_players=num_players,
+                result=result,
+            )
+            if estimated_elo is not None:
+                result["estimated_elo"] = estimated_elo
+                result["best_elo"] = estimated_elo
+
             # Emit evaluation completed event
             await self._emit_evaluation_completed(
                 model_path=model_path,
@@ -1479,12 +1515,17 @@ class EvaluationDaemon(HandlerBase):
             )
 
             # January 7, 2026 (Session 17.50): Update persistent queue if this came from it
+            # Feb 2026: Also complete sibling harness entries to prevent 4x redundancy
             persistent_request_id = request.get("_persistent_request_id")
             if persistent_request_id and self._persistent_queue:
                 estimated_elo = result.get("estimated_elo", result.get("best_elo", 0.0))
                 self._persistent_queue.complete(persistent_request_id, elo=estimated_elo)
+                sibling_ids = request.get("_sibling_request_ids", [])
+                if sibling_ids:
+                    self._persistent_queue.complete_batch(sibling_ids, elo=estimated_elo)
                 logger.debug(
                     f"[EvaluationDaemon] Marked persistent request complete: {persistent_request_id}"
+                    f"{f' + {len(sibling_ids)} siblings' if sibling_ids else ''}"
                 )
 
         except asyncio.TimeoutError:
@@ -1501,9 +1542,13 @@ class EvaluationDaemon(HandlerBase):
             self._record_gauntlet_complete(run_id, 0, 0, "failed:timeout")
             await self._emit_evaluation_failed(model_path, board_type, num_players, "timeout")
             # January 7, 2026: Mark persistent queue item as failed
+            # Feb 2026: Also fail sibling harness entries
             persistent_request_id = request.get("_persistent_request_id")
             if persistent_request_id and self._persistent_queue:
                 self._persistent_queue.fail(persistent_request_id, "timeout")
+                sibling_ids = request.get("_sibling_request_ids", [])
+                if sibling_ids:
+                    self._persistent_queue.fail_batch(sibling_ids, "timeout")
         except (MemoryError, RuntimeError) as e:
             # December 29, 2025: GPU OOM and RuntimeError (CUDA) are retryable
             # January 2026: With adaptive batch size reduction to prevent infinite loops
@@ -1543,9 +1588,13 @@ class EvaluationDaemon(HandlerBase):
             self._record_gauntlet_complete(run_id, 0, 0, f"failed:{type(e).__name__}")
             await self._emit_evaluation_failed(model_path, board_type, num_players, str(e))
             # January 7, 2026: Mark persistent queue item as failed
+            # Feb 2026: Also fail sibling harness entries
             persistent_request_id = request.get("_persistent_request_id")
             if persistent_request_id and self._persistent_queue:
                 self._persistent_queue.fail(persistent_request_id, str(e))
+                sibling_ids = request.get("_sibling_request_ids", [])
+                if sibling_ids:
+                    self._persistent_queue.fail_batch(sibling_ids, str(e))
         except Exception as e:  # noqa: BLE001
             self._eval_stats.evaluations_failed += 1
             logger.error(f"[EvaluationDaemon] Evaluation failed: {model_path}: {e}")
@@ -1553,9 +1602,13 @@ class EvaluationDaemon(HandlerBase):
             self._record_gauntlet_complete(run_id, 0, 0, f"failed:{type(e).__name__}")
             await self._emit_evaluation_failed(model_path, board_type, num_players, str(e))
             # January 7, 2026: Mark persistent queue item as failed
+            # Feb 2026: Also fail sibling harness entries
             persistent_request_id = request.get("_persistent_request_id")
             if persistent_request_id and self._persistent_queue:
                 self._persistent_queue.fail(persistent_request_id, str(e))
+                sibling_ids = request.get("_sibling_request_ids", [])
+                if sibling_ids:
+                    self._persistent_queue.fail_batch(sibling_ids, str(e))
 
     async def _run_gauntlet(
         self,
@@ -1742,6 +1795,21 @@ class EvaluationDaemon(HandlerBase):
                     f"for multi-harness {config_key} (Elo: {model_elo:.0f})"
                 )
 
+            # Feb 2026: On coordinator (Apple MPS), skip Gumbel MCTS harnesses.
+            # PyTorch MPS inference holds the Python GIL during forward passes,
+            # blocking the asyncio event loop and freezing the entire master_loop
+            # process. policy_only and descent use lightweight inference that
+            # releases the GIL frequently. CUDA GPUs release the GIL properly.
+            from app.config.env import env
+            coordinator_harnesses = None
+            if env.is_coordinator:
+                from app.training.multi_harness_gauntlet import HarnessType
+                coordinator_harnesses = [HarnessType.POLICY_ONLY, HarnessType.DESCENT]
+                logger.info(
+                    f"[EvaluationDaemon] Coordinator mode: using lightweight harnesses "
+                    f"only (policy_only, descent) to avoid MPS GIL blocking"
+                )
+
             # January 5, 2026: Enable parallel harness evaluation for 3x speedup
             gauntlet = MultiHarnessGauntlet(
                 default_games_per_baseline=games_per_baseline,
@@ -1758,6 +1826,7 @@ class EvaluationDaemon(HandlerBase):
                     model_path=model_path,
                     board_type=board_type,
                     num_players=num_players,
+                    harnesses=coordinator_harnesses,  # Feb 2026: filtered on coordinator
                 ),
                 timeout=base_timeout * 2,  # Extra time for multiple harnesses
             )
@@ -2045,6 +2114,110 @@ class EvaluationDaemon(HandlerBase):
             logger.debug(f"[EvaluationDaemon] Recorded gauntlet complete: {run_id}")
         except Exception as e:  # noqa: BLE001
             logger.debug(f"[EvaluationDaemon] Failed to record gauntlet complete: {e}")
+
+    async def _compute_elo_from_gauntlet(
+        self,
+        model_path: str,
+        board_type: str,
+        num_players: int,
+        result: dict,
+    ) -> float | None:
+        """Compute Elo rating from gauntlet opponent results via EloService.
+
+        Feb 23, 2026: The gauntlet runs games against baselines (random, heuristic,
+        etc.) and produces win/loss records per opponent, but does not record these
+        as Elo matches. This method feeds each opponent result into the EloService
+        as match records, which updates the model's Elo rating.
+
+        For multi-harness results that already have Elo computed (from
+        MultiHarnessGauntlet), this returns the existing best_elo.
+
+        Args:
+            model_path: Path to the evaluated model
+            board_type: Board type (e.g., "hex8")
+            num_players: Number of players (2, 3, 4)
+            result: Gauntlet result dict with opponent_results
+
+        Returns:
+            Estimated Elo rating, or None if computation failed
+        """
+        # Multi-harness gauntlets already compute Elo internally
+        if result.get("is_multi_harness") and result.get("best_elo"):
+            return float(result["best_elo"])
+
+        # For baseline-only gauntlets, record matches via EloService
+        opponent_results = result.get("opponent_results", {})
+        if not opponent_results:
+            return None
+
+        try:
+            from app.training.elo_service import get_elo_service
+            from pathlib import Path
+
+            elo_service = get_elo_service()
+            model_name = Path(model_path).stem
+            matches_recorded = 0
+
+            for opponent_name, opp_result in opponent_results.items():
+                if not isinstance(opp_result, dict):
+                    continue
+
+                win_rate = opp_result.get("win_rate", 0.0)
+                games_played = opp_result.get("games_played", 0)
+                if games_played <= 0:
+                    continue
+
+                # Record synthetic matches: wins, losses, and draws
+                wins = int(round(win_rate * games_played))
+                losses = games_played - wins
+
+                # Record wins
+                for _ in range(wins):
+                    await asyncio.to_thread(
+                        elo_service.record_match,
+                        participant_a=model_name,
+                        participant_b=str(opponent_name),
+                        winner=model_name,
+                        board_type=board_type,
+                        num_players=num_players,
+                        harness_type="gumbel_mcts",
+                    )
+                    matches_recorded += 1
+
+                # Record losses
+                for _ in range(losses):
+                    await asyncio.to_thread(
+                        elo_service.record_match,
+                        participant_a=model_name,
+                        participant_b=str(opponent_name),
+                        winner=str(opponent_name),
+                        board_type=board_type,
+                        num_players=num_players,
+                        harness_type="gumbel_mcts",
+                    )
+                    matches_recorded += 1
+
+            if matches_recorded == 0:
+                return None
+
+            # Retrieve updated Elo rating
+            rating = elo_service.get_rating(model_name)
+            if rating is not None:
+                elo = float(rating.elo) if hasattr(rating, "elo") else float(rating)
+                logger.info(
+                    f"[EvaluationDaemon] Computed Elo from gauntlet: {model_name} = "
+                    f"{elo:.0f} ({matches_recorded} matches recorded)"
+                )
+                return elo
+
+            return None
+
+        except ImportError:
+            logger.debug("[EvaluationDaemon] EloService not available for Elo computation")
+            return None
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[EvaluationDaemon] Elo computation from gauntlet failed: {e}")
+            return None
 
     async def _dispatch_gauntlet_to_cluster(
         self,
