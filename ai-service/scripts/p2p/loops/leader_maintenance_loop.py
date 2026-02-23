@@ -139,17 +139,12 @@ class LeaderMaintenanceLoop(BaseLoop):
             )
             return self._is_primary_voter
 
-        # Fallback: check voter list position
-        voters = self._get_voter_list()
-        if not voters:
-            return False
-
-        self._is_primary_voter = (voters[0] == node_id)
-        if self._is_primary_voter:
-            logger.info(
-                f"[LeaderMaintenance] This node ({node_id}) is the primary "
-                f"leader (first in voter list: {voters[:3]}...)"
-            )
+        # Feb 2026: No voter list fallback. Only nodes with
+        # RINGRIFT_IS_COORDINATOR=true (set via LaunchAgent/command line)
+        # should be primary leader. The old alphabetical voter list fallback
+        # caused split-brain: hetzner-cpu1 won alphabetically and self-elected
+        # via leader_maintenance_loop, overriding the coordinator's leadership.
+        self._is_primary_voter = False
         return self._is_primary_voter
 
     def _is_currently_leader(self) -> bool:
