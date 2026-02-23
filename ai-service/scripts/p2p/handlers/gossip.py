@@ -269,14 +269,14 @@ class GossipHandlersMixin(BaseP2PHandler):
             new_peers = []
 
             # Jan 3, 2026: Use sync lock to prevent race with cleanup
-            # Feb 2026: Use timeout to prevent deadlock between event loop thread
-            # and asyncio.to_thread() thread (both trying to acquire the RLock)
+            # Feb 23, 2026: Use synchronous acquire (NOT asyncio.to_thread).
+            # RLock requires the same thread for acquire and release.
+            # asyncio.to_thread() acquires in thread pool, release runs in event
+            # loop thread → "cannot release un-acquired lock" error. See network.py.
             sync_lock = getattr(self, "_gossip_state_sync_lock", None)
             lock_acquired = False
             if sync_lock is not None:
-                lock_acquired = await asyncio.to_thread(
-                    sync_lock.acquire, True, 2.0  # blocking=True, timeout=2.0
-                )
+                lock_acquired = sync_lock.acquire(blocking=True, timeout=2.0)
             try:
                 if sync_lock is None or lock_acquired:
                     for node_id, state in peer_states.items():

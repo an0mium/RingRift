@@ -449,12 +449,13 @@ class GossipProtocolMixin(GossipPersistenceMixin, GossipPartitionMixin, _GossipM
                 return
 
         # Jan 3, 2026: Also acquire sync lock to prevent race with sync state modifiers
-        # Jan 25, 2026: Wrap in asyncio.to_thread() to avoid blocking event loop
+        # Feb 23, 2026: Use synchronous acquire (NOT asyncio.to_thread).
+        # RLock requires the same thread for acquire and release.
+        # asyncio.to_thread() acquires in thread pool, release runs in event
+        # loop thread → "cannot release un-acquired lock" error. See network.py.
         sync_acquired = False
         if sync_lock is not None:
-            sync_acquired = await asyncio.to_thread(
-                lambda: sync_lock.acquire(blocking=True, timeout=_GOSSIP_LOCK_TIMEOUT)
-            )
+            sync_acquired = sync_lock.acquire(blocking=True, timeout=_GOSSIP_LOCK_TIMEOUT)
             if not sync_acquired:
                 if async_lock is not None and async_acquired:
                     async_lock.release()
