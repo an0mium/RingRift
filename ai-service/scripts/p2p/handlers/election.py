@@ -563,7 +563,8 @@ class ElectionHandlersMixin(BaseP2PHandler):
                 # Nodes adopt the leader with highest term in gossip, ensuring
                 # forced leadership converges in 1 gossip round.
                 current_term = getattr(self, "_leader_term", 0) or 0
-                new_term = current_term + 1
+                requested_term = int(data.get("leader_term", 0) or 0)
+                new_term = max(current_term + 1, requested_term)
                 self._leader_term = new_term
                 if hasattr(self, "self_info") and self.self_info:
                     self.self_info.leader_term = new_term
