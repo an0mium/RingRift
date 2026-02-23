@@ -9508,6 +9508,18 @@ print(json.dumps({{
 
     async def _start_election(self):
         """Start leader election using Bully algorithm."""
+        # Feb 23, 2026: Non-coordinator nodes must NOT initiate elections.
+        # GPU worker nodes should passively adopt leaders via gossip, not self-elect.
+        # Without this, after P2P restart every node runs Bully election and the
+        # alphabetically-first node wins before force_leader can be applied,
+        # causing persistent split-brain where GPU nodes refuse coordinator's leadership.
+        _is_coordinator = os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() in ("true", "1", "yes")
+        if not _is_coordinator:
+            logger.info(
+                "[Election] Skipping: non-coordinator node, will adopt leader via gossip"
+            )
+            return
+
         # Feb 23, 2026: Suppress elections during force_leader grace period.
         # Without this, nodes that were forced to accept a specific leader could
         # immediately start a new election, overriding the forced leader.
@@ -10121,6 +10133,12 @@ print(json.dumps({{
         In this mode, the node acts as a temporary coordinator WITHOUT voter consensus.
         It will relinquish control once voter quorum is restored.
         """
+        # Feb 23, 2026: Only coordinator nodes should attempt emergency leadership.
+        # GPU worker nodes should never self-elect, even in emergency scenarios.
+        _is_coordinator = os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() in ("true", "1", "yes")
+        if not _is_coordinator:
+            return
+
         now = time.time()
 
         # Only check every 60 seconds
