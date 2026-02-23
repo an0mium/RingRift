@@ -650,6 +650,9 @@ class EvaluationDaemon(HandlerBase):
                     self._backpressure_stats["hysteresis_skips"] += 1
 
             # Queue the evaluation with source and priority
+            # Feb 23, 2026: Include trained_by so _ensure_model_local knows
+            # which node to sync the candidate model from
+            trained_by = metadata.get("trained_by", "")
             await self._evaluation_queue.put({
                 "model_path": model_path,
                 "board_type": board_type,
@@ -657,6 +660,7 @@ class EvaluationDaemon(HandlerBase):
                 "timestamp": time.time(),
                 "source": source,
                 "priority": priority,
+                "trained_by": trained_by,
             })
 
             self._eval_stats.evaluations_triggered += 1
@@ -1107,21 +1111,34 @@ class EvaluationDaemon(HandlerBase):
                         continue
 
                 # January 3, 2026: Check model exists before evaluation
+                # Feb 23, 2026: For candidate models being fetched from training
+                # nodes, wait up to 90s for the rsync to complete
                 from pathlib import Path
                 if not Path(local_path).exists():
-                    logger.warning(
-                        f"[EvaluationDaemon] Model not found: {local_path}"
-                    )
-                    safe_emit_event(
-                        DataEventType.EVALUATION_FAILED,
-                        {
-                            "model_path": model_path,
-                            "reason": "model_not_found",
-                            "config_key": request.get("config_key", "unknown"),
-                        },
-                    )
-                    self.stats.failed_evaluations += 1
-                    continue
+                    is_candidate = "candidate_" in local_path
+                    if is_candidate:
+                        logger.info(
+                            f"[EvaluationDaemon] Candidate model not yet local: {local_path}, "
+                            f"waiting for transfer..."
+                        )
+                        for _wait in range(18):  # 18 × 5s = 90s
+                            await asyncio.sleep(5)
+                            if Path(local_path).exists():
+                                break
+                    if not Path(local_path).exists():
+                        logger.warning(
+                            f"[EvaluationDaemon] Model not found: {local_path}"
+                        )
+                        safe_emit_event(
+                            DataEventType.EVALUATION_FAILED,
+                            {
+                                "model_path": model_path,
+                                "reason": "model_not_found",
+                                "config_key": request.get("config_key", "unknown"),
+                            },
+                        )
+                        self.stats.failed_evaluations += 1
+                        continue
 
                 # Run evaluation
                 self._active_evaluations.add(model_path)
@@ -1242,10 +1259,31 @@ class EvaluationDaemon(HandlerBase):
         # Check if this is a remote model reference (source: cluster:node_id)
         # Remote paths are stored with the full remote path in the queue
         if not model_path.startswith("/") and ":" not in model_path:
-            # Relative local path
-            return model_path
+            # Relative local path - verify it actually exists
+            if Path(model_path).exists():
+                return model_path
+            # Feb 23, 2026: Candidate models are trained on GPU nodes and synced
+            # back via rsync (triggered by handle_work_complete). Wait for the
+            # transfer to complete before giving up.
+            logger.info(
+                f"[EvaluationDaemon] Model not found locally: {model_path}, "
+                f"waiting for transfer from training node..."
+            )
+            for wait_round in range(12):  # Wait up to 60s (12 × 5s)
+                await asyncio.sleep(5)
+                if Path(model_path).exists():
+                    logger.info(
+                        f"[EvaluationDaemon] Model arrived after {(wait_round + 1) * 5}s: "
+                        f"{model_path}"
+                    )
+                    return model_path
+            logger.warning(
+                f"[EvaluationDaemon] Model not found after 60s wait: {model_path}, "
+                f"trying remote sync..."
+            )
+            # Fall through to remote sync code below
         if Path(model_path).exists():
-            # Already local
+            # Already local (absolute path)
             return model_path
 
         # Try to sync from cluster

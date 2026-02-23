@@ -157,6 +157,103 @@ def get_work_queue():
     return _work_queue
 
 
+async def _fetch_candidate_model_from_node(
+    node_id: str, model_path: str, config_key: str
+) -> bool:
+    """Fetch a candidate model from a training node to the coordinator.
+
+    Feb 23, 2026: Without this, candidate models trained on GPU nodes are
+    never synced back to the coordinator, breaking the entire evaluation
+    and promotion pipeline. Models saved as candidate_*.pth on remote nodes
+    were invisible to the local evaluation daemon and promotion controller.
+
+    Args:
+        node_id: ID of the node that trained the model (e.g., "lambda-gh200-3")
+        model_path: Relative model path (e.g., "models/candidate_hex8_2p.pth")
+        config_key: Config key (e.g., "hex8_2p") for logging
+
+    Returns:
+        True if model was fetched successfully.
+    """
+    import asyncio
+    import os
+    from pathlib import Path
+
+    try:
+        from app.config.cluster_config import get_cluster_nodes
+        nodes = get_cluster_nodes()
+        node = nodes.get(node_id)
+    except ImportError:
+        logger.warning(f"[ModelFetch] cluster_config not available, cannot fetch from {node_id}")
+        return False
+
+    if not node:
+        logger.warning(f"[ModelFetch] Unknown node {node_id}, cannot fetch candidate model")
+        return False
+
+    host = node.best_ip
+    if not host:
+        logger.warning(f"[ModelFetch] No IP for {node_id}")
+        return False
+
+    ssh_user = node.ssh_user or "root"
+    ssh_port = node.ssh_port or 22
+    ssh_key = os.path.expanduser(node.ssh_key or "~/.ssh/id_cluster")
+    remote_ringrift_path = node.ringrift_path or "~/ringrift/ai-service"
+
+    # Build remote and local paths
+    remote_full = f"{remote_ringrift_path}/{model_path}"
+    local_path = Path(model_path)
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+
+    ssh_cmd = (
+        f"ssh -p {ssh_port} -i {ssh_key} "
+        f"-o StrictHostKeyChecking=no -o ConnectTimeout=30"
+    )
+    cmd = [
+        "rsync", "-az", "--timeout=120",
+        "-e", ssh_cmd,
+        f"{ssh_user}@{host}:{remote_full}",
+        str(local_path),
+    ]
+
+    logger.info(
+        f"[ModelFetch] Fetching candidate model from {node_id}: "
+        f"{model_path} ({config_key})"
+    )
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=180.0)
+
+        if proc.returncode != 0:
+            stderr_text = stderr.decode() if stderr else "unknown"
+            logger.error(f"[ModelFetch] rsync failed for {config_key} from {node_id}: {stderr_text}")
+            return False
+
+        if not local_path.exists() or local_path.stat().st_size < 1024:
+            logger.error(f"[ModelFetch] Model missing or too small after fetch: {local_path}")
+            return False
+
+        size_mb = local_path.stat().st_size / 1024 / 1024
+        logger.info(
+            f"[ModelFetch] Successfully fetched {config_key} candidate from {node_id}: "
+            f"{size_mb:.1f} MB"
+        )
+        return True
+
+    except asyncio.TimeoutError:
+        logger.error(f"[ModelFetch] Timeout fetching from {node_id}")
+        return False
+    except (OSError, Exception) as e:
+        logger.error(f"[ModelFetch] Error fetching from {node_id}: {e}")
+        return False
+
+
 class OrchestratorProtocol(Protocol):
     """Protocol defining the orchestrator interface needed by work queue handlers."""
 
@@ -1132,6 +1229,19 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
                     result_model_path = f"models/{model_filename}"
                 final_loss = result.get("final_loss", 0.0)
                 training_samples = result.get("training_samples", 0)
+
+                # Feb 23, 2026: Fetch candidate model from training node BEFORE
+                # emitting TRAINING_COMPLETED. Without this, the evaluation daemon
+                # receives the event but can't find the model locally (it only
+                # exists on the GPU node that trained). This was the root cause of
+                # zero candidate models ever being evaluated or promoted.
+                import asyncio
+                asyncio.ensure_future(
+                    _fetch_candidate_model_from_node(
+                        assigned_to, result_model_path, config_key
+                    )
+                )
+
                 try:
                     from app.coordination.event_emission_helpers import safe_emit_event
                     safe_emit_event(

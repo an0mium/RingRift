@@ -569,6 +569,13 @@ class ModelLifecycleCoordinator:
                         # Get training metadata
                         training_samples = payload.get("training_samples", 0)
                         training_games = payload.get("training_games", 0)
+                        # Feb 23, 2026: training_games is often 0 because GPU
+                        # nodes don't report it. Estimate from training_samples
+                        # using avg game length (~40 moves for small boards,
+                        # ~100 for large) to avoid 1984+ generations with 0.
+                        if training_games == 0 and training_samples > 0:
+                            avg_moves = 100 if board_type in ("square19", "hexagonal") else 40
+                            training_games = max(1, training_samples // avg_moves)
                         # Feb 2026: Construct canonical path when payload lacks model_path
                         # (98.7% of generations had empty model_path, blocking evaluation)
                         model_path = (
