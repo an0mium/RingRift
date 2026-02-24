@@ -46,7 +46,7 @@ except ImportError:
     # Fallback defaults if thresholds module not available
     MIN_MEMORY_GB_FOR_TRAINING = 8
     MIN_MEMORY_GB_FOR_SELFPLAY = 4
-    MIN_MEMORY_GB_FOR_GAUNTLET = 8
+    MIN_MEMORY_GB_FOR_GAUNTLET = 1
 
 # Work type to minimum VRAM requirements (GB)
 # Session 17.32: Added to prevent OOM by checking capacity before claiming
@@ -825,22 +825,26 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
                 if wq is None:
                     return self._work_queue_unavailable()
 
-                # Session 17.32: Check node capacity before claiming work
-                # Determine the most demanding work type from capabilities
-                check_work_type = "selfplay"  # Default
+                # Feb 2026: Filter capabilities to work types the node can handle.
+                # Previously checked the most demanding type and rejected all work
+                # if that failed - e.g. a node with 1.2GB VRAM was rejected for
+                # "training" (8GB) even when lightweight gauntlet work (1GB) was pending.
+                filtered_caps = capabilities
                 if capabilities:
-                    # Check against highest-requirement capability
-                    for cap in ["training", "gauntlet", "evaluation", "selfplay"]:
-                        if cap in capabilities:
-                            check_work_type = cap
-                            break
-
-                has_capacity, reason = self._check_node_capacity(node_id, check_work_type)
-                if not has_capacity:
-                    return self._insufficient_capacity_response(reason)
+                    allowed = []
+                    last_reason = ""
+                    for cap in capabilities:
+                        has_cap, reason = self._check_node_capacity(node_id, cap)
+                        if has_cap:
+                            allowed.append(cap)
+                        else:
+                            last_reason = reason
+                    if not allowed:
+                        return self._insufficient_capacity_response(last_reason)
+                    filtered_caps = allowed
 
                 # Feb 2026: Use async wrapper to avoid blocking event loop
-                item = await wq.claim_work_async(node_id, capabilities)
+                item = await wq.claim_work_async(node_id, filtered_caps)
                 if item is None:
                     return self.json_response({"status": "no_work_available"})
 

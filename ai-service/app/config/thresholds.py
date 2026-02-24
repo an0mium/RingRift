@@ -1638,7 +1638,7 @@ EPHEMERAL_NODE_PATTERNS = ["vast-", "runpod-", "spot-", "ephemeral-"]
 # Previous 16GB requirement was causing mass rejections on RTX 4090 (24GB) nodes.
 MIN_MEMORY_GB_FOR_TRAINING = 8  # Down from 32 - our models are 15-174MB, training needs ~4-8GB
 MIN_MEMORY_GB_FOR_SELFPLAY = 4  # Down from 16 - selfplay is lightweight inference
-MIN_MEMORY_GB_FOR_GAUNTLET = 8  # Down from 16 - gauntlet is lightweight inference
+MIN_MEMORY_GB_FOR_GAUNTLET = 1  # Down from 8 - gauntlet loads model (~175MB max) + inference batch
 
 
 def get_gpu_weight(gpu_type: str) -> float:
