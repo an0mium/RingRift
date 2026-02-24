@@ -139,6 +139,28 @@ GAUNTLET_SIMULATIONS_4P = 800   # 4-player (was 600)
 # actions while hexagonal covers only 0.85% — an 8x disparity that makes large-
 # board models appear 2-3 Elo weaker during evaluation vs training (3200 sims).
 _LARGE_BOARD_TYPES = {"square19", "hexagonal"}
+
+# Feb 24, 2026: Preferred NN architecture per board type.
+# Small boards (hex8: 61 cells) work fine with v2 (40ch, 10 base × 4 frames).
+# Large boards benefit from v5-heavy (56ch, 14 base × 4 frames) which includes
+# heuristic feature channels for better positional understanding.
+# square8 and square19 canonical models already use v5-heavy (56ch);
+# hexagonal is stuck on v2 (40ch) and is the weakest config family.
+PREFERRED_ARCHITECTURE: dict[str, str] = {
+    "hex8": "v2",
+    "square8": "v5-heavy",
+    "square19": "v5-heavy",
+    "hexagonal": "v5-heavy",
+}
+
+
+def get_preferred_architecture(board_type: str) -> str:
+    """Get the preferred NN architecture version for a board type.
+
+    Returns the architecture version string (e.g. 'v2', 'v5-heavy') that
+    should be used for new training runs of the given board type.
+    """
+    return PREFERRED_ARCHITECTURE.get(board_type, "v2")
 GAUNTLET_SIMULATIONS_LARGE_2P = 1600  # Large board 2p (4x base, ~4.4% coverage on sq19)
 GAUNTLET_SIMULATIONS_LARGE_3P = 1600  # Large board 3p
 GAUNTLET_SIMULATIONS_LARGE_4P = 1600  # Large board 4p

@@ -3424,19 +3424,25 @@ class JobManager(EventSubscriptionMixin):
         init_weights = canonical_model_path if os.path.exists(canonical_model_path) else None
 
         # Jan 2026: Detect model version from canonical checkpoint to ensure architecture match
-        model_version = "v2"  # Default
+        # Feb 24, 2026: Fall back to preferred architecture per board type (not hardcoded v2)
+        try:
+            from app.config.thresholds import get_preferred_architecture
+            default_version = get_preferred_architecture(state.board_type)
+        except ImportError:
+            default_version = "v2"
+        model_version = default_version
         if init_weights:
             try:
                 import torch
                 checkpoint = torch.load(init_weights, map_location="cpu", weights_only=True)
                 metadata = checkpoint.get("_versioning_metadata", {})
-                model_version = metadata.get("model_version", "v2")
+                model_version = metadata.get("model_version", default_version)
                 logger.info(f"Using warm start from canonical model: {init_weights} (version: {model_version})")
             except Exception as e:
-                logger.warning(f"Could not detect model version from {init_weights}: {e}, using default v2")
+                logger.warning(f"Could not detect model version from {init_weights}: {e}, using {default_version}")
                 logger.info(f"Using warm start from canonical model: {init_weights}")
         else:
-            logger.warning(f"No canonical model found for {config_key}, training from scratch")
+            logger.warning(f"No canonical model found for {config_key}, training from scratch with {default_version}")
 
         training_config = {
             "job_id": job_id,

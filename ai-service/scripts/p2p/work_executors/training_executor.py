@@ -55,7 +55,13 @@ async def execute_training_work(
     epochs = config.get("epochs", 50)
     batch_size = config.get("batch_size", 256)
     learning_rate = config.get("learning_rate", 3e-4)
-    model_version = config.get("model_version", "v2")
+    # Feb 24, 2026: Use preferred architecture per board type as fallback
+    try:
+        from app.config.thresholds import get_preferred_architecture
+        _default_arch = get_preferred_architecture(board_type)
+    except ImportError:
+        _default_arch = "v2"
+    model_version = config.get("model_version") or _default_arch
 
     config_key = f"{board_type}_{num_players}p"
 
@@ -108,9 +114,28 @@ async def execute_training_work(
     # Validate init weights exist before launching subprocess.
     # Without --init-weights, training starts from random (loss 5-9 = useless).
     # Only allow from-random during bootstrap when we have very few games.
+    #
+    # Feb 24, 2026: Skip init_weights when architecture is changing (e.g., v2→v5-heavy).
+    # train.py auto-adapts to match init_weights architecture, so passing a v2 model
+    # with --model-version v5-heavy would silently revert to v2 training.
+    _skip_init = False
     if canonical_path.exists():
+        try:
+            import torch as _torch
+            _ckpt = _torch.load(canonical_path, map_location="cpu", weights_only=True)
+            _meta = _ckpt.get("_versioning_metadata", {})
+            _canonical_version = _meta.get("model_version", "v2")
+            if _canonical_version != model_version:
+                logger.info(
+                    f"Architecture upgrade: canonical={_canonical_version}, "
+                    f"target={model_version}. Skipping init_weights for {config_key}."
+                )
+                _skip_init = True
+        except Exception:
+            pass  # Can't detect, assume compatible
+    if canonical_path.exists() and not _skip_init:
         cmd.extend(["--init-weights", str(canonical_path)])
-    else:
+    elif not canonical_path.exists():
         logger.warning(
             f"No canonical model at {canonical_path} — training from scratch"
         )
