@@ -114,6 +114,11 @@ class ProcessSpawnerOrchestrator(BaseOrchestrator):
         self._local_jobs_failed: int = 0
         self._cluster_jobs_dispatched: int = 0
 
+        # Feb 2026: Per-node dispatch cooldown to prevent runaway process accumulation.
+        # Without this, stale gossip (selfplay_jobs=0) causes 10 new dispatches per cycle.
+        self._last_node_dispatch: dict[str, float] = {}  # node_id -> last dispatch time
+        self._node_dispatch_cooldown = 120.0  # 2 minutes
+
     @property
     def name(self) -> str:
         """Return the name of this orchestrator."""
@@ -1233,6 +1238,14 @@ class ProcessSpawnerOrchestrator(BaseOrchestrator):
             if node.selfplay_jobs >= target_selfplay:
                 continue
 
+            # Feb 2026: Dispatch cooldown prevents runaway process accumulation.
+            # When gossip data is stale (selfplay_jobs=0 despite many running processes),
+            # this prevents dispatching 10 new jobs every cycle.
+            now = time.time()
+            last_dispatch = self._last_node_dispatch.get(node.node_id, 0)
+            if now - last_dispatch < self._node_dispatch_cooldown:
+                continue
+
             needed = target_selfplay - node.selfplay_jobs
             self._log_info(f"{node.node_id} needs {needed} more selfplay jobs")
 
@@ -1374,6 +1387,10 @@ class ProcessSpawnerOrchestrator(BaseOrchestrator):
                             engine_mode=config["engine_mode"],
                         )
                 self._cluster_jobs_dispatched += 1
+
+            # Record dispatch time for cooldown
+            if jobs_to_start > 0:
+                self._last_node_dispatch[node.node_id] = time.time()
 
     def _get_job_type(self, name: str) -> Any:
         """Get a JobType enum value by name."""

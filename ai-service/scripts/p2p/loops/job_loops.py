@@ -388,6 +388,8 @@ class IdleDetectionLoop(BaseLoop):
         self._idle_since: dict[str, float] = {}  # node_id -> timestamp when became idle
         self._zombie_since: dict[str, float] = {}  # node_id -> timestamp when became zombie
         self._zombie_kill_attempts: dict[str, float] = {}  # node_id -> last kill attempt time
+        self._last_dispatch: dict[str, float] = {}  # node_id -> last selfplay dispatch time
+        self._dispatch_cooldown_seconds = 120.0  # Don't re-dispatch within 2 minutes
         self._detected_count = 0
         self._zombie_detected_count = 0
         self._skipped_not_leader = 0
@@ -463,11 +465,25 @@ class IdleDetectionLoop(BaseLoop):
                         if now - self._idle_since[n] >= self.config.idle_duration_threshold_seconds
                     ])
                     if non_idle_count >= self.config.min_nodes_to_keep:
+                        # Feb 2026: Dispatch cooldown prevents runaway process accumulation.
+                        # Without this, gossip lag (selfplay_jobs=0 for 15-30s after dispatch)
+                        # causes re-dispatch every 25s, spawning 4 processes each time.
+                        # On lambda-gh200-1 this created 47 concurrent selfplay processes.
+                        last_dispatch = self._last_dispatch.get(node_id, 0)
+                        if now - last_dispatch < self._dispatch_cooldown_seconds:
+                            remaining = self._dispatch_cooldown_seconds - (now - last_dispatch)
+                            logger.debug(
+                                f"[IdleDetection] Skipping {node_id}: dispatch cooldown ({remaining:.0f}s remaining)"
+                            )
+                            del self._idle_since[node_id]
+                            continue
+
                         peer = metrics["peer"]
                         if self._on_idle_detected:
                             try:
                                 await self._on_idle_detected(peer, idle_duration)
                                 self._detected_count += 1
+                                self._last_dispatch[node_id] = now
                                 logger.info(
                                     f"[IdleDetection] Triggered selfplay on {node_id} (idle for {idle_duration:.0f}s)"
                                 )
