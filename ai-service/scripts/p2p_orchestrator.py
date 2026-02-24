@@ -6430,7 +6430,11 @@ class P2POrchestrator(
         self.last_training_check = current_time
 
         # Get jobs that should be started (delegated to TrainingCoordinator manager)
-        jobs_to_start = self.training_coordinator.check_training_readiness()
+        # Feb 23, 2026: Wrapped in to_thread() — check_training_readiness() is sync
+        # and accesses cluster_data_manifest + training_lock, blocking event loop
+        jobs_to_start = await asyncio.to_thread(
+            self.training_coordinator.check_training_readiness
+        )
 
         for job_config in jobs_to_start:
             # PHASE 4 IDEMPOTENCY: Check for duplicate triggers
@@ -11355,14 +11359,19 @@ print(json.dumps({{
     async def _run_leader_ops_inline(self) -> None:
         """Run leader-only operations inline in the management loop.
 
-        Feb 23, 2026: These contain sync blocking calls (subprocess.run for
-        pgrep/ps/nvidia-smi, sync SQLite in check_training_readiness and
-        check_training_needed, sync file I/O in manifest collection).
-        Called every 60s instead of 15s to reduce total blocking time.
-        Run sequentially with yields between each op so HTTP handlers
-        get brief windows to process between blocking ops.
+        Feb 23, 2026: Run all operations CONCURRENTLY via asyncio.gather()
+        instead of sequentially. Previous sequential execution meant one slow
+        op (e.g. manage_cluster_jobs at 361s) blocked ALL other ops and the
+        entire event loop. Concurrent execution bounds total cycle time to
+        the slowest single op rather than the sum of all ops.
+
+        Individual timeouts via asyncio.wait_for() enforce 15s max per op.
+        A hard 60s cycle deadline prevents runaway cycles.
         """
         _t0 = time.time()
+        CYCLE_DEADLINE = 60.0  # Hard deadline for entire cycle
+        OP_TIMEOUT = 15.0  # Max time per individual operation
+
         try:
             split_brain = await self._run_with_timeout(
                 self._check_and_resolve_split_brain(),
@@ -11371,35 +11380,49 @@ print(json.dumps({{
                 return
             await asyncio.sleep(0)
 
-            logger.info("[LeaderOps] Running leader operations cycle")
+            logger.info("[LeaderOps] Running leader operations cycle (concurrent)")
 
             _is_coord = os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() in ("true", "1", "yes")
             _leader_ops = [
-                ("manage_cluster_jobs", self._manage_cluster_jobs(), 30.0),
-                ("check_cluster_balance", self._check_cluster_balance(), 15.0),
-                ("check_and_trigger_training", self._check_and_trigger_training(), 15.0),
-                ("check_improvement_cycles", self._check_improvement_cycles(), 15.0),
+                ("manage_cluster_jobs", self._manage_cluster_jobs(), OP_TIMEOUT),
+                ("check_cluster_balance", self._check_cluster_balance(), OP_TIMEOUT),
+                ("check_and_trigger_training", self._check_and_trigger_training(), OP_TIMEOUT),
+                ("check_improvement_cycles", self._check_improvement_cycles(), OP_TIMEOUT),
                 ("auto_rebalance_from_work_queue",
-                 self._auto_rebalance_from_work_queue(), 30.0),
+                 self._auto_rebalance_from_work_queue(), OP_TIMEOUT),
                 ("auto_scale_gpu_utilization",
-                 self._auto_scale_gpu_utilization(), 15.0),
+                 self._auto_scale_gpu_utilization(), OP_TIMEOUT),
                 ("sweep_nat_recovery",
-                 self.recovery_manager.sweep_nat_recovery(), 15.0),
+                 self.recovery_manager.sweep_nat_recovery(), OP_TIMEOUT),
                 ("check_node_recovery",
-                 self.recovery_manager.check_node_recovery(), 15.0),
+                 self.recovery_manager.check_node_recovery(), OP_TIMEOUT),
             ]
-            # Coordinator has no local training/selfplay processes, so
-            # check_and_kill_stuck_jobs is pure waste (subprocess.run pgrep
-            # for processes that don't exist, blocking 2-10s).
             if not _is_coord:
-                _leader_ops.insert(4, ("check_and_kill_stuck_jobs",
-                    self.job_lifecycle_manager.check_and_kill_stuck_jobs(), 15.0))
-            for _name, _coro, _timeout in _leader_ops:
+                _leader_ops.append(("check_and_kill_stuck_jobs",
+                    self.job_lifecycle_manager.check_and_kill_stuck_jobs(), OP_TIMEOUT))
+
+            async def _timed_op(name: str, coro, timeout: float) -> None:
                 _op_t = time.time()
-                await self._run_with_timeout(_coro, _name, timeout=_timeout)
+                await self._run_with_timeout(coro, name, timeout=timeout)
                 _op_e = time.time() - _op_t
-                logger.info(f"[LeaderOps] {_name}: {_op_e:.1f}s")
-                await asyncio.sleep(0)  # Yield between each op
+                logger.info(f"[LeaderOps] {name}: {_op_e:.1f}s")
+
+            # Run all ops concurrently with a hard cycle deadline.
+            # asyncio.gather interleaves at await points, so even if one op
+            # blocks briefly, others progress when it yields.
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(
+                        *[_timed_op(n, c, t) for n, c, t in _leader_ops],
+                        return_exceptions=True,
+                    ),
+                    timeout=CYCLE_DEADLINE,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"[LeaderOps] Cycle hit {CYCLE_DEADLINE}s deadline, "
+                    f"cancelling remaining ops"
+                )
 
             _elapsed = time.time() - _t0
             logger.info(f"[LeaderOps] Cycle complete in {_elapsed:.1f}s")
