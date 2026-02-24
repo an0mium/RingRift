@@ -368,6 +368,26 @@ class LeadershipOrchestrator(BaseOrchestrator):
                 self._p2p._forced_leader_override = False
                 self._log_info("[ForcedLeader] Forced leadership lease expired, clearing override")
 
+        # Feb 24, 2026: Preferred leader override - the operator-configured coordinator
+        # always takes precedence over Raft consensus from GPU worker nodes.
+        # Without this, Raft elects a random GPU node as leader, but all peers
+        # (using Bully) still point to the coordinator → 403 on all work claims.
+        preferred_leader = self._get_preferred_leader()
+        if preferred_leader and preferred_leader == node_id:
+            # Ensure state is consistent
+            leader_state_lock = getattr(self._p2p, "leader_state_lock", None)
+            if getattr(self._p2p, "leader_id", None) != node_id:
+                self._log_info("[PreferredLeader] Asserting leadership: this node is preferred_leader")
+                if leader_state_lock:
+                    with leader_state_lock:
+                        self._p2p.leader_id = node_id
+                        self._p2p.role = NodeRole.LEADER
+            # Renew lease continuously (5 min window)
+            lease_expires = getattr(self._p2p, "leader_lease_expires", 0)
+            if lease_expires == 0 or time.time() > lease_expires - 60:
+                self._p2p.leader_lease_expires = time.time() + 300.0
+            return True
+
         # First check consensus_mixin's Raft (supports deferred initialization)
         if getattr(self._p2p, "_raft_initialized", False):
             try:
@@ -452,6 +472,25 @@ class LeadershipOrchestrator(BaseOrchestrator):
                 return False
 
         return True
+
+    def _get_preferred_leader(self) -> str:
+        """Get the preferred_leader from cluster config, with caching.
+
+        Feb 24, 2026: Added to support persistent preferred_leader enforcement.
+        The preferred_leader is the operator-configured coordinator node that
+        should always be the cluster leader, regardless of Raft consensus.
+        """
+        # Cache the result to avoid repeated config loads
+        cached = getattr(self, "_preferred_leader_cached", None)
+        if cached is not None:
+            return cached
+        try:
+            from app.config.cluster_config import load_cluster_config
+            preferred = load_cluster_config()._raw_config.get("preferred_leader", "")
+        except Exception:
+            preferred = ""
+        self._preferred_leader_cached = preferred or ""
+        return self._preferred_leader_cached
 
     def _handle_leadership_inconsistency_step_down(self) -> None:
         """Handle case where role=leader but leader_id!=self.
