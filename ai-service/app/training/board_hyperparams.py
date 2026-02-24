@@ -103,70 +103,87 @@ BOARD_HYPERPARAMS: dict[str, BoardHyperparams] = {
     ),
 
     # Square 19x19 - large state space
+    # Feb 24, 2026: Aggressive tuning to match square8 success pattern.
+    # square8 reached 2054 Elo with LR=0.0005, batch=128, epochs=25.
+    # Bumping square19 closer (LR 0.0003->0.0004, batch 64->96, epochs 20->30,
+    # weight_decay 0.0001->0.00007, label_smoothing reduced) while keeping
+    # gradient_clip=0.5 for stability on the 361-cell board.
     "square19_2p": BoardHyperparams(
-        learning_rate=0.0003,
-        batch_size=64,
-        epochs=20,
+        learning_rate=0.0004,   # was 0.0003 — increase but not as high as sq8 due to larger board
+        batch_size=96,          # was 64 — larger for stability
+        epochs=30,              # was 20 — more budget for complex board
         hidden_dim=512,
         num_hidden_layers=6,
-        weight_decay=0.0001,
-        label_smoothing=0.06,
+        weight_decay=0.00007,   # was 0.0001 — less regularization
+        label_smoothing=0.04,   # was 0.06 — sharper targets
         warmup_epochs=3,
-        gradient_clip=0.5,  # Tighter clipping for stability
+        gradient_clip=0.5,      # Keep existing gradient clipping for stability
     ),
     "square19_3p": BoardHyperparams(
-        learning_rate=0.0003,
-        batch_size=64,
-        epochs=20,
+        learning_rate=0.0004,   # was 0.0003
+        batch_size=96,          # was 64
+        epochs=30,              # was 20
         hidden_dim=512,
         num_hidden_layers=6,
-        weight_decay=0.0001,
+        weight_decay=0.00007,   # was 0.0001
         policy_weight=1.3,
-        label_smoothing=0.08,
+        label_smoothing=0.06,   # was 0.08 — reduced by ~0.02
+        warmup_epochs=3,
+        gradient_clip=0.5,
     ),
     "square19_4p": BoardHyperparams(
-        learning_rate=0.0003,
-        batch_size=64,
-        epochs=20,
+        learning_rate=0.0004,   # was 0.0003
+        batch_size=96,          # was 64
+        epochs=30,              # was 20
         hidden_dim=512,
         num_hidden_layers=6,
-        weight_decay=0.0001,
+        weight_decay=0.00007,   # was 0.0001
         policy_weight=1.5,
-        label_smoothing=0.10,
+        label_smoothing=0.08,   # was 0.10 — reduced by 0.02
+        warmup_epochs=3,
+        gradient_clip=0.5,
     ),
 
     # Hexagonal (full) - D6 symmetry
+    # Feb 24, 2026: Aggressive tuning to match square8 success pattern.
+    # square8 reached 2054 Elo with LR=0.0005, batch=128, epochs=25.
+    # Bumping hexagonal closer (LR 0.0003->0.0004, batch 64->96, epochs 20->30,
+    # weight_decay 0.0001->0.00007, label_smoothing reduced ~0.01) while keeping
+    # batch slightly lower than sq8 due to 469-cell boards.
     "hexagonal_2p": BoardHyperparams(
-        learning_rate=0.0003,
-        batch_size=64,
-        epochs=20,
+        learning_rate=0.0004,   # was 0.0003 — increase but not as high as sq8 due to larger board
+        batch_size=96,          # was 64 — larger for stability but limited by 469-cell boards
+        epochs=30,              # was 20 — more budget for complex board
         hidden_dim=512,
         num_hidden_layers=6,
         augmentation_factor=6,  # D6 symmetry
-        label_smoothing=0.05,
-        weight_decay=0.0001,
+        label_smoothing=0.04,   # was 0.05 — slightly sharper targets
+        weight_decay=0.00007,   # was 0.0001 — less regularization
+        warmup_epochs=3,        # add warmup for stability with higher LR
     ),
     "hexagonal_3p": BoardHyperparams(
-        learning_rate=0.0003,
-        batch_size=64,
-        epochs=20,
+        learning_rate=0.0004,   # was 0.0003
+        batch_size=96,          # was 64
+        epochs=30,              # was 20
         hidden_dim=512,
         num_hidden_layers=6,
         augmentation_factor=6,
         policy_weight=1.2,
-        label_smoothing=0.06,
-        weight_decay=0.0001,
+        label_smoothing=0.05,   # was 0.06 — reduced by 0.01
+        weight_decay=0.00007,   # was 0.0001
+        warmup_epochs=3,
     ),
     "hexagonal_4p": BoardHyperparams(
-        learning_rate=0.0003,
-        batch_size=64,
-        epochs=20,
+        learning_rate=0.0004,   # was 0.0003
+        batch_size=96,          # was 64
+        epochs=30,              # was 20
         hidden_dim=512,
         num_hidden_layers=6,
         augmentation_factor=6,
         policy_weight=1.4,
-        label_smoothing=0.08,
-        weight_decay=0.0001,
+        label_smoothing=0.06,   # was 0.08 — reduced by 0.02
+        weight_decay=0.00007,   # was 0.0001
+        warmup_epochs=3,
     ),
 
     # Hex8 (small hex) - balanced for good generalization
