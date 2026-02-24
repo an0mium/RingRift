@@ -668,45 +668,54 @@ class RecoveryManager:
         gossip_states = getattr(self._orchestrator, "_gossip_peer_states", {})
         nodes_to_recover = []
 
-        with self._orchestrator.peers_lock:
-            for node_id, peer in self._orchestrator.peers.items():
-                if node_id == self._orchestrator.node_id:
-                    continue
+        # Feb 23, 2026: Use cached snapshot via thread pool to avoid blocking
+        # event loop on peers_lock contention (was causing 62s check_node_recovery)
+        _snapshot_fn = getattr(self._orchestrator, "_get_peers_snapshot_sync", None)
+        if _snapshot_fn is not None:
+            _peers_snapshot = await asyncio.to_thread(_snapshot_fn)
+        else:
+            with self._orchestrator.peers_lock:
+                _peers_snapshot = list(self._orchestrator.peers.values())
 
-                # Skip recently recovered nodes
-                last_attempt = self._node_recovery_attempts.get(node_id, 0)
-                if now - last_attempt < self.config.node_recovery_cooldown:
-                    continue
+        for peer in _peers_snapshot:
+            node_id = peer.node_id
+            if node_id == self._orchestrator.node_id:
+                continue
 
-                # Check for unhealthy indicators
-                needs_recovery = False
-                reason = ""
+            # Skip recently recovered nodes
+            last_attempt = self._node_recovery_attempts.get(node_id, 0)
+            if now - last_attempt < self.config.node_recovery_cooldown:
+                continue
 
-                # 1. Peer not alive
-                if not peer.is_alive():
+            # Check for unhealthy indicators
+            needs_recovery = False
+            reason = ""
+
+            # 1. Peer not alive
+            if not peer.is_alive():
+                needs_recovery = True
+                reason = "not responding to heartbeat"
+
+            # 2. Stale gossip state
+            elif node_id in gossip_states:
+                state = gossip_states[node_id]
+                state_age = now - state.get("timestamp", 0)
+                if state_age > self.config.stale_gossip_threshold:
                     needs_recovery = True
-                    reason = "not responding to heartbeat"
+                    reason = f"stale gossip ({int(state_age)}s old)"
 
-                # 2. Stale gossip state
-                elif node_id in gossip_states:
-                    state = gossip_states[node_id]
-                    state_age = now - state.get("timestamp", 0)
-                    if state_age > self.config.stale_gossip_threshold:
-                        needs_recovery = True
-                        reason = f"stale gossip ({int(state_age)}s old)"
+            # 3. High consecutive failures
+            elif getattr(peer, "consecutive_failures", 0) >= self.config.high_failure_threshold:
+                needs_recovery = True
+                reason = f"high failure count ({peer.consecutive_failures})"
 
-                # 3. High consecutive failures
-                elif getattr(peer, "consecutive_failures", 0) >= self.config.high_failure_threshold:
-                    needs_recovery = True
-                    reason = f"high failure count ({peer.consecutive_failures})"
+            # 4. Disk nearly full
+            elif getattr(peer, "disk_percent", 0) > self.config.disk_full_threshold:
+                needs_recovery = True
+                reason = f"disk full ({peer.disk_percent}%)"
 
-                # 4. Disk nearly full
-                elif getattr(peer, "disk_percent", 0) > self.config.disk_full_threshold:
-                    needs_recovery = True
-                    reason = f"disk full ({peer.disk_percent}%)"
-
-                if needs_recovery:
-                    nodes_to_recover.append((node_id, peer, reason))
+            if needs_recovery:
+                nodes_to_recover.append((node_id, peer, reason))
 
         # Attempt recovery for identified nodes
         for node_id, peer, reason in nodes_to_recover[:self.config.max_recoveries_per_cycle]:

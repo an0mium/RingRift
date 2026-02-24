@@ -1086,12 +1086,14 @@ class ProcessSpawnerOrchestrator(BaseOrchestrator):
             job_orchestration.record_cluster_management_run()
 
         # Gather cluster state
-        peers_lock = getattr(self._p2p, "peers_lock", None)
-        peers = getattr(self._p2p, "peers", {})
-        if peers_lock is not None:
-            with peers_lock:
-                alive_peers = [p for p in peers.values() if p.is_alive()]
+        # Feb 23, 2026: Use cached snapshot to avoid blocking event loop on
+        # peers_lock contention (was causing 361s manage_cluster_jobs cycles)
+        _snapshot_fn = getattr(self._p2p, "_get_peers_snapshot_sync", None)
+        if _snapshot_fn is not None:
+            _all_peers = await asyncio.to_thread(_snapshot_fn)
+            alive_peers = [p for p in _all_peers if p.is_alive()]
         else:
+            peers = getattr(self._p2p, "peers", {})
             alive_peers = [p for p in peers.values() if p.is_alive()]
 
         # Add self (use cached self_info - refreshed by heartbeat/health loops)
