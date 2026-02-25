@@ -362,7 +362,12 @@ class WorkDistributor:
             logger.warning("Work queue not available, cannot submit evaluation")
             return None
 
-        config = config or DistributedWorkConfig()
+        if config is None:
+            # Feb 24, 2026: Evaluation must be higher priority than training (96)
+            # to prevent trained models from piling up without evaluation.
+            # Previously defaulted to 50, causing 376+ gauntlet jobs to stagnate
+            # while GPU nodes always claimed training work first.
+            config = DistributedWorkConfig(priority=100, require_gpu=True)
 
         work_type = (
             _WorkType.GAUNTLET if evaluation_type == "gauntlet"
