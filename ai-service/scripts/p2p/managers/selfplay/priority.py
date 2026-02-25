@@ -205,10 +205,14 @@ class PriorityCalculatorMixin:
     """
 
     # Minimum allocation constants
-    MINIMUM_ALLOCATION_PERCENT = 0.20  # Reserve 20% of jobs for underserved
-    UNDERSERVED_THRESHOLD = 5000  # Configs below this game count are "underserved"
+    # Feb 24, 2026: Increased enforcement rate from 20% to 40% and lowered
+    # thresholds. hex8_2p had 11K games while hexagonal_4p had 310 — a 38x
+    # imbalance. The old 20% rate with 30s interval meant enforcement fired
+    # roughly once per 150 seconds, far too slow to close the gap.
+    MINIMUM_ALLOCATION_PERCENT = 0.40  # Reserve 40% of jobs for underserved
+    UNDERSERVED_THRESHOLD = 3000  # Configs below this game count are "underserved"
     CRITICAL_THRESHOLD = 1000  # Configs below this get highest priority
-    MINIMUM_ENFORCE_INTERVAL = 30.0  # Seconds between enforcement checks
+    MINIMUM_ENFORCE_INTERVAL = 10.0  # Seconds between enforcement checks
 
     # Bootstrap priority thresholds (Jan 7, 2026 - 48h Autonomous Operation)
     # Very aggressive priority boosts for configs with almost no games
@@ -361,10 +365,6 @@ class PriorityCalculatorMixin:
                     return None
             self._last_enforcement_check = now
 
-            # Random 20% chance to enforce (simulates 20% allocation)
-            if random.random() > self.MINIMUM_ALLOCATION_PERCENT:
-                return None
-
             # Find underserved configs
             underserved = self._get_underserved_configs()
             if not underserved:
@@ -372,6 +372,15 @@ class PriorityCalculatorMixin:
 
             # Sort by game count (lowest first = most critical)
             underserved.sort(key=lambda x: x[1])
+
+            # Feb 24, 2026: Mandatory enforcement for critically starved configs.
+            # Configs with < 500 games ALWAYS get enforced (no random gate).
+            # Configs with < UNDERSERVED_THRESHOLD get 40% enforcement.
+            most_critical_count = underserved[0][1]
+            if most_critical_count >= 500:
+                # Standard probabilistic enforcement for moderately underserved
+                if random.random() > self.MINIMUM_ALLOCATION_PERCENT:
+                    return None
 
             # Pick the most critical config (lowest game count)
             selected_config, game_count = underserved[0]
