@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import signal
 import sys
 import threading
 import time
@@ -1725,9 +1726,15 @@ class JobManager(EventSubscriptionMixin):
                 self._unregister_process(job_id)
                 return
 
-            # Try SIGKILL first for immediate termination
+            # Feb 2026: Kill process group when start_new_session=True was used,
+            # so that child processes (e.g. CUDA workers) are also killed.
             logger.info(f"Killing process for job {job_id} (pid={proc.pid})")
-            proc.kill()
+            try:
+                pgid = os.getpgid(proc.pid)
+                os.killpg(pgid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                # Fallback to direct process kill
+                proc.kill()
             try:
                 await asyncio.wait_for(proc.wait(), timeout=OperationTimeouts.THREAD_JOIN)
                 logger.debug(f"Process for job {job_id} killed successfully")
@@ -2319,6 +2326,7 @@ class JobManager(EventSubscriptionMixin):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
+                start_new_session=True,  # Feb 2026: Process isolation - selfplay survives P2P restarts
             )
 
             # December 28, 2025: Register process for tracking (enables graceful shutdown)
@@ -3220,6 +3228,7 @@ class JobManager(EventSubscriptionMixin):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
+                start_new_session=True,  # Feb 2026: Process isolation - selfplay survives P2P restarts
             )
 
             # December 28, 2025: Register process for tracking
@@ -3337,6 +3346,7 @@ class JobManager(EventSubscriptionMixin):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
+                start_new_session=True,  # Feb 2026: Process isolation
             )
 
             # December 28, 2025: Register process for tracking
@@ -3513,6 +3523,7 @@ class JobManager(EventSubscriptionMixin):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
+                start_new_session=True,  # Feb 2026: Process isolation
             )
 
             # December 28, 2025: Register process for tracking

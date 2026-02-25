@@ -201,12 +201,24 @@ def run_p2p_supervised(node_id: str, node_config: dict, config: dict, dry_run: b
         start_time = time.time()
 
         try:
+            # Feb 2026: Set PYTHONPATH and cwd so supervisor-restarted P2P can
+            # find scripts.* modules. Without this, restarts fail with
+            # "ModuleNotFoundError: No module named 'scripts'" on Lambda nodes.
+            proc_env = os.environ.copy()
+            ringrift_path = proc_env.get(
+                "RINGRIFT_PATH",
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            )
+            proc_env.setdefault("PYTHONPATH", ringrift_path)
+
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
+                env=proc_env,
+                cwd=ringrift_path,
             )
 
             # Stream output to our log

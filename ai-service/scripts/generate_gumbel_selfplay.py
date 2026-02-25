@@ -37,6 +37,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import logging
 import os
@@ -256,6 +257,10 @@ def get_max_moves(board_type: str, num_players: int) -> int:
 STALEMATE_THRESHOLD = 30  # Consecutive moves without S-invariant progress
 EXPLORATION_NOISE_PROB = 0.05  # 5% chance of random move for exploration
 
+# Feb 2026: Timeout parameters to prevent indefinite GPU MCTS hangs
+MOVE_TIMEOUT_SECONDS = 120   # 2 min per move (CUDA contention can cause hangs)
+GAME_TIMEOUT_SECONDS = 1800  # 30 min per game
+
 
 def create_gumbel_ai(
     player: int,
@@ -386,7 +391,21 @@ def generate_game(
     stalemate_detected = False
 
     move_count = 0
+    game_start_mono = time.monotonic()
+
+    # Feb 2026: Use ThreadPoolExecutor for per-move timeout to prevent indefinite
+    # GPU MCTS hangs caused by CUDA contention or memory pressure.
+    move_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
     while state.game_status == GameStatus.ACTIVE and move_count < max_moves:
+        # Per-game timeout check
+        elapsed = time.monotonic() - game_start_mono
+        if elapsed > GAME_TIMEOUT_SECONDS:
+            logger.warning(
+                f"Game timeout after {elapsed:.0f}s, {move_count} moves"
+            )
+            break
+
         current_player = state.current_player
         ai = ai_players.get(current_player)
 
@@ -411,8 +430,16 @@ def generate_game(
             value = None
             search_stats = None  # No search stats for random moves
         else:
-            # AI selects move (Gumbel MCTS search)
-            selected_move = ai.select_move(state)
+            # AI selects move (Gumbel MCTS search) with per-move timeout
+            try:
+                future = move_executor.submit(ai.select_move, state)
+                selected_move = future.result(timeout=MOVE_TIMEOUT_SECONDS)
+            except concurrent.futures.TimeoutError:
+                logger.error(
+                    f"Move timeout after {MOVE_TIMEOUT_SECONDS}s at move {move_count}"
+                )
+                break
+
             if selected_move is None:
                 logger.warning(f"AI returned None move at move {move_count}")
                 break
@@ -494,6 +521,8 @@ def generate_game(
 
         if config.verbose and move_count % 50 == 0:
             logger.info(f"Game {game_idx}: move {move_count}")
+
+    move_executor.shutdown(wait=False)
 
     # Determine winner
     winner = None
@@ -705,9 +734,14 @@ def run_selfplay(config: GumbelSelfplayConfig) -> list[GameResult]:
     logger.info(f"Env max_moves set to {gumbel_max_moves} (1.5x theoretical max {theoretical_max})")
 
     # Create AI players (same AI for all players in selfplay)
+    logger.info(
+        f"Selfplay starting: board={config.board_type}, players={config.num_players}, "
+        f"budget={config.simulation_budget}, gpu={config.use_gpu}, gpu_tree={config.use_gpu_tree}"
+    )
     ai_players = {}
     for player in range(1, config.num_players + 1):
         ai_players[player] = create_gumbel_ai(player, board_type_enum, config)
+    logger.info(f"Model loaded for {config.num_players} players, beginning game loop")
 
     # Determine output path
     if config.output_path:

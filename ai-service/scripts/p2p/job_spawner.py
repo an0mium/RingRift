@@ -396,6 +396,7 @@ def spawn_subprocess(
                 stderr=subprocess.STDOUT,
                 env=env,
                 cwd=cwd,
+                start_new_session=True,  # Feb 2026: Process isolation - selfplay survives P2P restarts
             )
             return proc, None
         finally:

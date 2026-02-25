@@ -791,12 +791,21 @@ class SelfplayScheduler(
                 results = await asyncio.gather(*tasks, return_exceptions=True)
                 started = 0
                 failed = 0
-                for r in results:
+                for idx, r in enumerate(results):
                     if isinstance(r, Exception):
                         failed += 1
-                        self._log_debug(f"Selfplay request failed with exception: {r}")
+                        # Feb 2026: Log per-request error details for dispatch debugging
+                        self._log_error(
+                            f"Dispatch to {peer_node_id} request {idx}: "
+                            f"{type(r).__name__}: {r}"
+                        )
                     elif r is True:
                         started += 1
+                    elif r is False:
+                        failed += 1
+                        self._log_error(
+                            f"Dispatch to {peer_node_id} request {idx}: rejected (HTTP error)"
+                        )
                 if failed > 0:
                     self._log_warning(f"Auto-start on {peer_node_id}: {failed}/{len(results)} requests failed")
 
