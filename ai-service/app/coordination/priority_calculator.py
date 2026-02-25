@@ -115,12 +115,14 @@ def compute_config_priority_override(config_key: str, game_count: int | None, el
     return 2  # MEDIUM
 
 # Player count allocation multipliers
-# Jan 14, 2026: Increased 4p from 4.0 to 8.0 to address severe game deficit
-# (hex8_4p: 873 vs 16K+, hexagonal_4p: 255, square19_4p: 416)
+# Feb 24, 2026: Rebalanced — 4p configs at/above 2000 Elo target, 2p weakest.
+# Previous 8x/4x ratios were starving 2p configs (hexagonal_2p: 1483, square19_2p: 1519).
+# 2p needs 27-33% MORE games than 4p to reach same sample target (fewer samples/game)
+# but was getting 1/8th the allocation. Narrowing the gap.
 PLAYER_COUNT_ALLOCATION_MULTIPLIER = {
     2: 1.0,  # Baseline
-    3: 4.0,  # 4x priority for 3p (increased from 3.0)
-    4: 8.0,  # 8x priority for 4p (increased from 4.0) - critical deficit
+    3: 1.5,  # Reduced from 4.0 — 3p no longer severely starved
+    4: 2.0,  # Reduced from 8.0 — 4p at/near 2000 Elo, doesn't need aggressive boost
 }
 
 # Jan 14, 2026: CRITICAL priority should bypass player multiplier

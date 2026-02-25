@@ -201,11 +201,12 @@ async def execute_training_work(
         output = stdout.decode() if stdout else ""
 
         if proc.returncode == 0:
-            # Parse training output for loss and sample count.
+            # Parse training output for loss, sample count, and game count.
             # Search all lines (not just until first loss match) so we
-            # can find both metrics regardless of line order.
+            # can find all metrics regardless of line order.
             final_loss = 0.0
             training_samples = 0
+            training_games = 0
             for line in reversed(output.splitlines()):
                 line_lower = line.lower()
                 if final_loss == 0.0 and "loss" in line_lower and "=" in line_lower:
@@ -216,8 +217,16 @@ async def execute_training_work(
                     samples_match = re.search(r'(\d+)\s*samples', line_lower)
                     if samples_match:
                         training_samples = int(samples_match.group(1))
+                if training_games == 0 and "games" in line_lower:
+                    games_match = re.search(r'(\d+)\s*games', line_lower)
+                    if games_match:
+                        training_games = int(games_match.group(1))
                 if final_loss > 0 and training_samples > 0:
                     break
+            # Feb 24, 2026: Estimate training_games from samples if not parsed
+            if training_games == 0 and training_samples > 0:
+                avg_moves = 100 if board_type in ("square19", "hexagonal") else 40
+                training_games = max(1, training_samples // avg_moves)
 
             model_path = f"models/{model_filename}"
             candidate_path = Path(ringrift_path) / model_path
@@ -233,6 +242,7 @@ async def execute_training_work(
                 "model_path": model_path,
                 "final_loss": final_loss,
                 "training_samples": training_samples,
+                "training_games": training_games,
                 "config_key": config_key,
                 "model_version": model_version,
             }
@@ -252,6 +262,7 @@ async def execute_training_work(
                     "model_path": model_path,
                     "final_loss": final_loss,
                     "training_samples": training_samples,
+                    "training_games": training_games,
                     "work_id": work_id,
                 })
             except ImportError:

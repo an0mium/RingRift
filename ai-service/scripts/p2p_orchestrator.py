@@ -1137,6 +1137,25 @@ try:
     import aiohttp
     from aiohttp import ClientSession, ClientTimeout, web
     HAS_AIOHTTP = True
+
+    # Feb 24, 2026: Patch aiohttp tcp_keepalive to handle macOS socket errors.
+    # aiohttp 3.13.x calls setsockopt(SOL_SOCKET, SO_KEEPALIVE, 1) on every
+    # new connection, which raises OSError [Errno 22] on macOS for certain
+    # socket types (loopback, dual-stack). This silently kills ALL HTTP
+    # connections, making the server unresponsive.
+    try:
+        import aiohttp.tcp_helpers as _tcp_helpers
+        _orig_tcp_keepalive = _tcp_helpers.tcp_keepalive
+
+        def _safe_tcp_keepalive(transport: object) -> None:
+            try:
+                _orig_tcp_keepalive(transport)
+            except OSError:
+                pass  # Ignore keepalive failures on macOS
+
+        _tcp_helpers.tcp_keepalive = _safe_tcp_keepalive
+    except (ImportError, AttributeError):
+        pass
 except ImportError:
     HAS_AIOHTTP = False
     aiohttp = None

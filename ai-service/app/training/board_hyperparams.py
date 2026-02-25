@@ -78,6 +78,7 @@ BOARD_HYPERPARAMS: dict[str, BoardHyperparams] = {
         hidden_dim=512,
         num_hidden_layers=6,
         weight_decay=0.00005,   # Reduced from 0.0001 - less regularization
+        policy_weight=1.1,      # Feb 24, 2026: boost policy learning for 2p (was 1.0)
         label_smoothing=0.03,   # Reduced from 0.05 - sharper policy targets
         augmentation_factor=4,
     ),
@@ -115,6 +116,7 @@ BOARD_HYPERPARAMS: dict[str, BoardHyperparams] = {
         hidden_dim=512,
         num_hidden_layers=6,
         weight_decay=0.00007,   # was 0.0001 — less regularization
+        policy_weight=1.1,      # Feb 24, 2026: boost policy learning for 2p (was 1.0)
         label_smoothing=0.04,   # was 0.06 — sharper targets
         warmup_epochs=3,
         gradient_clip=0.5,      # Keep existing gradient clipping for stability
@@ -157,6 +159,7 @@ BOARD_HYPERPARAMS: dict[str, BoardHyperparams] = {
         hidden_dim=512,
         num_hidden_layers=6,
         augmentation_factor=6,  # D6 symmetry
+        policy_weight=1.1,      # Feb 24, 2026: boost policy learning for 2p (was 1.0)
         label_smoothing=0.04,   # was 0.05 — slightly sharper targets
         weight_decay=0.00007,   # was 0.0001 — less regularization
         warmup_epochs=3,        # add warmup for stability with higher LR
@@ -196,6 +199,7 @@ BOARD_HYPERPARAMS: dict[str, BoardHyperparams] = {
         num_hidden_layers=6,
         weight_decay=0.0001,
         augmentation_factor=6,
+        policy_weight=1.1,      # Feb 24, 2026: boost policy learning for 2p (was 1.0)
         label_smoothing=0.05,
     ),
     "hex8_3p": BoardHyperparams(

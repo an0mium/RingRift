@@ -570,11 +570,10 @@ class AllocationEngine:
         if not two_p_configs:
             return allocation  # No donors available
 
-        # Dec 30, 2025: Aggressive targets for multiplayer
-        # 4p: 2.5x (these have fewest games)
-        # 3p: 1.5x (also underrepresented)
-        min_4p_games = int(games_per_config * 2.5)
-        min_3p_games = int(games_per_config * 1.5)
+        # Feb 24, 2026: Reduced multiplayer targets — 4p at/above 2000 Elo,
+        # no longer needs aggressive boost. Previous 2.5x/1.5x was draining 2p.
+        min_4p_games = int(games_per_config * 1.5)
+        min_3p_games = int(games_per_config * 1.2)
         redistributed = 0
 
         # Process 4p first (higher priority - most starved)
@@ -656,8 +655,9 @@ class AllocationEngine:
                 break
 
             donor_current = totals.get(donor, 0)
-            # Dec 30, 2025: 2p keeps at least 40% to allow more redistribution
-            donor_min = int(games_per_config * 0.4)
+            # Feb 24, 2026: 2p keeps at least 70% (was 40%). 2p configs are weakest
+            # (hexagonal_2p: 1483, square19_2p: 1519) and need more games, not fewer.
+            donor_min = int(games_per_config * 0.7)
 
             available = max(0, donor_current - donor_min)
             steal = min(shortfall, available)

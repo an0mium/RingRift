@@ -521,6 +521,7 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
         model_version: str,
         final_loss: float,
         training_samples: int,
+        training_games: int,
         work_id: str,
     ) -> None:
         """Fetch candidate model from training node, then emit TRAINING_COMPLETED.
@@ -565,6 +566,7 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
                     "model_path": model_path,
                     "final_loss": final_loss,
                     "training_samples": training_samples,
+                    "training_games": training_games,
                     "work_id": work_id,
                     "trained_by": node_id,
                     "source": "distributed_training",
@@ -1325,6 +1327,7 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
                     result_model_path = f"models/{model_filename}"
                 final_loss = result.get("final_loss", 0.0)
                 training_samples = result.get("training_samples", 0)
+                training_games = result.get("training_games", 0)
 
                 # Feb 23, 2026: Fetch candidate model from training node BEFORE
                 # emitting TRAINING_COMPLETED. Without this, the evaluation daemon
@@ -1346,6 +1349,7 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
                         model_version=model_version,
                         final_loss=final_loss,
                         training_samples=training_samples,
+                        training_games=training_games,
                         work_id=work_id,
                     ),
                     name=f"sync-candidate-{config_key}",
