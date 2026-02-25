@@ -1391,7 +1391,7 @@ def wait_for_resources(
 # (configurable via environment variables).
 
 _COORD_MIN_FREE_RAM_PCT = float(
-    os.environ.get("RINGRIFT_COORDINATOR_MIN_FREE_RAM_PERCENT", "30")
+    os.environ.get("RINGRIFT_COORDINATOR_MIN_FREE_RAM_PERCENT", "15")
 )
 _COORD_MIN_FREE_DISK_PCT = float(
     os.environ.get("RINGRIFT_COORDINATOR_MIN_FREE_DISK_PERCENT", "10")
