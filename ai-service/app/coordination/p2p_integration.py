@@ -69,12 +69,11 @@ except ImportError:
         return int(os.environ.get("RINGRIFT_P2P_PORT", "8770"))
 
 # Try to import aiohttp directly for raw HTTP calls
-if not HAS_AIOHTTP:
-    try:
-        import aiohttp
-        HAS_AIOHTTP = True
-    except ImportError:
-        aiohttp = None  # type: ignore
+try:
+    import aiohttp
+    HAS_AIOHTTP = True
+except ImportError:
+    aiohttp = None  # type: ignore
 
 
 def _get_default_p2p_port() -> int:

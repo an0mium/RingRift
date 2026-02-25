@@ -2771,21 +2771,25 @@ class MasterLoopController:
                 )
 
             # Also emit the event for other subscribers (feedback loop, etc.)
-            from app.coordination.event_router import emit_event, DataEventType
+            try:
+                from app.coordination.event_router import emit_event, DataEventType
 
-            await emit_event(
-                DataEventType.SELFPLAY_TARGET_UPDATED,
-                {
-                    "node_id": node_id,
-                    "config_key": config_key,
-                    "board_type": board_type,
-                    "num_players": num_players,
-                    "target_games": num_games,
-                    "priority": "high",
-                    "source": "master_loop",
-                    "dispatched": dispatch_success,
-                }
-            )
+                await emit_event(
+                    DataEventType.SELFPLAY_TARGET_UPDATED,
+                    {
+                        "node_id": node_id,
+                        "config_key": config_key,
+                        "board_type": board_type,
+                        "num_players": num_players,
+                        "target_games": num_games,
+                        "priority": "high",
+                        "source": "master_loop",
+                        "dispatched": dispatch_success,
+                    }
+                )
+            except Exception as e:
+                logger.debug(f"[MasterLoop] Event emission failed (non-fatal): {e}")
+
             return dispatch_success
         except Exception as e:
             logger.debug(f"[MasterLoop] Error emitting selfplay job: {e}")
@@ -2809,8 +2813,15 @@ class MasterLoopController:
 
             # Get node host from cluster config
             config = load_cluster_config()
-            hosts = config.get("hosts", {})
+            hosts = config.hosts_raw
             host_info = hosts.get(node_id, {})
+
+            # Skip nodes that are offline or have selfplay disabled
+            node_status = host_info.get("status", "unknown")
+            if node_status in ("offline", "archived", "terminated"):
+                return False
+            if host_info.get("selfplay_enabled") is False:
+                return False
 
             # Try tailscale_ip first, then fall back to node_id
             host = host_info.get("tailscale_ip") or host_info.get("ssh_host") or node_id
@@ -2862,10 +2873,10 @@ class MasterLoopController:
             return result.success
 
         except ImportError as e:
-            logger.debug(f"[MasterLoop] P2P dispatch not available: {e}")
+            logger.warning(f"[MasterLoop] P2P dispatch not available: {e}")
             return False
         except Exception as e:
-            logger.debug(f"[MasterLoop] Dispatch failed for {node_id}: {e}")
+            logger.warning(f"[MasterLoop] Dispatch failed for {node_id}: {e}")
             return False
 
     # =========================================================================
