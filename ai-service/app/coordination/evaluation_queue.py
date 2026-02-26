@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import sqlite3
 import threading
 import time
@@ -268,7 +269,7 @@ class PersistentEvaluationQueue:
                 # Check for existing request (now includes harness_type)
                 existing = conn.execute(
                     """
-                    SELECT request_id, status, priority
+                    SELECT request_id, status, priority, completed_at
                     FROM evaluation_requests
                     WHERE model_path = ? AND config_key = ? AND harness_type = ?
                     """,
@@ -276,17 +277,46 @@ class PersistentEvaluationQueue:
                 ).fetchone()
 
                 if existing:
-                    # If completed or failed, skip (already evaluated)
+                    # If completed or failed, check if the model file has been
+                    # re-trained since evaluation. Candidate models are overwritten
+                    # each training generation with the same filename, so we must
+                    # compare file mtime against completed_at to detect new versions.
                     if existing["status"] in (RequestStatus.COMPLETED, RequestStatus.FAILED):
-                        self._stats.duplicate_requests_skipped += 1
-                        logger.debug(
-                            f"[EvaluationQueue] Skipping duplicate: {model_path} "
-                            f"({config_key}, {harness_type or 'default'}) - already {existing['status']}"
-                        )
-                        return None
+                        model_modified = False
+                        try:
+                            if os.path.exists(model_path):
+                                file_mtime = os.path.getmtime(model_path)
+                                completed_at = existing["completed_at"] or 0.0
+                                if file_mtime > completed_at + 60:  # 60s grace period
+                                    model_modified = True
+                        except OSError:
+                            pass
+
+                        if model_modified:
+                            # Model was re-trained — reset to pending for re-evaluation
+                            conn.execute(
+                                """
+                                DELETE FROM evaluation_requests
+                                WHERE request_id = ?
+                                """,
+                                (existing["request_id"],),
+                            )
+                            conn.commit()
+                            logger.info(
+                                f"[EvaluationQueue] Model re-trained since last evaluation: "
+                                f"{model_path} ({config_key}) — re-queuing"
+                            )
+                            # Fall through to insert new request below
+                        else:
+                            self._stats.duplicate_requests_skipped += 1
+                            logger.debug(
+                                f"[EvaluationQueue] Skipping duplicate: {model_path} "
+                                f"({config_key}, {harness_type or 'default'}) - already {existing['status']}"
+                            )
+                            return None
 
                     # If running or pending, update priority if higher
-                    if priority > existing["priority"]:
+                    elif priority > existing["priority"]:
                         conn.execute(
                             """
                             UPDATE evaluation_requests

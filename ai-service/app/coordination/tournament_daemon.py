@@ -2000,12 +2000,15 @@ class TournamentDaemon(HandlerBase):
         try:
             from app.coordination.event_router import publish, DataEventType
 
+            board_type = results.get("board_type", "")
+            num_players = results.get("num_players", 0)
             await publish(
                 event_type=DataEventType.EVALUATION_COMPLETED,
                 payload={
                     "model_path": results.get("model_path"),
-                    "board_type": results.get("board_type"),
-                    "num_players": results.get("num_players"),
+                    "board_type": board_type,
+                    "num_players": num_players,
+                    "config_key": f"{board_type}_{num_players}p",
                     "success": results.get("success", False),
                     "win_rates": results.get("win_rates", {}),
                     "elo": results.get("elo"),
