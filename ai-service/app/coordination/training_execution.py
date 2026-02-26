@@ -347,7 +347,7 @@ class TrainingExecutor:
 
             # Build training command
             npz_path = state.npz_path or f"data/training/{config_key}.npz"
-            model_filename = f"canonical_{config_key}_{arch.name}.pth"
+            model_filename = f"candidate_{config_key}_{arch.name}.pth"
             model_path = str(self._base_dir / "models" / model_filename)
 
             cmd = self._build_training_command(

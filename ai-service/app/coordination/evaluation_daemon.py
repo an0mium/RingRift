@@ -381,9 +381,10 @@ class EvaluationDaemon(HandlerBase):
         }
 
         # Feb 2026: Track dispatched cluster evaluations for completion callback
-        # Maps work_id -> persistent_request_id so WORK_COMPLETED events can
-        # update the persistent queue (was causing 88% stuck evaluation timeout)
-        self._dispatched_evaluations: dict[str, str] = {}
+        # Maps work_id -> (primary_request_id, sibling_request_ids) so WORK_COMPLETED
+        # events can update ALL persistent queue entries (primary + siblings).
+        # Previously only stored primary, leaving siblings stuck in "running" forever.
+        self._dispatched_evaluations: dict[str, tuple[str, list[str]]] = {}
 
         # Feb 2026: Track work IDs already processed via polling to avoid duplicates
         # This bridges the cross-process gap between P2P orchestrator and master_loop
@@ -802,7 +803,7 @@ class EvaluationDaemon(HandlerBase):
         if work_type != "evaluation" or work_id not in self._dispatched_evaluations:
             return
 
-        persistent_request_id = self._dispatched_evaluations.pop(work_id)
+        persistent_request_id, sibling_ids = self._dispatched_evaluations.pop(work_id)
         result = payload.get("result", {})
         estimated_elo = result.get("estimated_elo", result.get("best_elo", 0.0))
 
@@ -811,9 +812,11 @@ class EvaluationDaemon(HandlerBase):
             f"elo={estimated_elo:.0f}"
         )
 
-        # Update persistent queue
+        # Update persistent queue - complete primary AND all siblings
         if self._persistent_queue and persistent_request_id:
             self._persistent_queue.complete(persistent_request_id, elo=estimated_elo)
+            for sid in sibling_ids:
+                self._persistent_queue.complete(sid, elo=estimated_elo)
 
         self._eval_stats.evaluations_completed += 1
 
@@ -843,7 +846,7 @@ class EvaluationDaemon(HandlerBase):
         if work_type != "evaluation" or work_id not in self._dispatched_evaluations:
             return
 
-        persistent_request_id = self._dispatched_evaluations.pop(work_id)
+        persistent_request_id, sibling_ids = self._dispatched_evaluations.pop(work_id)
         error = payload.get("error", "cluster_work_failed")
 
         logger.warning(
@@ -851,8 +854,11 @@ class EvaluationDaemon(HandlerBase):
             f"error={error}"
         )
 
+        # Fail primary AND all siblings
         if self._persistent_queue and persistent_request_id:
             self._persistent_queue.fail(persistent_request_id, error)
+            for sid in sibling_ids:
+                self._persistent_queue.fail(sid, error)
 
         self._eval_stats.evaluations_failed += 1
 
@@ -913,13 +919,16 @@ class EvaluationDaemon(HandlerBase):
 
                 # Strategy 1: Match against in-memory dispatched evaluations
                 if work_id in self._dispatched_evaluations:
-                    persistent_request_id = self._dispatched_evaluations.pop(work_id)
+                    persistent_request_id, sibling_ids = self._dispatched_evaluations.pop(work_id)
                     logger.info(
                         f"[EvaluationDaemon] Poll: matched dispatched evaluation "
                         f"work_id={work_id}, elo={estimated_elo:.0f}"
+                        f"{f' (+{len(sibling_ids)} siblings)' if sibling_ids else ''}"
                     )
                     if self._persistent_queue and persistent_request_id:
                         self._persistent_queue.complete(persistent_request_id, elo=estimated_elo)
+                        for sid in sibling_ids:
+                            self._persistent_queue.complete(sid, elo=estimated_elo)
                     self._eval_stats.evaluations_completed += 1
                     completions_processed += 1
 
@@ -2278,10 +2287,13 @@ class EvaluationDaemon(HandlerBase):
                 )
                 self._eval_stats.evaluations_triggered += 1
 
-                # Feb 2026: Track work_id → persistent_request_id for completion callback
+                # Feb 2026: Track work_id → (primary_request_id, sibling_ids) for
+                # completion callback. Must include siblings so all queue entries
+                # get completed/failed together (not just the primary).
                 persistent_request_id = request.get("_persistent_request_id")
                 if persistent_request_id:
-                    self._dispatched_evaluations[work_id] = persistent_request_id
+                    sibling_ids = request.get("_sibling_request_ids", [])
+                    self._dispatched_evaluations[work_id] = (persistent_request_id, sibling_ids)
             else:
                 logger.warning(
                     f"[EvaluationDaemon] Failed to dispatch gauntlet to cluster: {model_path}"
