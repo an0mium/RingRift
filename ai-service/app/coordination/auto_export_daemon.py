@@ -988,16 +988,14 @@ class AutoExportDaemon(HandlerBase):
                 if self.config.include_tournaments:
                     cmd.append("--include-tournaments")
 
-                # Feb 24, 2026: Use correct encoder version for preferred architecture.
-                # v5-heavy models need v3-encoded features (56 channels vs v2's 40).
-                try:
-                    from app.config.thresholds import get_preferred_architecture
-                    _pref_arch = get_preferred_architecture(state.board_type)
-                    if _pref_arch in ("v5-heavy", "v5", "v4", "v3"):
-                        cmd.extend(["--encoder-version", "v3"])
-                        cmd.append("--include-heuristics")
-                except ImportError:
-                    pass
+                # Feb 26, 2026: Let export script auto-detect encoder version from
+                # the canonical model on disk. Previously forced --encoder-version v3
+                # based on PREFERRED_ARCHITECTURE, but this breaks configs where the
+                # actual canonical model is still v2 (e.g., hexagonal). The export
+                # script's auto-detection is correct and sufficient.
+                # --include-heuristics is safe to add unconditionally since the script
+                # handles it based on the actual encoder version.
+                cmd.append("--include-heuristics")
 
                 # February 2026: Cap per-export workers on coordinator to prevent
                 # multiprocessing fan-out OOM. Default is os.cpu_count()-1 which

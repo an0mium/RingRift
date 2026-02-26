@@ -216,14 +216,177 @@ class AutoPromotionDaemon(HandlerBase):
             self._subscription_retry_task = None
 
     async def _run_cycle(self) -> None:
-        """Main work loop - minimal for this event-driven daemon.
+        """Main work loop - check subscriptions and scan for promotable candidates.
 
-        The daemon is purely event-driven (handles EVALUATION_COMPLETED),
-        so the run cycle just checks subscription health.
+        February 2026: Added periodic Elo-based candidate scan to catch models
+        that were evaluated but never promoted due to lost EVALUATION_COMPLETED
+        events (daemon restarts, event drops, DLQ failures).
         """
         # If not subscribed yet, try again
         if not self._event_subscribed:
             self._subscribe_all_events()
+
+        # Periodic scan for candidates with Elo improvement over canonical
+        await self._scan_candidates_for_elo_promotion()
+
+    async def _scan_candidates_for_elo_promotion(self) -> None:
+        """Scan candidate models and promote those with significant Elo improvement.
+
+        February 2026: Catches candidates that were evaluated (have Elo in DB)
+        but never promoted because EVALUATION_COMPLETED events were lost.
+        Compares candidate Elo vs canonical Elo and promotes if gap exceeds
+        threshold. Uses PromotionController for safe file operations.
+        """
+        from pathlib import Path
+
+        MIN_ELO_GAP = 50.0  # Minimum Elo improvement to auto-promote
+        MIN_GAMES = 20  # Minimum games for statistical confidence
+
+        try:
+            models_dir = Path("models")
+            if not models_dir.exists():
+                return
+
+            for candidate_path in models_dir.glob("candidate_*.pth"):
+                stem = candidate_path.stem  # e.g., "candidate_square8_2p"
+                parts = stem.split("_", 1)  # ["candidate", "square8_2p"]
+                if len(parts) < 2:
+                    continue
+
+                config_key = parts[1]  # "square8_2p"
+
+                # Check if already promoted recently (cooldown)
+                if config_key in self._candidates:
+                    cand = self._candidates[config_key]
+                    if time.time() - cand.last_promotion_time < self.config.promotion_cooldown_seconds:
+                        continue
+
+                # Look up Elo ratings for candidate and canonical
+                try:
+                    candidate_elo, candidate_games = await asyncio.to_thread(
+                        self._get_best_elo_for_model, stem
+                    )
+                    # Check both naming conventions: canonical_* and ringrift_best_*
+                    canonical_elo = None
+                    for prefix in ("canonical_", "ringrift_best_"):
+                        elo, _ = await asyncio.to_thread(
+                            self._get_best_elo_for_model, f"{prefix}{config_key}"
+                        )
+                        if elo is not None and (canonical_elo is None or elo > canonical_elo):
+                            canonical_elo = elo
+                except Exception as e:
+                    logger.debug(f"[AutoPromotion] Elo lookup failed for {config_key}: {e}")
+                    continue
+
+                if candidate_elo is None or candidate_games < MIN_GAMES:
+                    continue
+
+                # Use 1500 default if canonical has no rating
+                if canonical_elo is None:
+                    canonical_elo = 1500.0
+
+                gap = candidate_elo - canonical_elo
+                if gap < MIN_ELO_GAP:
+                    continue
+
+                logger.info(
+                    f"[AutoPromotion] Elo scan: {config_key} candidate={candidate_elo:.1f} "
+                    f"canonical={canonical_elo:.1f} gap=+{gap:.1f} games={candidate_games} "
+                    f"-> PROMOTING"
+                )
+
+                # Execute promotion via PromotionController
+                try:
+                    from app.training.promotion_controller import (
+                        PromotionController,
+                        PromotionDecision,
+                        PromotionType,
+                    )
+
+                    controller = PromotionController()
+                    decision = PromotionDecision(
+                        model_id=config_key,  # e.g. "square8_2p" — _extract_config_key returns as-is
+                        promotion_type=PromotionType.ELO_IMPROVEMENT,
+                        should_promote=True,
+                        reason=f"elo_scan: candidate={candidate_elo:.1f} > canonical={canonical_elo:.1f} (+{gap:.1f})",
+                        current_elo=candidate_elo,
+                        elo_improvement=gap,
+                        games_played=candidate_games,
+                        model_path=str(candidate_path),
+                    )
+
+                    success = await asyncio.to_thread(
+                        controller.execute_promotion,
+                        decision,
+                        self.config.dry_run,
+                    )
+
+                    if success:
+                        logger.info(f"[AutoPromotion] Elo scan promoted {config_key} (+{gap:.1f} Elo)")
+                        # Track promotion time
+                        if config_key not in self._candidates:
+                            self._candidates[config_key] = PromotionCandidate(
+                                config_key=config_key,
+                                model_path=str(candidate_path),
+                            )
+                        self._candidates[config_key].last_promotion_time = time.time()
+
+                        # Emit MODEL_PROMOTED event for distribution
+                        try:
+                            from app.coordination.event_router import emit_event
+                            from app.coordination.data_events import DataEventType
+                            emit_event(
+                                DataEventType.MODEL_PROMOTED,
+                                {
+                                    "config_key": config_key,
+                                    "model_path": str(candidate_path),
+                                    "source": "elo_scan",
+                                    "elo_gap": gap,
+                                    "candidate_elo": candidate_elo,
+                                    "canonical_elo": canonical_elo,
+                                },
+                            )
+                        except Exception:
+                            pass  # Non-fatal
+                    else:
+                        logger.warning(f"[AutoPromotion] Elo scan promotion FAILED for {config_key}")
+
+                except ImportError as e:
+                    logger.warning(f"[AutoPromotion] PromotionController not available: {e}")
+                except Exception as e:
+                    logger.error(f"[AutoPromotion] Elo scan promotion error for {config_key}: {e}")
+
+        except Exception as e:
+            logger.error(f"[AutoPromotion] Elo scan failed: {e}")
+
+    def _get_best_elo_for_model(self, model_stem: str) -> tuple[float | None, int]:
+        """Get the best Elo rating for a model across all harness types.
+
+        Returns (best_elo, total_games) or (None, 0) if not found.
+        """
+        import sqlite3
+        from pathlib import Path
+
+        db_path = Path("data/unified_elo.db")
+        if not db_path.exists():
+            return None, 0
+
+        try:
+            conn = sqlite3.connect(str(db_path), timeout=5)
+            # Match participant_id starting with model_stem (e.g., "candidate_square8_2p:gumbel_mcts:d2")
+            rows = conn.execute(
+                """SELECT rating, games_played FROM elo_ratings
+                   WHERE participant_id LIKE ? AND archived_at IS NULL AND games_played > 0
+                   ORDER BY rating DESC LIMIT 1""",
+                (f"{model_stem}%",),
+            ).fetchall()
+            conn.close()
+
+            if rows:
+                return rows[0][0], rows[0][1]
+            return None, 0
+        except Exception:
+            return None, 0
 
     async def _periodic_subscription_retry(self) -> None:
         """Periodically retry event subscription until successful.

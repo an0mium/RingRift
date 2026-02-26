@@ -445,7 +445,7 @@ class EloProgressTracker:
     ) -> ProgressReport:
         """Get a progress report for a config over the specified time period."""
         since = time.time() - (days * 86400)
-        snapshots = self.get_snapshots(config_key, since_timestamp=since, limit=1000)
+        snapshots = self.get_snapshots(config_key, since_timestamp=since, limit=10000)
 
         if not snapshots:
             return ProgressReport(

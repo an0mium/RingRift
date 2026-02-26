@@ -161,16 +161,41 @@ def subscribe_to_feedback_signals(orchestrator: Any) -> bool:
                 logger.debug(f"Error handling Elo velocity event: {e}")
 
         def handle_evaluation_completed(event: Any) -> None:
-            """Handle evaluation completion events."""
+            """Handle evaluation completion events.
+
+            Feb 25, 2026: Bridge to coordination event bus so EloProgressTracker
+            and other master_loop subscribers can see evaluation results.
+            Previously this only logged — events never crossed the P2P/master_loop
+            process boundary.
+            """
             try:
                 payload = event.payload if hasattr(event, "payload") else event
                 config_key = payload.get("config_key", "unknown")
-                win_rate = payload.get("win_rate", 0)
-                opponent = payload.get("opponent", "unknown")
+                elo = payload.get("elo") or payload.get("estimated_elo") or payload.get("best_elo")
+                games = payload.get("games_played", 0)
 
                 logger.info(
-                    f"Evaluation completed for {config_key}: {win_rate:.1%} vs {opponent}"
+                    f"Evaluation completed for {config_key}: elo={elo} games={games}"
                 )
+
+                # Bridge to coordination event bus for EloProgressTracker
+                try:
+                    from app.coordination.event_router import emit_event
+                    from app.coordination.data_events import DataEventType
+                    emit_event(DataEventType.EVALUATION_COMPLETED, {
+                        "config_key": config_key,
+                        "elo": elo,
+                        "estimated_elo": payload.get("estimated_elo"),
+                        "games_played": games,
+                        "model_path": payload.get("model_path", ""),
+                        "win_rates": payload.get("win_rates", {}),
+                        "vs_random_rate": payload.get("vs_random_rate"),
+                        "vs_heuristic_rate": payload.get("vs_heuristic_rate"),
+                        "source": "p2p_bridge",
+                    })
+                    logger.debug(f"[P2P] Bridged EVALUATION_COMPLETED to coordination bus for {config_key}")
+                except Exception as bridge_err:  # noqa: BLE001
+                    logger.debug(f"Could not bridge EVALUATION_COMPLETED: {bridge_err}")
             except Exception as e:  # noqa: BLE001
                 logger.debug(f"Error handling evaluation completed event: {e}")
 

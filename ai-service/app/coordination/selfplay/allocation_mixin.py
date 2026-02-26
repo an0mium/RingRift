@@ -214,11 +214,10 @@ class AllocationMixin:
         if not two_p_configs:
             return allocation  # No donors available
 
-        # Dec 30, 2025: More aggressive targets for multiplayer
-        # 4p: 5.0x - these have fewest games, severe deficit
-        # 3p: 2.5x - also underrepresented
-        min_4p_games = int(games_per_config * 5.0)
-        min_3p_games = int(games_per_config * 2.5)
+        # Feb 2026: Reduced multiplayer targets since 4p configs already beat
+        # heuristic (hex8_4p +243, square8_4p +227). Shift focus to 2p donors.
+        min_4p_games = int(games_per_config * 3.0)
+        min_3p_games = int(games_per_config * 1.5)
         redistributed = 0
 
         # Process 4p first (higher priority - most starved)

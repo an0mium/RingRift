@@ -70,6 +70,8 @@ class ConfigProgress:
     # January 21, 2026: Added real historical data points for charting
     # Previously the dashboard fabricated fake data which was misleading
     history: list[HistoricalDataPoint] | None = None
+    # Feb 25, 2026: Peak Elo ever achieved (30-day window) to show regressions
+    peak_elo: float | None = None
     # Feb 24, 2026: Trend indicator for recent snapshots (last 7 days)
     # Distinguishes "was good but plateaued" from "steadily improving"
     trend: str | None = None  # "improving", "stable", "declining"
@@ -131,16 +133,15 @@ def get_config_progress(config_key: str, days: float = 30.0) -> ConfigProgress:
     else:
         starting_elo = BASELINE_ELO
 
-    # Feb 24, 2026: Use max Elo in the window instead of last snapshot.
-    # The last snapshot may have lower Elo due to sampling noise or different
-    # evaluation conditions, causing phantom "REGRESSED" reports even when the
-    # best model quality is steadily improving.
-    if elo_report.snapshots:
-        current_elo = max(s.best_elo for s in elo_report.snapshots)
+    # Feb 25, 2026: Use the LATEST snapshot Elo, not max.
+    # max() was hiding regressions (hexagonal_2p showed 1660 when actually 1483).
+    # The latest snapshot reflects the current canonical model's actual strength.
+    if latest:
+        current_elo = latest.best_elo
     elif elo_report.end_elo is not None:
         current_elo = elo_report.end_elo
-    elif latest:
-        current_elo = latest.best_elo
+    elif elo_report.snapshots:
+        current_elo = elo_report.snapshots[-1].best_elo
     else:
         current_elo = BASELINE_ELO
 
@@ -153,6 +154,9 @@ def get_config_progress(config_key: str, days: float = 30.0) -> ConfigProgress:
         last_updated = elo_report.end_time.strftime("%Y-%m-%d %H:%M")
     elif latest:
         last_updated = datetime.fromtimestamp(latest.timestamp).strftime("%Y-%m-%d %H:%M")
+
+    # Feb 25, 2026: Track peak Elo to show regressions
+    peak_elo = max((s.best_elo for s in elo_report.snapshots), default=current_elo)
 
     # January 21, 2026: Extract real historical data points from snapshots
     # This replaces the previous fabricated/synthesized data in the dashboard
@@ -196,6 +200,7 @@ def get_config_progress(config_key: str, days: float = 30.0) -> ConfigProgress:
         games_played=latest.games_played if latest else 0,
         last_updated=last_updated,
         history=history if history else None,
+        peak_elo=peak_elo if peak_elo > current_elo + 5 else None,  # Only show if regression > 5 pts
         trend=trend,
     )
 
@@ -248,23 +253,25 @@ def get_full_report(days: float = 30.0, config_filter: str | None = None) -> Pro
 def print_table(report: ProgressReport) -> None:
     """Print report as formatted table."""
     print()
-    print("=" * 105)
+    print("=" * 115)
     print("ELO PROGRESS REPORT - Demonstrating Iterative NN Strength Improvement")
-    print("=" * 105)
+    print("=" * 115)
     print(f"Generated: {report.generated_at} | Target: {TARGET_ELO} Elo")
     print()
 
     # Table header
-    print(f"{'Config':<15} {'Start':>8} {'Current':>8} {'Delta':>8} {'Iters':>6} {'Progress':>10} {'Status':<12} {'Trend':<10}")
-    print("-" * 105)
+    print(f"{'Config':<15} {'Start':>8} {'Current':>8} {'Peak':>8} {'Delta':>8} {'Iters':>6} {'Progress':>10} {'Status':<12} {'Trend':<10}")
+    print("-" * 115)
 
     # Sort by current Elo descending
     sorted_configs = sorted(report.configs.items(), key=lambda x: x[1].current_elo, reverse=True)
 
     for config_key, cfg in sorted_configs:
-        # Determine status emoji
+        # Determine status
         if cfg.current_elo >= TARGET_ELO:
             status = "DONE"
+        elif cfg.peak_elo is not None and cfg.peak_elo - cfg.current_elo > 50:
+            status = "REGRESSED"
         elif cfg.delta > 100:
             status = "STRONG"
         elif cfg.delta > 0:
@@ -276,13 +283,14 @@ def print_table(report: ProgressReport) -> None:
 
         delta_str = f"+{cfg.delta:.0f}" if cfg.delta >= 0 else f"{cfg.delta:.0f}"
         progress_str = f"{cfg.progress_percent:.1f}%"
-
+        peak_str = f"{cfg.peak_elo:.0f}" if cfg.peak_elo else "-"
         trend_str = cfg.trend or "-"
 
         print(
             f"{config_key:<15} "
             f"{cfg.starting_elo:>8.0f} "
             f"{cfg.current_elo:>8.0f} "
+            f"{peak_str:>8} "
             f"{delta_str:>8} "
             f"{cfg.iterations:>6} "
             f"{progress_str:>10} "
@@ -291,15 +299,15 @@ def print_table(report: ProgressReport) -> None:
         )
 
     # Summary
-    print("-" * 105)
+    print("-" * 115)
     overall = report.overall
-    print(f"{'SUMMARY':<15} {'':>8} {overall.avg_elo:>8.0f} {overall.avg_delta:>+8.0f} {overall.total_iterations:>6}")
+    print(f"{'SUMMARY':<15} {'':>8} {overall.avg_elo:>8.0f} {'':>8} {overall.avg_delta:>+8.0f} {overall.total_iterations:>6}")
     print()
     print(f"Configs improving: {overall.configs_improving}/12")
     print(f"Configs at target: {overall.configs_at_target}/12")
     if overall.avg_elo_gain_per_iteration:
         print(f"Avg Elo gain per iteration: +{overall.avg_elo_gain_per_iteration:.1f}")
-    print("=" * 105)
+    print("=" * 115)
     print()
 
 
