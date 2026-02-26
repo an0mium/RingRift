@@ -353,7 +353,7 @@ class ClusterApiHandlersMixin:
             self_update: dict[str, Any] | None = None
             update_self = bool(include_self and (not node_ids or self.node_id in node_ids))
             if update_self:
-                has_updates, local_commit, remote_commit = self._check_for_updates()
+                has_updates, local_commit, remote_commit = await self._check_for_updates()
                 if not has_updates:
                     self_update = {
                         "node_id": self.node_id,

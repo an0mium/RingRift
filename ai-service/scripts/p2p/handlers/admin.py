@@ -88,7 +88,7 @@ class AdminHandlersMixin(BaseP2PHandler):
             has_local_changes = self._check_local_changes()
 
             # Check for remote updates (this does a git fetch)
-            has_updates, _, remote_commit = self._check_for_updates()
+            has_updates, _, remote_commit = await self._check_for_updates()
             commits_behind = 0
             if has_updates and local_commit and remote_commit:
                 commits_behind = self._get_commits_behind(local_commit, remote_commit)
@@ -127,7 +127,7 @@ class AdminHandlersMixin(BaseP2PHandler):
 
         try:
             # Check for updates first
-            has_updates, local_commit, remote_commit = self._check_for_updates()
+            has_updates, local_commit, remote_commit = await self._check_for_updates()
 
             if not has_updates:
                 return self.json_response({

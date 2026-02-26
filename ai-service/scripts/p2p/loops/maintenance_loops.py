@@ -118,7 +118,11 @@ class GitUpdateLoop(BaseLoop):
 
         try:
             # Check for updates
-            has_updates, local_commit, remote_commit = self._check_for_updates()
+            # Feb 2026: _check_for_updates may be sync or async (orchestrator's is async)
+            check_result = self._check_for_updates()
+            if asyncio.iscoroutine(check_result):
+                check_result = await check_result
+            has_updates, local_commit, remote_commit = check_result
 
             if has_updates and local_commit and remote_commit:
                 self._updates_found += 1
