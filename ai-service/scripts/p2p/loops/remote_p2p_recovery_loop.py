@@ -800,7 +800,10 @@ class RemoteP2PRecoveryLoop(BaseLoop):
         """
         # Prefer Tailscale IP, fall back to SSH host
         host = node_info.get("tailscale_ip") or node_info.get("ssh_host")
-        user = node_info.get("user", "ubuntu")
+        # Feb 2026: Was "user" which doesn't exist in YAML — field is "ssh_user".
+        # This caused recovery to always use "ubuntu" fallback, even for nodes
+        # that need "root" (Vast.ai, RunPod) or other users.
+        user = node_info.get("ssh_user", "ubuntu")
         port = node_info.get("ssh_port", 22)
 
         if not host:

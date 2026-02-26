@@ -1490,9 +1490,20 @@ def _register_tailscale_recovery(
                 if not peer:
                     return type("Result", (), {"returncode": 1, "stdout": "", "stderr": "peer not found"})()
                 host = peer.host or peer.ip
+                # Feb 2026: Look up SSH user from cluster config instead of hardcoding "root".
+                # Lambda nodes use "ubuntu", Vast.ai/RunPod use "root".
+                ssh_user = "root"
+                try:
+                    load_fn = getattr(orchestrator, "_load_distributed_hosts", None)
+                    if load_fn:
+                        hosts_cfg = load_fn().get("hosts", {})
+                        node_cfg = hosts_cfg.get(node_id, {})
+                        ssh_user = node_cfg.get("ssh_user", "root")
+                except Exception:
+                    pass
                 proc = await asyncio.create_subprocess_exec(
                     "ssh", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no",
-                    f"root@{host}", cmd,
+                    f"{ssh_user}@{host}", cmd,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
