@@ -965,6 +965,7 @@ class AutoExportDaemon(HandlerBase):
                     "--num-players", str(state.num_players),
                     "--output", str(output_path),
                     "--allow-noncanonical",  # Allow any database, not just registry
+                    "--allow-pending-gate",  # Feb 2026: Allow pending_gate DBs (cluster nodes lack Node.js)
                 ]
 
                 min_elo = self._get_min_elo_for_config(config_key)

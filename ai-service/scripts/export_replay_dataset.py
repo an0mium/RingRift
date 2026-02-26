@@ -2297,6 +2297,10 @@ def main(argv: list[str] | None = None) -> int:
     except ImportError:
         pass  # env module not available, skip autonomous mode check
 
+    # Feb 2026: Also check RINGRIFT_ALLOW_PENDING_GATE env var (set by auto_export_daemon)
+    if not args.allow_pending_gate and os.environ.get("RINGRIFT_ALLOW_PENDING_GATE", "").lower() in ("true", "1", "yes"):
+        args.allow_pending_gate = True
+
     board_type = BOARD_TYPE_MAP[args.board_type]
     if args.history_length < 0:
         raise ValueError("--history-length must be >= 0")
