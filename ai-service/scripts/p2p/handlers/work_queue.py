@@ -71,9 +71,11 @@ except ImportError:
 
 # GPU utilization threshold - refuse selfplay if GPU is already busy
 # Session 17.42 (Jan 20, 2026): Added to prevent OOM when training is running
-# Session 17.48 (Jan 27, 2026): Lowered from 90% to 75% - idle nodes report 85-95%
-# utilization due to driver overhead, causing mass rejections. 75% is more realistic.
-GPU_UTILIZATION_REJECT_THRESHOLD = 75  # Percentage - reject selfplay if GPU% >= this
+# Session 17.48 (Jan 27, 2026): Lowered from 90% to 75% (too aggressive)
+# Feb 2026: Raised back to 90%. At 75%, selfplay was blocked on nearly every node
+# because training/gauntlet kept GPU% above 75% — causing complete selfplay starvation.
+# OOM prevention is handled by VRAM checks below, not GPU utilization percentage.
+GPU_UTILIZATION_REJECT_THRESHOLD = 90  # Percentage - reject selfplay if GPU% >= this
 GPU_UTILIZATION_RECOVERY_THRESHOLD = 50  # Hysteresis band - accept work below this
 
 # GPU name to total VRAM mapping (GB)
@@ -1364,7 +1366,7 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
             # Zero-game evaluations are failures and should not trigger
             # downstream promotion/curriculum consumers.
             eval_games = result.get("games_played", result.get("total_games", 0))
-            if success and work_type in (WorkType.GAUNTLET, WorkType.TOURNAMENT) and eval_games > 0:
+            if success and work_type == WorkType.GAUNTLET and eval_games > 0:
                 config_key = f"{config.get('board_type', '')}_{config.get('num_players', 0)}p"
                 model_path = config.get("candidate_model", "")
                 try:

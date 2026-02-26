@@ -157,7 +157,9 @@ class QueuePopulatorConfig:
 
     # === Selfplay Settings ===
     selfplay_games_per_item: int = 50
-    selfplay_priority: int = 50
+    # Feb 2026: Raised from 50 to 75. At priority 50, selfplay was starved by
+    # training(100), gauntlet(85), and tournament(80) — no games produced for days.
+    selfplay_priority: int = 75
     selfplay_timeout_seconds: float = 3600.0
 
     # === Training Settings ===
@@ -3311,7 +3313,7 @@ def load_populator_config_from_yaml(yaml_config: dict[str, Any]) -> QueuePopulat
         board_types=populator.get("board_types", ["square8", "square19", "hex8", "hexagonal"]),
         player_counts=populator.get("player_counts", [2, 3, 4]),
         selfplay_games_per_item=populator.get("selfplay_games_per_item", 50),
-        selfplay_priority=populator.get("selfplay_priority", 50),
+        selfplay_priority=populator.get("selfplay_priority", 75),
         training_priority=populator.get("training_priority", 100),
         min_games_for_training=populator.get("min_games_for_training", 300),
         tournament_games=populator.get("tournament_games", 50),

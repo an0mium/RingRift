@@ -78,8 +78,10 @@ class TrainingTriggerConfig:
     training_cooldown_hours: float = 0.033
     # Maximum concurrent training jobs
     # December 29, 2025: Increased from 10 to 20 for better multi-GPU cluster utilization
-    # Cluster has ~36 nodes with GPUs; allowing more concurrent training maximizes throughput
-    max_concurrent_training: int = 20
+    # Feb 2026: Lowered from 20 to 8. 20 concurrent training consumed ALL GPU nodes,
+    # leaving zero capacity for selfplay — no new games produced for 4-46 days.
+    # 8 still trains 8 configs simultaneously but leaves nodes for selfplay/gauntlet.
+    max_concurrent_training: int = 8
     # GPU utilization threshold for "idle"
     gpu_idle_threshold_percent: float = 20.0
     # Timeout for training subprocess (24 hours)
@@ -189,7 +191,7 @@ class TrainingDecision:
     sample_threshold: int = 5000
     gpu_available: bool = True
     concurrent_training_count: int = 0
-    max_concurrent_training: int = 20
+    max_concurrent_training: int = 8
     # Data info
     npz_path: str = ""
     # Elo tracking
