@@ -78,6 +78,9 @@ async def execute_gauntlet_work(
         )
 
         # Run gauntlet in thread to avoid blocking event loop
+        # Feb 2026: parallel_opponents=False prevents nested ThreadPool deadlock
+        # that caused ALL 27 gauntlets to silently produce 0 games.
+        # use_search=False: baseline eval doesn't need MCTS (faster, avoids torch.compile storms)
         gauntlet_result = await asyncio.to_thread(
             run_baseline_gauntlet,
             model_path=model_path,
@@ -90,7 +93,8 @@ async def execute_gauntlet_work(
             ],
             verbose=False,
             early_stopping=True,
-            parallel_opponents=True,
+            parallel_opponents=False,
+            use_search=False,
         )
 
         # Build result dict with full win rate data

@@ -503,6 +503,8 @@ class MultiHarnessGauntlet:
                 games_per_opponent=config.games_per_baseline,
                 model_type=ai_type.value if ai_type else "cnn",  # Convert AIType to string
                 parallel_games=config.parallel_games,
+                parallel_opponents=False,  # Feb 2026: Prevents nested ThreadPool deadlock (0-game bug)
+                use_search=False,  # Feb 2026: Baseline eval uses policy-only (faster)
                 game_count=game_count,  # Dec 30: Graduated thresholds
                 harness_type=harness.value,  # Jan 9, 2026: Composite participant ID
                 save_games_for_training=save_games,  # Jan 9, 2026: Save full training data

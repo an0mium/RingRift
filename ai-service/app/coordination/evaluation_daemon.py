@@ -1737,6 +1737,8 @@ class EvaluationDaemon(HandlerBase):
                 early_stopping_confidence=self.config.early_stopping_confidence,
                 early_stopping_min_games=self.config.early_stopping_min_games,
                 parallel_games=parallel_games,  # Jan 2026: Adaptive, reduced on OOM
+                parallel_opponents=False,  # Feb 2026: Prevents nested ThreadPool deadlock (0-game bug)
+                use_search=False,  # Feb 2026: Baseline eval uses policy-only (faster, no torch.compile)
                 game_count=game_count,  # Dec 30: Graduated thresholds
                 harness_type="gumbel_mcts",  # Jan 11, 2026: Track harness in Elo
                 recording_config=recording_config,  # Jan 13, 2026: Record gauntlet games

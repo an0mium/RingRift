@@ -1796,8 +1796,8 @@ def _evaluate_single_opponent(
                                 f"[gauntlet] Game {game_result['game_num']+1}/{games_per_opponent} "
                                 f"vs {baseline_name}: {outcome} ({game_result['move_count']} moves)"
                             )
-                    except (RuntimeError, ValueError) as e:
-                        logger.error(f"[gauntlet] Parallel game error: {e}")
+                    except Exception as e:
+                        logger.error(f"[gauntlet] Parallel game error: {type(e).__name__}: {e}")
                         result["games"] += 1
 
             game_num += batch_size
@@ -2285,9 +2285,9 @@ def run_baseline_gauntlet(
                 try:
                     eval_result = future.result()
                     opponent_eval_results.append(eval_result)
-                except (RuntimeError, ValueError, KeyError, OSError, AttributeError) as e:
+                except Exception as e:
                     logger.error(
-                        f"[gauntlet] OPPONENT EVAL FAILED vs {baseline.value}: {e}. "
+                        f"[gauntlet] OPPONENT EVAL FAILED vs {baseline.value}: {type(e).__name__}: {e}. "
                         f"This opponent contributed 0 games. If all opponents fail, "
                         f"the evaluation will be marked as FAILED.",
                         exc_info=True,
@@ -2306,27 +2306,43 @@ def run_baseline_gauntlet(
     else:
         # Sequential evaluation (fallback or single opponent)
         for baseline in opponents:
-            eval_result = _evaluate_single_opponent(
-                baseline,
-                model_path,
-                board_type,
-                effective_games_per_opponent,  # Use confidence-weighted games
-                num_players,
-                verbose,
-                model_getter,
-                model_type,
-                early_stopping,
-                early_stopping_confidence,
-                early_stopping_min_games,
-                effective_model_id,
-                parallel_games,
-                recording_config,
-                harness_type,  # Jan 2026: Pass harness type for Elo tracking
-                False,  # _from_parallel_context
-                use_search,  # Jan 2026: Use MCTS search for candidate model
-                model_version,  # Jan 2026: Architecture version for non-v2 models
-            )
-            opponent_eval_results.append(eval_result)
+            try:
+                eval_result = _evaluate_single_opponent(
+                    baseline,
+                    model_path,
+                    board_type,
+                    effective_games_per_opponent,  # Use confidence-weighted games
+                    num_players,
+                    verbose,
+                    model_getter,
+                    model_type,
+                    early_stopping,
+                    early_stopping_confidence,
+                    early_stopping_min_games,
+                    effective_model_id,
+                    parallel_games,
+                    recording_config,
+                    harness_type,  # Jan 2026: Pass harness type for Elo tracking
+                    False,  # _from_parallel_context
+                    use_search,  # Jan 2026: Use MCTS search for candidate model
+                    model_version,  # Jan 2026: Architecture version for non-v2 models
+                )
+                opponent_eval_results.append(eval_result)
+            except Exception as e:
+                logger.error(
+                    f"[gauntlet] OPPONENT EVAL FAILED vs {baseline.value}: {type(e).__name__}: {e}",
+                    exc_info=True,
+                )
+                opponent_eval_results.append({
+                    "baseline_name": baseline.value,
+                    "wins": 0,
+                    "games": 0,
+                    "losses": 0,
+                    "draws": 0,
+                    "win_rate": 0.0,
+                    "early_stopped": False,
+                    "games_saved": 0,
+                })
 
     # Aggregate results from all opponent evaluations
     for eval_result in opponent_eval_results:
