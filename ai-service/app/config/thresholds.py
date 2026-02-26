@@ -144,13 +144,19 @@ _LARGE_BOARD_TYPES = {"square19", "hexagonal"}
 # Small boards (hex8: 61 cells) work fine with v2 (40ch, 10 base × 4 frames).
 # Large boards benefit from v5-heavy (56ch, 14 base × 4 frames) which includes
 # heuristic feature channels for better positional understanding.
-# square8 and square19 canonical models already use v5-heavy (56ch);
-# hexagonal is stuck on v2 (40ch) and is the weakest config family.
+# square8 and square19 canonical models already use v5-heavy (56ch).
+# hex8 and hexagonal use v2 (40ch) — their canonical models and training
+# data are all v2-encoded. Switching to v5-heavy requires re-exporting
+# all training data with v3 encoder first (56ch).
+# Feb 26, 2026: Reverted hexagonal from v5-heavy to v2. The v5-heavy
+# switch broke all 3 hexagonal configs — NPZ data was still 40ch (v2),
+# training started from random instead of canonical, and no candidates
+# were ever produced. hexagonal_2p regressed from 1660 to 1483 Elo.
 PREFERRED_ARCHITECTURE: dict[str, str] = {
     "hex8": "v2",
     "square8": "v5-heavy",
     "square19": "v5-heavy",
-    "hexagonal": "v5-heavy",
+    "hexagonal": "v2",
 }
 
 
