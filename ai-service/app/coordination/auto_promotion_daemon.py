@@ -654,9 +654,17 @@ class AutoPromotionDaemon(HandlerBase):
         has_heuristic = "HEURISTIC" in candidate.evaluation_results
 
         if self.config.require_both_baselines and not (has_random and has_heuristic):
-            logger.debug(
-                f"[AutoPromotion] {candidate.config_key}: Waiting for both baselines "
-                f"(RANDOM={has_random}, HEURISTIC={has_heuristic})"
+            missing = []
+            if not has_random:
+                missing.append("RANDOM")
+            if not has_heuristic:
+                missing.append("HEURISTIC")
+            self._emit_promotion_rejected(
+                candidate,
+                gate="missing_baselines",
+                reason=f"Missing baselines: {', '.join(missing)}",
+                actual=int(has_random) + int(has_heuristic),
+                threshold=2,
             )
             return
 
@@ -672,16 +680,22 @@ class AutoPromotionDaemon(HandlerBase):
         min_games = PromotionGameDefaults.get_min_games(num_players)
 
         if random_games < min_games:
-            logger.debug(
-                f"[AutoPromotion] {candidate.config_key}: "
-                f"Need {min_games} games vs RANDOM (graduated for {num_players}p), have {random_games}"
+            self._emit_promotion_rejected(
+                candidate,
+                gate="insufficient_games_random",
+                reason=f"Need {min_games} games vs RANDOM (graduated {num_players}p), have {random_games}",
+                actual=random_games,
+                threshold=min_games,
             )
             return
 
         if heuristic_games < min_games:
-            logger.debug(
-                f"[AutoPromotion] {candidate.config_key}: "
-                f"Need {min_games} games vs HEURISTIC (graduated for {num_players}p), have {heuristic_games}"
+            self._emit_promotion_rejected(
+                candidate,
+                gate="insufficient_games_heuristic",
+                reason=f"Need {min_games} games vs HEURISTIC (graduated {num_players}p), have {heuristic_games}",
+                actual=heuristic_games,
+                threshold=min_games,
             )
             return
 
