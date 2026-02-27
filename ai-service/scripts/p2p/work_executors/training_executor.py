@@ -204,7 +204,19 @@ async def execute_training_work(
             import torch as _torch
             _ckpt = _torch.load(canonical_path, map_location="cpu", weights_only=True)
             _meta = _ckpt.get("_versioning_metadata", {})
-            _canonical_version = _meta.get("model_version", "v2")
+            # Feb 26, 2026: The actual key is "architecture_version", not
+            # "model_version". Using the wrong key always returned the default
+            # "v2", masking architecture mismatches during transitions.
+            _canonical_version = (
+                _meta.get("architecture_version")
+                or _meta.get("model_version")
+                or "v2"
+            )
+            # Normalize version strings: "v2.0.0" -> "v2"
+            if _canonical_version.startswith("v2"):
+                _canonical_version = "v2"
+            elif _canonical_version.startswith("v5-heavy"):
+                _canonical_version = "v5-heavy"
             if _canonical_version != model_version:
                 logger.info(
                     f"Architecture upgrade: canonical={_canonical_version}, "

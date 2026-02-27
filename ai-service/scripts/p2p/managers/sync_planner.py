@@ -1287,6 +1287,8 @@ class SyncPlanner(EventSubscriptionMixin):
         Returns:
             Tuple of (sync_jobs, sources_to_cleanup)
         """
+        from ..models import DataSyncJob
+
         sources_to_cleanup: dict[str, list[str]] = {}
         sync_jobs: list[DataSyncJob] = []
 
@@ -1417,10 +1419,22 @@ class SyncPlanner(EventSubscriptionMixin):
                 )
                 if targets:
                     # Filter to training nodes only
+                    target_ids = {t.node_id for t in targets}
                     eligible_training_nodes = [
                         n for n in training_nodes
-                        if any(t.node_id == n.node_id for t in targets)
+                        if n.node_id in target_ids
                     ]
+                    # Feb 2026: Always include coordinator (self) as target if
+                    # it was in training_nodes — SyncRouter's exclude_nodes
+                    # removes it, but coordinator needs selfplay data for
+                    # consolidation, NPZ export, and evaluation.
+                    if self.node_id not in target_ids:
+                        coordinator_node = next(
+                            (n for n in training_nodes if n.node_id == self.node_id),
+                            None,
+                        )
+                        if coordinator_node and should_sync_to_node(coordinator_node):
+                            eligible_training_nodes.append(coordinator_node)
                     if eligible_training_nodes:
                         logger.info(
                             f"SyncRouter: selected {len(eligible_training_nodes)} "
