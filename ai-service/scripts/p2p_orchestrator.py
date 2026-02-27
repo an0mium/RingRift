@@ -5716,26 +5716,30 @@ class P2POrchestrator(
     def _get_training_nodes_plus_coordinator(self) -> list:
         """Get training nodes PLUS coordinator for selfplay data sync.
 
-        Feb 2026: The coordinator needs selfplay data for canonical DB consolidation
-        and NPZ export. Without this, games produced on GPU nodes never reach the
-        coordinator, breaking the export → training → evaluation → promotion pipeline.
-        Only 9 games reached canonical DBs in 7 days despite 363K total selfplay games.
+        Feb 2026: The coordinator needs SOME selfplay data for canonical DB
+        consolidation and NPZ export, but it's a disk-constrained machine.
+        Only sync to coordinator when disk is below 70% to avoid filling it up.
+        GPU nodes use local JSONL→NPZ fallback (training_executor.py) when
+        coordinator doesn't have data.
         """
         training_nodes = self.node_selector.get_training_primary_nodes()
         training_ids = {n.node_id for n in training_nodes}
 
-        # Add the coordinator (self) as a sync target if not already included.
-        # The coordinator needs selfplay data locally for:
-        # 1. ComprehensiveConsolidationDaemon → canonical DBs
-        # 2. auto_export_daemon → NPZ files for training
-        # 3. evaluation_daemon → gauntlet game data
+        # Add coordinator as sync target only when disk is healthy.
+        # The coordinator is disk-constrained and shouldn't be a bulk data sink.
+        # Use DISK_WARNING_THRESHOLD (70%) not 90% to preserve disk space.
         if self.self_info and self.self_info.node_id not in training_ids:
             disk_pct = getattr(self.self_info, "disk_percent", 0)
-            if disk_pct < 90:
+            if disk_pct < DISK_WARNING_THRESHOLD:
                 training_nodes.append(self.self_info)
                 logger.debug(
                     f"Including coordinator {self.self_info.node_id} as selfplay "
                     f"sync target (disk={disk_pct:.0f}%)"
+                )
+            else:
+                logger.info(
+                    f"Coordinator {self.self_info.node_id} excluded from selfplay "
+                    f"sync (disk={disk_pct:.0f}% >= {DISK_WARNING_THRESHOLD}%)"
                 )
 
         return training_nodes
