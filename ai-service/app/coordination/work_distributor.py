@@ -143,7 +143,8 @@ class WorkDistributor:
             import aiohttp
 
             # Get leader URL from P2P orchestrator
-            leader_url = self._get_leader_url()
+            # Feb 2026: Wrap sync urllib call to avoid blocking event loop (3s timeout)
+            leader_url = await asyncio.to_thread(self._get_leader_url)
             if not leader_url:
                 logger.debug("[WorkDistributor] No leader URL, skipping forward")
                 return None
@@ -307,7 +308,8 @@ class WorkDistributor:
             depends_on=config.depends_on or [],
         )
 
-        work_id = self._queue.add_work(item)
+        # Feb 2026: Wrap sync add_work (SQLite I/O) to avoid blocking event loop
+        work_id = await asyncio.to_thread(self._queue.add_work, item)
         logger.info(f"Submitted training work {work_id}: {board}_{num_players}p")
 
         # Track locally
@@ -402,7 +404,8 @@ class WorkDistributor:
             depends_on=config.depends_on or [],
         )
 
-        work_id = self._queue.add_work(item)
+        # Feb 2026: Wrap sync add_work (SQLite I/O) to avoid blocking event loop
+        work_id = await asyncio.to_thread(self._queue.add_work, item)
         logger.info(f"Submitted {evaluation_type} work {work_id}")
 
         self._local_submissions[work_id] = {
@@ -471,7 +474,8 @@ class WorkDistributor:
             max_attempts=config.max_attempts,
         )
 
-        work_id = self._queue.add_work(item)
+        # Feb 2026: Wrap sync add_work (SQLite I/O) to avoid blocking event loop
+        work_id = await asyncio.to_thread(self._queue.add_work, item)
         logger.info(f"Submitted CMAES work {work_id}")
 
         return work_id
@@ -520,7 +524,8 @@ class WorkDistributor:
             max_attempts=config.max_attempts,
         )
 
-        work_id = self._queue.add_work(item)
+        # Feb 2026: Wrap sync add_work (SQLite I/O) to avoid blocking event loop
+        work_id = await asyncio.to_thread(self._queue.add_work, item)
         logger.info(f"Submitted selfplay work {work_id}: {board}_{num_players}p, {games} games")
 
         return work_id
@@ -565,7 +570,8 @@ class WorkDistributor:
             timeout_seconds=config.timeout_seconds,
         )
 
-        work_id = self._queue.add_work(item)
+        # Feb 2026: Wrap sync add_work (SQLite I/O) to avoid blocking event loop
+        work_id = await asyncio.to_thread(self._queue.add_work, item)
         logger.info(f"Submitted data sync work {work_id}: {sync_type}")
 
         return work_id

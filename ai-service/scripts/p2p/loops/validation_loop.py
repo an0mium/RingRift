@@ -199,7 +199,7 @@ class ValidationLoop(BaseLoop):
         )
 
         try:
-            work_queue.add_work(work_item)
+            await asyncio.to_thread(work_queue.add_work, work_item)
             registry.set_validation_queued(model_id, version, work_id)
             self._validations_queued += 1
             logger.info(f"Queued validation for {model_id}:v{version} ({work_id})")

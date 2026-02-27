@@ -370,7 +370,7 @@ class SelfplayHandlersMixin:
                         },
                         timeout_seconds=3600.0,
                     )
-                    work_id = wq.add_work(item, force=force)
+                    work_id = await asyncio.to_thread(wq.add_work, item, force)
                     work_ids.append(work_id)
 
                 logger.info(

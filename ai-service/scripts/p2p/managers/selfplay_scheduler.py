@@ -490,7 +490,7 @@ class SelfplayScheduler(
                                 },
                                 timeout_seconds=3600.0,
                             )
-                            wq.add_work(work_item)
+                            await asyncio.to_thread(wq.add_work, work_item)
                             queued_count += 1
 
                         from collections import Counter

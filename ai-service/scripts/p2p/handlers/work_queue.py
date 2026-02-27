@@ -791,7 +791,7 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
                         timeout_seconds=timeout,
                         depends_on=depends_on,
                     )
-                    work_id = wq.add_work(item)
+                    work_id = await asyncio.to_thread(wq.add_work, item)
                     work_ids.append(work_id)
                 except Exception as e:
                     errors.append({"index": i, "error": str(e)})
