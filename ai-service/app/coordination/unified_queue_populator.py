@@ -123,10 +123,11 @@ class QueuePopulatorConfig:
     # === Per-Type Pending Limits (January 30, 2026) ===
     # Prevent backlog accumulation by limiting pending items per work type
     # These limits are checked before adding new items to prevent runaway queues
-    max_pending_selfplay: int = 500
-    max_pending_training: int = 300
-    max_pending_tournament: int = 200
-    max_pending_hyperparam_sweep: int = 50
+    # Feb 27, 2026: Reduced from 500/300/200 — only 12 nodes alive, queue was 3,000+ deep
+    max_pending_selfplay: int = 100
+    max_pending_training: int = 50
+    max_pending_tournament: int = 50
+    max_pending_hyperparam_sweep: int = 20
 
     # Target queue depth to aim for (queue will fill to this level)
     # December 29, 2025: Added to reduce queue variance from 2,170% to <50%

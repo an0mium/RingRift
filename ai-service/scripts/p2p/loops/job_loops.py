@@ -1304,19 +1304,22 @@ class WorkerPullLoop(BaseLoop):
 
         # Jan 2, 2026: Slot-based capacity check with GPU guard rail
         # This allows work queue claiming to coexist with legacy selfplay processes
+        # Feb 27, 2026: High-priority work (gauntlet, training) bypasses slot check.
+        # Selfplay was saturating all GPU slots, completely blocking gauntlet evaluation
+        # for 25+ days. Gauntlet must preempt selfplay to keep the promotion pipeline flowing.
+        slots_full = False
         if self.config.enable_slot_based_claiming and has_gpu:
             has_capacity = available_slots >= self.config.min_available_slots_to_claim
             gpu_safe = gpu_percent < self.config.gpu_idle_threshold_percent
 
             if not has_capacity:
-                self._skipped_busy += 1
+                slots_full = True
                 logger.debug(
                     f"[WorkerPull] No slots available: {selfplay_jobs}/{max_slots} "
-                    f"(GPU: {gpu_percent:.1f}%)"
+                    f"(GPU: {gpu_percent:.1f}%) - will only accept gauntlet/training"
                 )
-                return
 
-            if not gpu_safe:
+            if not gpu_safe and not slots_full:
                 self._skipped_busy += 1
                 logger.debug(
                     f"[WorkerPull] GPU overloaded ({gpu_percent:.1f}% >= "
@@ -1338,6 +1341,15 @@ class WorkerPullLoop(BaseLoop):
                 capabilities = self._get_allowed_work_types()
             except (RuntimeError, ValueError, TypeError, AttributeError):
                 pass  # Use default capabilities on callback failure
+
+        # Feb 27, 2026: When slots are full, only accept high-priority work.
+        # This ensures gauntlet evaluation and training can preempt selfplay.
+        if slots_full:
+            high_priority_types = {"gauntlet", "training"}
+            capabilities = [c for c in capabilities if c in high_priority_types]
+            if not capabilities:
+                self._skipped_busy += 1
+                return
 
         # Try to get work from appropriate source
         work_item: dict[str, Any] | None = None

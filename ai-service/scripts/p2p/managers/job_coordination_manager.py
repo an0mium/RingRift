@@ -714,14 +714,13 @@ class JobCoordinationManager:
                         "work_id": work_id,
                     }
                 elif work_type == WorkType.GAUNTLET:
-                    url = self._url_for_peer(peer, "/gauntlet/start")
-                    payload = {
-                        "board_type": config.get("board_type", "square8"),
-                        "num_players": config.get("num_players", 2),
-                        "model_path": config.get("candidate_model", ""),
-                        "games": config.get("games", 100),
-                        "work_id": work_id,
-                    }
+                    # Feb 27, 2026: Gauntlet uses pull model (WorkerPullLoop), not push.
+                    # /gauntlet/start was never implemented on workers (returns 404).
+                    # Work items are added to the work queue and claimed by workers.
+                    logger.debug(
+                        f"Gauntlet work {work_id} uses pull model, skipping push dispatch"
+                    )
+                    return False
                 else:
                     logger.warning(f"Unknown work type: {work_type}")
                     return False
