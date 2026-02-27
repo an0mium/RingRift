@@ -131,6 +131,9 @@ class S3SyncStats:
     event_driven_pushes: int = 0
     periodic_pushes: int = 0
     last_event_driven_push_time: float = 0.0
+    # Feb 2026: Required by HandlerBase._main_loop for lifecycle tracking
+    cycles_completed: int = 0
+    errors_count: int = 0
 
 
 class S3SyncDaemon(HandlerBase):
