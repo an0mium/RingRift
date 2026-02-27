@@ -1210,13 +1210,18 @@ def train_model(
             if hasattr(config.board_type, "value")
             else str(config.board_type)
         )
-        for p in npz_paths:
-            if p and os.path.exists(p):
-                try:
-                    validate_training_data(Path(p), board_type_str, num_players)
-                except (ValueError, FileNotFoundError) as e:
-                    logger.error(f"Training data validation failed: {e}")
-                    raise
+        valid_paths = [p for p in npz_paths if p]
+        if not valid_paths:
+            raise ValueError(
+                "No training data paths specified. "
+                "Use --data-path to provide NPZ training data."
+            )
+        for p in valid_paths:
+            try:
+                validate_training_data(Path(p), board_type_str, num_players)
+            except (ValueError, FileNotFoundError) as e:
+                logger.error(f"Training data validation failed: {e}")
+                raise
 
     # Device configuration
     if distributed:
@@ -2215,11 +2220,10 @@ def train_model(
         data_paths = unique_paths
 
         if not data_paths:
-            if not distributed or is_main_process():
-                logger.warning("No data files found for streaming; skipping.")
-            if distributed:
-                cleanup_distributed()
-            return
+            raise ValueError(
+                "No data files found for streaming training. "
+                "Ensure --data-path or --data-dir points to valid .npz files."
+            )
 
         # Best-effort metadata check on the first file to validate history_length
         # and policy_encoding expectations.
