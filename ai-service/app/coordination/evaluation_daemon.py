@@ -205,14 +205,14 @@ class EvaluationConfig:
     # hex8/square8: 64/61 cells → fast games → 1 hour
     # square19: 361 cells → 4-5x longer games → 3 hours
     # hexagonal: 469 cells → longest games → 4 hours
-    # Feb 2026: Reduced timeouts. With 10 games/baseline × 5 baselines = 50 games
-    # per harness, evaluations should complete much faster. Previous values (1-4 hours)
-    # were designed for 30 games × 9 baselines = 270 games per harness on GPU cluster.
+    # Feb 2026: With 30 games/baseline × 5 baselines = 150 games per harness,
+    # timeouts need to account for the full evaluation. On Apple MPS, each game
+    # takes ~2-10s depending on board size and simulation budget.
     board_timeout_seconds: dict = field(default_factory=lambda: {
-        "hex8": 600,        # 10 min - small board, very fast games
-        "square8": 900,     # 15 min - small board, medium complexity
-        "square19": 1800,   # 30 min - large board (Go-sized)
-        "hexagonal": 2400,  # 40 min - largest board
+        "hex8": 1800,       # 30 min - small board, fast games
+        "square8": 2400,    # 40 min - small board, medium complexity
+        "square19": 5400,   # 90 min - large board (Go-sized)
+        "hexagonal": 7200,  # 120 min - largest board
     })
 
     def get_timeout_for_board(self, board_type: str, num_players: int = 2) -> float:
@@ -2188,6 +2188,33 @@ class EvaluationDaemon(HandlerBase):
             model_name = Path(model_path).stem
             matches_recorded = 0
 
+            def _record_opponent_matches(
+                svc, m_name, opp_name, wins, losses, b_type, n_players
+            ):
+                """Record all matches vs one opponent in a single thread."""
+                count = 0
+                for _ in range(wins):
+                    svc.record_match(
+                        participant_a=m_name,
+                        participant_b=opp_name,
+                        winner=m_name,
+                        board_type=b_type,
+                        num_players=n_players,
+                        harness_type="gumbel_mcts",
+                    )
+                    count += 1
+                for _ in range(losses):
+                    svc.record_match(
+                        participant_a=m_name,
+                        participant_b=opp_name,
+                        winner=opp_name,
+                        board_type=b_type,
+                        num_players=n_players,
+                        harness_type="gumbel_mcts",
+                    )
+                    count += 1
+                return count
+
             for opponent_name, opp_result in opponent_results.items():
                 if not isinstance(opp_result, dict):
                     continue
@@ -2197,43 +2224,24 @@ class EvaluationDaemon(HandlerBase):
                 if games_played <= 0:
                     continue
 
-                # Record synthetic matches: wins, losses, and draws
                 wins = int(round(win_rate * games_played))
                 losses = games_played - wins
 
-                # Record wins
-                for _ in range(wins):
-                    await asyncio.to_thread(
-                        elo_service.record_match,
-                        participant_a=model_name,
-                        participant_b=str(opponent_name),
-                        winner=model_name,
-                        board_type=board_type,
-                        num_players=num_players,
-                        harness_type="gumbel_mcts",
-                    )
-                    matches_recorded += 1
-
-                # Record losses
-                for _ in range(losses):
-                    await asyncio.to_thread(
-                        elo_service.record_match,
-                        participant_a=model_name,
-                        participant_b=str(opponent_name),
-                        winner=str(opponent_name),
-                        board_type=board_type,
-                        num_players=num_players,
-                        harness_type="gumbel_mcts",
-                    )
-                    matches_recorded += 1
+                # Batch all matches vs this opponent into one thread call
+                recorded = await asyncio.to_thread(
+                    _record_opponent_matches,
+                    elo_service, model_name, str(opponent_name),
+                    wins, losses, board_type, num_players,
+                )
+                matches_recorded += recorded
 
             if matches_recorded == 0:
                 return None
 
             # Retrieve updated Elo rating
-            rating = elo_service.get_rating(model_name)
+            rating = elo_service.get_rating(model_name, board_type, num_players)
             if rating is not None:
-                elo = float(rating.elo) if hasattr(rating, "elo") else float(rating)
+                elo = float(rating.rating)
                 logger.info(
                     f"[EvaluationDaemon] Computed Elo from gauntlet: {model_name} = "
                     f"{elo:.0f} ({matches_recorded} matches recorded)"
