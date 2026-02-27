@@ -186,12 +186,17 @@ class GameDiscovery:
 
     # JSONL file patterns (December 2025) - for GPU selfplay data
     JSONL_PATTERNS = [
-        # Cluster JSONL - GPU selfplay
+        # P2P GPU selfplay (actual production path, Feb 2026)
+        # Format: data/selfplay/p2p_gpu/{board}_{n}p/pull-{id}/games_{board}_{n}p_{hash}.jsonl
+        ("data/selfplay/p2p_gpu/{board_type}_{num_players}p/*/games_*.jsonl", False),
+        ("data/selfplay/p2p_gpu/{board_type}_{num_players}p/*/games_{board_type}_{num_players}p_*.jsonl", False),
+        # Hex variants (hexagonal uses "hex" in directory names)
+        ("data/selfplay/p2p_gpu/hex_{num_players}p/*/games_hexagonal_*.jsonl", False),
+        ("data/selfplay/p2p_gpu/hex_{num_players}p/*/games_hex_{num_players}p_*.jsonl", False),
+        # Cluster JSONL - GPU selfplay (legacy path)
         ("data/selfplay/cluster_jsonl/gpu/games_{board_type}_{num_players}p_*.jsonl", False),
-        # P2P GPU selfplay
         ("data/selfplay/cluster_jsonl/p2p_gpu/{board_type}_{num_players}p/*/games_*.jsonl", False),
         ("data/selfplay/cluster_jsonl/p2p_gpu/{board_type}_{num_players}/*/games_*.jsonl", False),
-        # Hex variants
         ("data/selfplay/cluster_jsonl/p2p_gpu/hex_{num_players}p/*/games_hexagonal_*.jsonl", False),
         # Logs/selfplay (soak tests)
         ("logs/selfplay/soak.*.{board_type}.{num_players}p.*.jsonl", False),

@@ -273,7 +273,8 @@ class SyncHandlersMixin(BaseP2PHandler):
                     }, status=503)
 
             elif local_disk_usage >= OWC_FALLBACK_THRESHOLD:
-                # Disk getting full - prefer OWC if available
+                # Disk getting full - prefer OWC if available, but fall through to local
+                # if OWC is also full. At 80% disk there's still plenty of space for pushes.
                 for mount_path in OWC_MOUNT_PATHS:
                     if mount_path.exists():
                         try:
@@ -285,6 +286,11 @@ class SyncHandlersMixin(BaseP2PHandler):
                         except (OSError, PermissionError) as e:
                             logger.warning(f"Cannot check OWC mount {mount_path}: {e}")
                             continue
+                # Feb 2026: If no OWC available, stay on "local" tier — don't silently
+                # drop the push. At 80-90% disk there's still 60-174GB free which is
+                # enough for game data. The CRITICAL_DISK_THRESHOLD (90%) handles rejection.
+                if storage_tier == "local":
+                    logger.info(f"OWC unavailable at {local_disk_usage:.1f}% disk, accepting push to local storage")
 
             # Determine destination path
             # Use relative path structure under data/

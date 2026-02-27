@@ -5713,10 +5713,38 @@ class P2POrchestrator(
             logger.warning(f"{node.node_id} disk at {node.disk_percent:.1f}%")
         return True
 
+    def _get_training_nodes_plus_coordinator(self) -> list:
+        """Get training nodes PLUS coordinator for selfplay data sync.
+
+        Feb 2026: The coordinator needs selfplay data for canonical DB consolidation
+        and NPZ export. Without this, games produced on GPU nodes never reach the
+        coordinator, breaking the export → training → evaluation → promotion pipeline.
+        Only 9 games reached canonical DBs in 7 days despite 363K total selfplay games.
+        """
+        training_nodes = self.node_selector.get_training_primary_nodes()
+        training_ids = {n.node_id for n in training_nodes}
+
+        # Add the coordinator (self) as a sync target if not already included.
+        # The coordinator needs selfplay data locally for:
+        # 1. ComprehensiveConsolidationDaemon → canonical DBs
+        # 2. auto_export_daemon → NPZ files for training
+        # 3. evaluation_daemon → gauntlet game data
+        if self.self_info and self.self_info.node_id not in training_ids:
+            disk_pct = getattr(self.self_info, "disk_percent", 0)
+            if disk_pct < 90:
+                training_nodes.append(self.self_info)
+                logger.debug(
+                    f"Including coordinator {self.self_info.node_id} as selfplay "
+                    f"sync target (disk={disk_pct:.0f}%)"
+                )
+
+        return training_nodes
+
     async def _sync_selfplay_to_training_nodes(self) -> dict[str, Any]:
-        """Sync selfplay data to training primary nodes.
+        """Sync selfplay data to training primary nodes AND coordinator.
 
         December 2025: Delegated to SyncPlanner.sync_selfplay_to_training_nodes()
+        Feb 2026: Added coordinator as sync target for canonical DB consolidation.
         """
         if not self.leadership.check_is_leader():
             return {"success": False, "error": "Not the leader"}
@@ -5728,7 +5756,7 @@ class P2POrchestrator(
             manifest = None  # Will be collected by SyncPlanner
 
         result = await self.sync_planner.sync_selfplay_to_training_nodes(
-            get_training_nodes=self.node_selector.get_training_primary_nodes,
+            get_training_nodes=self._get_training_nodes_plus_coordinator,
             should_sync_to_node=self._should_sync_to_node,
             should_cleanup_source=lambda node: node.disk_percent >= DISK_CLEANUP_THRESHOLD,
             collect_manifest=self._collect_cluster_manifest,

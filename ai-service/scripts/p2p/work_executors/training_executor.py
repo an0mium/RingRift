@@ -23,6 +23,76 @@ if TYPE_CHECKING:
 logger = logging.getLogger("p2p_orchestrator")
 
 
+async def _try_local_jsonl_export(
+    ai_service_root: Path, config_key: str, board_type: str, num_players: int,
+) -> Path | None:
+    """Try to convert local JSONL selfplay data to NPZ for training.
+
+    Feb 2026: Breaks the circular dependency where:
+    - Coordinator needs selfplay data to export NPZ
+    - GPU nodes need NPZ to train
+    - But selfplay data stays on GPU nodes
+
+    By converting JSONL→NPZ locally, GPU nodes can train on their own
+    selfplay data without waiting for the coordinator export cycle.
+    """
+    import glob
+
+    # Find local JSONL files for this config
+    board_norm = board_type.replace("hexagonal", "hex")
+    jsonl_dir = ai_service_root / "data" / "selfplay" / "p2p_gpu" / f"{board_norm}_{num_players}p"
+    if not jsonl_dir.exists():
+        return None
+
+    jsonl_files = glob.glob(str(jsonl_dir / "**" / "*.jsonl"), recursive=True)
+    if not jsonl_files:
+        return None
+
+    # Only export if we have meaningful data (>= 5 JSONL files)
+    if len(jsonl_files) < 5:
+        logger.info(f"Only {len(jsonl_files)} JSONL files for {config_key}, skipping local export")
+        return None
+
+    output_path = ai_service_root / "data" / "training" / f"{config_key}.npz"
+    script_path = ai_service_root / "scripts" / "jsonl_to_npz.py"
+    if not script_path.exists():
+        logger.warning(f"jsonl_to_npz.py not found at {script_path}")
+        return None
+
+    logger.info(f"Converting {len(jsonl_files)} local JSONL files to NPZ for {config_key}")
+    cmd = [
+        sys.executable, str(script_path),
+        "--input-dir", str(jsonl_dir),
+        "--board-type", board_type,
+        "--num-players", str(num_players),
+        "--output", str(output_path),
+        "--gpu-selfplay",  # GPU selfplay format (simplified moves)
+    ]
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(ai_service_root),
+            env={**__import__("os").environ, "PYTHONPATH": str(ai_service_root)},
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
+        if proc.returncode == 0 and output_path.exists():
+            logger.info(f"JSONL→NPZ export succeeded for {config_key}: {output_path}")
+            return output_path
+        else:
+            logger.warning(
+                f"JSONL→NPZ export failed for {config_key} (rc={proc.returncode}): "
+                f"{stderr.decode()[:500]}"
+            )
+    except asyncio.TimeoutError:
+        logger.warning(f"JSONL→NPZ export timed out for {config_key}")
+    except Exception as e:
+        logger.warning(f"JSONL→NPZ export error for {config_key}: {e}")
+    return None
+
+
 async def execute_training_work(
     work_item: dict[str, Any],
     config: dict[str, Any],
@@ -106,10 +176,20 @@ async def execute_training_work(
             return False
         cmd.extend(["--data-path", str(npz_path)])
     else:
-        logger.error(
-            f"Training data not found: {npz_path}. Cannot train {config_key}."
-        )
-        return False
+        # Feb 2026: NPZ not available (coordinator hasn't exported yet or sync failed).
+        # Try converting local JSONL selfplay data to NPZ directly on this node.
+        # This breaks the circular dependency where coordinator needs selfplay data
+        # to export NPZ, but GPU nodes need NPZ to train.
+        jsonl_npz = await _try_local_jsonl_export(ai_service_root, config_key, board_type, num_players)
+        if jsonl_npz and jsonl_npz.exists() and jsonl_npz.stat().st_size > 1024:
+            logger.info(f"Using locally-exported JSONL→NPZ: {jsonl_npz}")
+            cmd.extend(["--data-path", str(jsonl_npz)])
+        else:
+            logger.error(
+                f"Training data not found: {npz_path}. "
+                f"No local JSONL data available either. Cannot train {config_key}."
+            )
+            return False
 
     # Validate init weights exist before launching subprocess.
     # Without --init-weights, training starts from random (loss 5-9 = useless).
