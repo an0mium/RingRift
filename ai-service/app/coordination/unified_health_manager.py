@@ -2784,8 +2784,18 @@ class UnifiedHealthManager(HandlerBase):
         )
 
     def _calculate_node_availability(self, cfg: SystemHealthConfig) -> float:
-        """Calculate node availability score (0-100)."""
+        """Calculate node availability score (0-100).
+
+        Feb 26, 2026: When no nodes are tracked (e.g., master_loop process
+        which doesn't receive P2P heartbeat events), return 100% instead of 0%.
+        The absence of node data should not be treated as "all nodes offline"
+        since that triggers false TRAINING_BLOCKED events.
+        """
         nodes_tracked = len(self._node_states)
+        if nodes_tracked == 0:
+            # No data about nodes — assume healthy rather than pausing pipeline
+            return 100.0
+
         nodes_online = sum(1 for s in self._node_states.values() if s.is_online)
 
         # Determine expected nodes

@@ -40,15 +40,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# P2P voter nodes (7-node quorum from distributed_hosts.yaml)
+# P2P voter nodes (updated Feb 2026 - removed archived nebius/lambda-gh200-2)
 VOTER_NODES = [
-    "nebius-backbone-1",
-    "nebius-h100-3",
     "hetzner-cpu1",
     "hetzner-cpu2",
+    "hetzner-cpu3",
     "vultr-a100-20gb",
     "lambda-gh200-1",
-    "lambda-gh200-2",
+    "mac-studio",
+    "local-mac",
 ]
 
 
