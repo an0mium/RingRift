@@ -482,7 +482,11 @@ class S3SyncDaemon(HandlerBase):
             return False
 
     async def _push_file(self, local_path: Path, s3_key: str) -> bool:
-        """Push a single file to S3.
+        """Push a single file to S3 with retry.
+
+        Feb 2026: Added retry loop (up to 3 attempts) and --cli-read-timeout
+        to handle connection drops during large multipart uploads. Without this,
+        uploads of 400MB+ NPZ files consistently failed at ~20-44 MiB.
 
         Returns:
             True if successful, False otherwise
@@ -491,48 +495,78 @@ class S3SyncDaemon(HandlerBase):
             return False
 
         s3_uri = f"s3://{self.config.s3_bucket}/{s3_key}"
+        max_attempts = self.config.retry_count
 
-        try:
-            result = await asyncio.to_thread(
-                subprocess.run,
-                [
-                    AWS_CLI,
-                    "s3",
-                    "cp",
-                    str(local_path),
-                    s3_uri,
-                    "--storage-class",
-                    self.config.storage_class,
-                    "--region",
-                    self.config.aws_region,
-                ],
-                capture_output=True,
-                text=True,
-                timeout=int(self.config.upload_timeout_seconds),
-            )
+        for attempt in range(1, max_attempts + 1):
+            try:
+                file_size_mb = local_path.stat().st_size / (1024 * 1024)
+                # Scale timeout with file size: min 600s, +60s per 100MB
+                timeout = max(
+                    int(self.config.upload_timeout_seconds),
+                    600 + int(file_size_mb / 100) * 60,
+                )
 
-            if result.returncode == 0:
-                file_size = local_path.stat().st_size
-                self._last_push_times[str(local_path)] = local_path.stat().st_mtime
-                self._stats.total_files_pushed += 1
-                self._stats.total_bytes_pushed += file_size
-                logger.info(
-                    f"[S3SyncDaemon] Pushed {local_path.name} to {s3_uri} "
-                    f"({file_size / (1024*1024):.1f} MB)"
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    [
+                        AWS_CLI,
+                        "s3",
+                        "cp",
+                        str(local_path),
+                        s3_uri,
+                        "--storage-class",
+                        self.config.storage_class,
+                        "--region",
+                        self.config.aws_region,
+                        "--cli-read-timeout",
+                        "300",
+                        "--cli-connect-timeout",
+                        "30",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
                 )
-                return True
-            else:
-                logger.warning(
-                    f"[S3SyncDaemon] Failed to push {local_path.name}: {result.stderr}"
-                )
+
+                if result.returncode == 0:
+                    file_size = local_path.stat().st_size
+                    self._last_push_times[str(local_path)] = local_path.stat().st_mtime
+                    self._stats.total_files_pushed += 1
+                    self._stats.total_bytes_pushed += file_size
+                    logger.info(
+                        f"[S3SyncDaemon] Pushed {local_path.name} to {s3_uri} "
+                        f"({file_size / (1024*1024):.1f} MB)"
+                    )
+                    return True
+                else:
+                    stderr = result.stderr or ""
+                    if attempt < max_attempts and "Connection was closed" in stderr:
+                        logger.warning(
+                            f"[S3SyncDaemon] Push attempt {attempt}/{max_attempts} "
+                            f"failed for {local_path.name}: connection closed, retrying"
+                        )
+                        await asyncio.sleep(self.config.retry_delay_seconds)
+                        continue
+                    logger.warning(
+                        f"[S3SyncDaemon] Failed to push {local_path.name}: {stderr}"
+                    )
+                    return False
+
+            except subprocess.TimeoutExpired:
+                if attempt < max_attempts:
+                    logger.warning(
+                        f"[S3SyncDaemon] Push attempt {attempt}/{max_attempts} "
+                        f"timed out for {local_path.name}, retrying"
+                    )
+                    await asyncio.sleep(self.config.retry_delay_seconds)
+                    continue
+                logger.warning(f"[S3SyncDaemon] Push timed out for {local_path.name}")
+                return False
+            except Exception as e:
+                logger.warning(f"[S3SyncDaemon] Push error for {local_path.name}: {e}")
                 return False
 
-        except subprocess.TimeoutExpired:
-            logger.warning(f"[S3SyncDaemon] Push timed out for {local_path.name}")
-            return False
-        except Exception as e:
-            logger.warning(f"[S3SyncDaemon] Push error for {local_path.name}: {e}")
-            return False
+        return False
 
     # =========================================================================
     # Helper Methods
