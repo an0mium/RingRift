@@ -1245,7 +1245,8 @@ class WorkQueue:
         with self.lock:
             # Feb 2026: Inline cleanup when queue is large to prevent unbounded growth.
             # This runs inside the existing lock so no extra synchronization needed.
-            if len(self.items) > 500:
+            # Trigger at 200 (not 500) — by 500 we're already hitting soft backpressure.
+            if len(self.items) > 200:
                 self._inline_cleanup()
 
             # Dec 28, 2025: Check backpressure before adding
@@ -2081,9 +2082,15 @@ class WorkQueue:
         Uses aggressive TTLs since stale items degrade claim_work() O(n) performance.
         """
         now = time.time()
-        max_pending_age = 8 * 3600   # 8 hours
-        max_claimed_age = 1 * 3600   # 1 hour
-        max_terminal_age = 4 * 3600  # 4 hours for completed/failed
+        # Read TTLs from config defaults (not hardcoded) to stay in sync
+        try:
+            from app.config.coordination_defaults import WorkQueueCleanupDefaults
+            max_pending_age = WorkQueueCleanupDefaults.MAX_PENDING_AGE_HOURS * 3600
+            max_claimed_age = WorkQueueCleanupDefaults.MAX_CLAIMED_AGE_HOURS * 3600
+        except ImportError:
+            max_pending_age = 1.5 * 3600
+            max_claimed_age = 1.0 * 3600
+        max_terminal_age = 2 * 3600  # completed/failed can be cleaned fast
         to_remove = []
         for wid, item in self.items.items():
             age = now - item.created_at
