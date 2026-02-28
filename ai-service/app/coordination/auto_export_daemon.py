@@ -989,6 +989,10 @@ class AutoExportDaemon(HandlerBase):
                     "--output", str(output_path),
                     "--allow-noncanonical",  # Allow any database, not just registry
                     "--allow-pending-gate",  # Feb 2026: Allow pending_gate DBs (cluster nodes lack Node.js)
+                    "--no-strict",  # Feb 28, 2026: Don't block entire export for a few bad games.
+                    # --min-moves already filters short games during extraction.
+                    # Strict mode was blocking exports when gauntlet DBs had 3/58
+                    # games with <5 moves, preventing 97% of valid data from exporting.
                 ]
 
                 min_elo = self._get_min_elo_for_config(config_key)
