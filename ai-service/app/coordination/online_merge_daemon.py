@@ -80,7 +80,7 @@ class OnlineMergeDaemon(HandlerBase):
         try:
             shadow_models = self._find_shadow_models()
             if not shadow_models:
-                self._log_debug("No shadow models found")
+                logger.debug("No shadow models found")
                 return
 
             for shadow_path in shadow_models:
@@ -90,7 +90,7 @@ class OnlineMergeDaemon(HandlerBase):
 
                 # Check if enough time has passed since last merge
                 if not self._can_merge(config_key):
-                    self._log_debug(f"Skipping {config_key}: too soon since last merge")
+                    logger.debug(f"Skipping {config_key}: too soon since last merge")
                     continue
 
                 # Run validation
@@ -102,7 +102,7 @@ class OnlineMergeDaemon(HandlerBase):
                     await self._merge_shadow_to_canonical(shadow_path, config_key)
 
         except Exception as e:
-            self._log_error(f"Error in merge cycle: {e}")
+            logger.error(f"Error in merge cycle: {e}")
 
     def _find_shadow_models(self) -> list[Path]:
         """Find all shadow models that may need merging."""
@@ -146,7 +146,7 @@ class OnlineMergeDaemon(HandlerBase):
         canonical_path = self._get_canonical_path(config_key)
 
         if not canonical_path.exists():
-            self._log_warning(f"Canonical model not found: {canonical_path}")
+            logger.warning(f"Canonical model not found: {canonical_path}")
             return {"error": "canonical_not_found", "should_merge": False}
 
         def _run_gauntlet() -> dict[str, Any]:
@@ -183,10 +183,10 @@ class OnlineMergeDaemon(HandlerBase):
                 }
 
             except ImportError as e:
-                self._log_warning(f"Gauntlet module not available: {e}")
+                logger.warning(f"Gauntlet module not available: {e}")
                 return {"error": "gauntlet_unavailable", "should_merge": False}
             except Exception as e:
-                self._log_error(f"Gauntlet validation failed: {e}")
+                logger.error(f"Gauntlet validation failed: {e}")
                 return {"error": str(e), "should_merge": False}
 
         return await asyncio.to_thread(_run_gauntlet)

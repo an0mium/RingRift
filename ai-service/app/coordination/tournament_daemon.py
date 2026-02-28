@@ -215,6 +215,10 @@ class TournamentStats(EvaluationDaemonStats):
         """Alias for last_evaluation_time (backward compatibility)."""
         return self.last_evaluation_time
 
+    @last_tournament_time.setter
+    def last_tournament_time(self, value: float) -> None:
+        self.last_evaluation_time = value
+
     @property
     def errors(self) -> list[str]:
         """Return last error as list for backward compatibility."""
