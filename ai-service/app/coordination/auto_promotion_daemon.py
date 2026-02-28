@@ -277,14 +277,13 @@ class AutoPromotionDaemon(HandlerBase):
                     candidate_elo, candidate_games = await asyncio.to_thread(
                         self._get_best_elo_for_model, stem
                     )
-                    # Check both naming conventions: canonical_* and ringrift_best_*
-                    canonical_elo = None
-                    for prefix in ("canonical_", "ringrift_best_"):
-                        elo, _ = await asyncio.to_thread(
-                            self._get_best_elo_for_model, f"{prefix}{config_key}"
-                        )
-                        if elo is not None and (canonical_elo is None or elo > canonical_elo):
-                            canonical_elo = elo
+                    # Feb 2026: Only compare against canonical_ prefix.
+                    # ringrift_best_ entries include historical gauntlet results and
+                    # heuristic baselines with inflated Elo (e.g., 1910 for heuristic
+                    # vs 1461 for actual canonical NN), which blocked all promotions.
+                    canonical_elo, _ = await asyncio.to_thread(
+                        self._get_best_elo_for_model, f"canonical_{config_key}"
+                    )
                 except Exception as e:
                     logger.debug(f"[AutoPromotion] Elo lookup failed for {config_key}: {e}")
                     continue
