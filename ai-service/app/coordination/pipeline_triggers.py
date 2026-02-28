@@ -656,7 +656,7 @@ class PipelineTrigger:
             num_players=num_players,
             iteration=iteration,
             model_path=model_path,
-            games_per_opponent=games_per_opponent,
+            num_games=games_per_opponent,
         )
 
     async def trigger_promotion_after_evaluation(
