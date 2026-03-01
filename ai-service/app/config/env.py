@@ -362,8 +362,19 @@ class RingRiftEnv:
         return self._check_coordinator_from_config()
 
     @cached_property
+    def is_heavy_work_blocked(self) -> bool:
+        """Whether heavy work (export, training, selfplay, gauntlet, consolidation) is blocked.
+
+        Returns True for local-mac (MacBook laptop) as defense-in-depth beyond
+        the LaunchAgent env var. The laptop should never run heavy workloads.
+        """
+        return self.node_id == "local-mac"
+
+    @cached_property
     def selfplay_enabled(self) -> bool:
         """Whether selfplay is enabled on this node."""
+        if self.is_heavy_work_blocked:
+            return False
         # Explicit override
         explicit = os.environ.get("RINGRIFT_SELFPLAY_ENABLED", "").lower()
         if explicit in ("0", "false", "no"):
@@ -379,6 +390,8 @@ class RingRiftEnv:
     @cached_property
     def training_enabled(self) -> bool:
         """Whether training is enabled on this node."""
+        if self.is_heavy_work_blocked:
+            return False
         explicit = os.environ.get("RINGRIFT_TRAINING_ENABLED", "").lower()
         if explicit in ("0", "false", "no"):
             return False
@@ -397,6 +410,8 @@ class RingRiftEnv:
         on large boards (square19=361 cells). Evaluations dispatch to GPU
         cluster nodes instead via _dispatch_gauntlet_to_cluster().
         """
+        if self.is_heavy_work_blocked:
+            return False
         explicit = os.environ.get("RINGRIFT_GAUNTLET_ENABLED", "").lower()
         if explicit in ("0", "false", "no"):
             return False
@@ -414,6 +429,8 @@ class RingRiftEnv:
         data into NPZ training files. Without this, the training pipeline
         stalls because no training data is ever generated.
         """
+        if self.is_heavy_work_blocked:
+            return False
         explicit = os.environ.get("RINGRIFT_EXPORT_ENABLED", "").lower()
         if explicit in ("0", "false", "no"):
             return False
@@ -428,6 +445,8 @@ class RingRiftEnv:
         Coordinators should NOT consolidate data locally as it creates
         large canonical_*.db files that fill up disk space.
         """
+        if self.is_heavy_work_blocked:
+            return False
         explicit = os.environ.get("RINGRIFT_CONSOLIDATION_ENABLED", "").lower()
         if explicit in ("0", "false", "no"):
             return False

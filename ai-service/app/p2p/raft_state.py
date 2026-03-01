@@ -44,13 +44,15 @@ from app.p2p.constants import RAFT_USE_MANUAL_TICK
 logger = logging.getLogger(__name__)
 
 # Dec 2025: Use cluster_config helpers instead of inline YAML parsing
+# Feb 2026: Use get_raft_members() to restrict Raft to coordinator nodes only
 try:
-    from app.config.cluster_config import get_cluster_nodes, get_p2p_voters
+    from app.config.cluster_config import get_cluster_nodes, get_p2p_voters, get_raft_members
     HAS_CLUSTER_CONFIG = True
 except ImportError:
     HAS_CLUSTER_CONFIG = False
     get_cluster_nodes = None
     get_p2p_voters = None
+    get_raft_members = None
 
 # ============================================
 # Import PySyncObj with graceful fallback
@@ -248,7 +250,9 @@ def load_raft_partner_addresses(
 ) -> list[str]:
     """Load Raft partner addresses from cluster configuration.
 
-    Uses voter nodes as Raft cluster members for consistency.
+    Feb 2026: Uses get_raft_members() to restrict Raft to coordinator nodes only,
+    preventing GPU workers and Hetzner CPUs from joining consensus.
+    Falls back to p2p_voters via get_raft_members() internal fallback.
 
     Args:
         node_id: This node's ID (excluded from partners)
@@ -260,24 +264,24 @@ def load_raft_partner_addresses(
     """
     partners: list[str] = []
 
-    # Dec 2025: Use cluster_config helpers as primary method
-    if HAS_CLUSTER_CONFIG and get_p2p_voters is not None:
+    # Feb 2026: Use get_raft_members() (coordinators only) instead of get_p2p_voters()
+    if HAS_CLUSTER_CONFIG and get_raft_members is not None:
         try:
-            voters = get_p2p_voters()
+            raft_members = get_raft_members()
             nodes = get_cluster_nodes()
 
-            for voter_name in voters:
-                if voter_name == node_id:
+            for member_name in raft_members:
+                if member_name == node_id:
                     continue
 
-                if voter_name in nodes:
-                    node = nodes[voter_name]
+                if member_name in nodes:
+                    node = nodes[member_name]
                     ssh_host = node.best_ip
                     if ssh_host and ssh_host not in ("localhost", "127.0.0.1"):
                         partners.append(f"{ssh_host}:{bind_port}")
 
             if partners:
-                logger.info(f"Raft partners from cluster_config: {partners}")
+                logger.info(f"Raft partners from cluster_config (raft_members): {partners}")
                 return partners
 
         except Exception as e:
@@ -297,15 +301,15 @@ def load_raft_partner_addresses(
         with open(config_path) as f:
             hosts_config = yaml.safe_load(f)
 
-        # Get voter list from p2p_voters key (single source of truth)
-        voter_list = hosts_config.get("p2p_voters", [])
+        # Feb 2026: Prefer raft_members, fall back to p2p_voters
+        member_list = hosts_config.get("raft_members") or hosts_config.get("p2p_voters", [])
         hosts = hosts_config.get("hosts", {})
 
-        for voter_name in voter_list:
-            if voter_name == node_id:
+        for member_name in member_list:
+            if member_name == node_id:
                 continue
 
-            host_config = hosts.get(voter_name, {})
+            host_config = hosts.get(member_name, {})
             ssh_host = host_config.get("ssh_host", "")
 
             if ssh_host and ssh_host not in ("localhost", "127.0.0.1"):

@@ -4,7 +4,7 @@ Proactive disk space management for training nodes and coordinators.
 Monitors disk usage and triggers cleanup before reaching critical thresholds.
 
 Features:
-- Proactive cleanup at 60% (before 70% warning threshold)
+- Proactive cleanup at 70% (aligned with DISK_SYNC_TARGET_PERCENT)
 - Removes old logs, empty databases, old checkpoints
 - Config-aware: prioritizes keeping data for active training configs
 - Event-driven: emits DISK_CLEANUP_TRIGGERED, DISK_SPACE_LOW events
@@ -58,8 +58,14 @@ PROTECTED_PATTERNS = [
     "registry.db",          # Model registry
     "coordination.db",      # Coordination state
     "work_queue.db",        # Active work queue
-    "*.npz",                # Training data files - never auto-delete
     "*_backup*.db",         # Backup files
+]
+
+# Phase 6 Step 11: NPZ files are only protected on coordinator nodes.
+# Non-coordinator (GPU) nodes can delete NPZ files if they are verified in S3,
+# since they can re-download from S3 when needed for training.
+COORDINATOR_PROTECTED_PATTERNS = [
+    "*.npz",                # Training data files - protected on coordinator only
 ]
 
 # Directories that should never have files auto-deleted
@@ -76,6 +82,10 @@ def _is_protected_file(file_path: Path) -> bool:
     CRITICAL: This function must be called before any file deletion.
     Protected files include canonical databases, training data, and
     coordination state.
+
+    Phase 6 Step 11: Coordinator nodes additionally protect NPZ files
+    via COORDINATOR_PROTECTED_PATTERNS. Non-coordinator nodes can delete
+    NPZ files if verified in S3.
     """
     import fnmatch
 
@@ -86,6 +96,27 @@ def _is_protected_file(file_path: Path) -> bool:
         if fnmatch.fnmatch(filename, pattern):
             logger.debug(f"Protected file (pattern {pattern}): {filename}")
             return True
+
+    # Phase 6 Step 11: Check coordinator-only protected patterns
+    # NPZ files are only protected on coordinator nodes
+    try:
+        from app.config.env import env
+        if env.is_coordinator:
+            for pattern in COORDINATOR_PROTECTED_PATTERNS:
+                if fnmatch.fnmatch(filename, pattern):
+                    logger.debug(
+                        f"Protected file (coordinator pattern {pattern}): {filename}"
+                    )
+                    return True
+    except ImportError:
+        # If env not available, be conservative and protect NPZ files
+        for pattern in COORDINATOR_PROTECTED_PATTERNS:
+            if fnmatch.fnmatch(filename, pattern):
+                logger.debug(
+                    f"Protected file (coordinator pattern {pattern}, "
+                    f"env unavailable - conservative): {filename}"
+                )
+                return True
 
     # Check parent directories
     for parent in file_path.parents:
@@ -186,7 +217,8 @@ class DiskSpaceConfig:
     check_interval_seconds: int = 300
 
     # Thresholds (percentages) - from app.config.thresholds (canonical source)
-    proactive_cleanup_threshold: int = 75  # Start cleanup before production halt (85)
+    # Phase 6 Step 10: Lowered from 75% to 70% to match DISK_SYNC_TARGET_PERCENT
+    proactive_cleanup_threshold: int = 70  # Start cleanup before production halt (85)
     warning_threshold: int = DISK_PRODUCTION_HALT_PERCENT - 5  # 80 - warn approaching halt
     critical_threshold: int = DISK_CRITICAL_PERCENT  # 90 - block writes
     emergency_threshold: int = 95  # Emergency mode
@@ -225,9 +257,10 @@ class DiskSpaceConfig:
             "logs",  # 1. Old logs first
             "cache",  # 2. Pip/torch cache
             "empty_dbs",  # 3. Empty databases
-            "synced_games",  # 4. Games with verified N+ copies (NEW - Dec 2025)
-            "old_checkpoints",  # 5. Old checkpoints (keep N newest)
-            "quarantine",  # 6. Quarantined databases
+            "s3_backed_data",  # 4. Files verified in S3 (non-coordinator only)
+            "synced_games",  # 5. Games with verified N+ copies (NEW - Dec 2025)
+            "old_checkpoints",  # 6. Old checkpoints (keep N newest)
+            "quarantine",  # 7. Quarantined databases
         ]
     )
 
@@ -475,6 +508,9 @@ class DiskSpaceManagerDaemon(HandlerBase):
                 bytes_freed += await asyncio.to_thread(self._cleanup_cache)
             elif priority == "empty_dbs":
                 bytes_freed += await asyncio.to_thread(self._cleanup_empty_databases)
+            elif priority == "s3_backed_data":
+                # Phase 6 Step 10: Clean up files verified in S3 (non-coordinator only)
+                bytes_freed += await asyncio.to_thread(self._cleanup_s3_backed_files)
             elif priority == "synced_games":
                 # NEW: Sync-aware cleanup (December 2025)
                 if self.config.enable_sync_aware_cleanup:
@@ -760,6 +796,135 @@ class DiskSpaceManagerDaemon(HandlerBase):
                 logger.debug(f"Failed to remove quarantined {file}: {e}")
 
         return bytes_freed
+
+    def _cleanup_s3_backed_files(self) -> int:
+        """Remove local files that are verified to exist in S3 (oldest first).
+
+        Phase 6 Step 10: On non-coordinator nodes, training data and model files
+        that are confirmed in S3 can be safely deleted to reclaim disk space.
+        Files are deleted oldest-first to maximize space recovery.
+
+        Only runs on non-coordinator nodes since coordinators are the source of
+        truth for data and need to keep local copies.
+
+        Returns:
+            Number of bytes freed.
+        """
+        try:
+            from app.config.env import env
+            if env.is_coordinator:
+                logger.debug(
+                    f"[{self.name}] Skipping S3-backed cleanup - "
+                    "coordinator nodes keep local copies"
+                )
+                return 0
+        except ImportError:
+            logger.debug(f"[{self.name}] Cannot determine coordinator status, skipping S3 cleanup")
+            return 0
+
+        bytes_freed = 0
+        files_deleted = 0
+
+        # Collect candidate files: NPZ training data and non-canonical models
+        candidate_files: list[Path] = []
+
+        # Training data (NPZ files)
+        training_path = self._root_path / self.config.training_dir
+        if training_path.exists():
+            candidate_files.extend(training_path.glob("*.npz"))
+
+        # Model files (non-canonical, non-best)
+        models_path = self._root_path / "models"
+        if models_path.exists():
+            for pth_file in models_path.glob("*.pth"):
+                # Skip canonical and best symlinks - those are actively used
+                if pth_file.name.startswith("canonical_"):
+                    continue
+                if pth_file.name.startswith("ringrift_best_"):
+                    continue
+                if pth_file.is_symlink():
+                    continue
+                candidate_files.append(pth_file)
+
+        # Sort by modification time (oldest first) to maximize space recovery
+        candidate_files.sort(key=lambda f: f.stat().st_mtime)
+
+        for file_path in candidate_files:
+            # Skip protected files
+            if _is_protected_file(file_path):
+                continue
+
+            try:
+                if self._verify_in_s3(str(file_path)):
+                    size = file_path.stat().st_size
+                    file_path.unlink()
+                    bytes_freed += size
+                    files_deleted += 1
+                    logger.info(
+                        f"[{self.name}] S3-backed delete: {file_path.name} "
+                        f"(verified in S3, freed {size / 1024 / 1024:.1f}MB)"
+                    )
+            except (OSError, PermissionError) as e:
+                logger.debug(f"Failed to delete S3-backed file {file_path}: {e}")
+
+        if files_deleted > 0:
+            logger.info(
+                f"[{self.name}] S3-backed cleanup: deleted {files_deleted} files, "
+                f"freed {bytes_freed / 1024 / 1024:.1f}MB"
+            )
+
+        return bytes_freed
+
+    def _verify_in_s3(self, file_path: str) -> bool:
+        """Verify that a local file exists in S3.
+
+        Phase 6 Step 10: Uses `aws s3api head-object` to check if the file
+        exists in the S3 bucket without downloading it.
+
+        Args:
+            file_path: Local file path to verify in S3.
+
+        Returns:
+            True if the object exists in S3, False otherwise.
+        """
+        bucket = "ringrift-models-20251214"
+        path = Path(file_path)
+        file_name = path.name
+
+        # Determine S3 key based on file type
+        if file_name.endswith(".npz"):
+            key = f"consolidated/training/{file_name}"
+        elif file_name.endswith(".pth"):
+            key = f"consolidated/models/{file_name}"
+        else:
+            logger.debug(f"[{self.name}] Unknown file type for S3 verification: {file_name}")
+            return False
+
+        try:
+            result = subprocess.run(
+                [
+                    "aws", "s3api", "head-object",
+                    "--bucket", bucket,
+                    "--key", key,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode == 0:
+                logger.debug(f"[{self.name}] Verified in S3: s3://{bucket}/{key}")
+                return True
+            logger.debug(
+                f"[{self.name}] Not in S3: s3://{bucket}/{key} "
+                f"(rc={result.returncode})"
+            )
+            return False
+        except subprocess.TimeoutExpired:
+            logger.debug(f"[{self.name}] S3 verification timed out for {file_name}")
+            return False
+        except (OSError, FileNotFoundError) as e:
+            logger.debug(f"[{self.name}] S3 verification error for {file_name}: {e}")
+            return False
 
     def _cleanup_synced_databases(self) -> int:
         """Delete databases that have been verified synced to N+ locations.
@@ -1127,8 +1292,8 @@ class CoordinatorDiskManager(DiskSpaceManagerDaemon):
 
         December 27, 2025: Disabled after data loss incident.
         """
-        # CRITICAL: NPZ files are in PROTECTED_PATTERNS - never auto-delete
-        logger.debug("_cleanup_synced_training: Disabled for safety - NPZ files are protected")
+        # CRITICAL: NPZ files are in COORDINATOR_PROTECTED_PATTERNS - never auto-delete on coordinator
+        logger.debug("_cleanup_synced_training: Disabled for safety - NPZ files are protected on coordinator")
         return 0
 
     def _cleanup_synced_games(self) -> int:

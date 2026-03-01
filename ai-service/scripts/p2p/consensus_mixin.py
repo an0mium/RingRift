@@ -601,6 +601,17 @@ class ConsensusMixin(P2PMixinBase):
             logger.debug("Raft consensus disabled (RINGRIFT_RAFT_ENABLED != true)")
             return False
 
+        # Feb 2026: Gate on Raft membership - prevent GPU nodes from joining
+        # Raft even if RAFT_ENABLED=true (e.g. inherited from environment)
+        try:
+            from app.config.cluster_config import get_raft_members
+            if self.node_id not in get_raft_members():
+                self._log_info(f"Node {self.node_id} is not a Raft member, skipping Raft init")
+                return False
+        except ImportError:
+            # cluster_config unavailable (e.g. minimal install) - allow init
+            pass
+
         if not PYSYNCOBJ_AVAILABLE:
             self._raft_init_error = "pysyncobj not installed"
             self._raft_init_state = RaftInitState.FAILED
@@ -666,26 +677,36 @@ class ConsensusMixin(P2PMixinBase):
             return False
 
     def _get_raft_partners(self) -> list[str]:
-        """Get Raft partner addresses from voter nodes.
+        """Get Raft partner addresses from Raft member nodes (coordinators only).
 
         Dec 30, 2025: Fixed to use peer.host instead of peer.endpoint which
         doesn't exist on NodeInfo dataclass.
         Jan 24, 2026: Added cluster_config fallback for startup when peers
         haven't been discovered yet.
+        Feb 2026: Switched from voter_node_ids to get_raft_members() to restrict
+        Raft consensus to coordinator nodes only.
 
         Returns:
             List of partner addresses in format "host:port"
         """
         partners = []
 
-        # Use voter nodes as Raft partners (they should be stable)
-        for voter_id in self.voter_node_ids:
-            if voter_id == self.node_id:
+        # Feb 2026: Use get_raft_members() (coordinators only) instead of voter_node_ids
+        try:
+            from app.config.cluster_config import get_raft_members
+            raft_member_ids = get_raft_members()
+        except ImportError:
+            # Backward-compatible fallback if cluster_config unavailable
+            raft_member_ids = self.voter_node_ids
+
+        # Use Raft member nodes as partners (they should be stable coordinators)
+        for member_id in raft_member_ids:
+            if member_id == self.node_id:
                 continue  # Skip self
 
             # Try to get peer address from dynamic peers first
             with self.peers_lock:
-                peer = self.peers.get(voter_id)
+                peer = self.peers.get(member_id)
 
             if peer:
                 # Use host attribute from NodeInfo
@@ -699,10 +720,10 @@ class ConsensusMixin(P2PMixinBase):
             try:
                 from app.config.cluster_config import get_cluster_nodes
                 cluster_nodes = get_cluster_nodes()
-                for voter_id in self.voter_node_ids:
-                    if voter_id == self.node_id:
+                for member_id in raft_member_ids:
+                    if member_id == self.node_id:
                         continue
-                    node = cluster_nodes.get(voter_id)
+                    node = cluster_nodes.get(member_id)
                     if node and node.tailscale_ip:
                         partners.append(f"{node.tailscale_ip}:{RAFT_BIND_PORT}")
                 if partners:

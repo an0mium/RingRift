@@ -807,17 +807,34 @@ class UnifiedDistributionDaemon(HandlerBase):
         self._enqueue_item(item)
 
     def _on_npz_exported(self, event: dict[str, Any] | Any) -> None:
-        """Handle NPZ_EXPORT_COMPLETE event."""
+        """Handle NPZ_EXPORT_COMPLETE event.
+
+        Phase 5 Step 9: Proactively distributes exported NPZ files to ALL GPU
+        nodes so training data is pre-positioned before training triggers.
+        Uses get_gpu_nodes() to target all GPU-capable cluster members.
+        """
         payload = getattr(event, "payload", event) if hasattr(event, "payload") else event
+        npz_path = payload.get("npz_path")
+        board_type = payload.get("board_type")
+        num_players = payload.get("num_players")
+        config_key = payload.get("config_key", "")
+        if not config_key and board_type and num_players:
+            config_key = make_config_key(board_type, num_players)
+
         item = {
             "data_type": DataType.NPZ,
-            "path": payload.get("npz_path"),
-            "board_type": payload.get("board_type"),
-            "num_players": payload.get("num_players"),
+            "path": npz_path,
+            "board_type": board_type,
+            "num_players": num_players,
+            "config_key": config_key,
             "sample_count": payload.get("sample_count"),
+            "proactive": True,  # Flag: distribute to ALL GPU nodes
             "timestamp": time.time(),
         }
-        logger.info(f"Received NPZ_EXPORT_COMPLETE: {item.get('path')}")
+        logger.info(
+            f"Received NPZ_EXPORT_COMPLETE: {npz_path} "
+            f"(config={config_key}, proactive distribution to all GPU nodes)"
+        )
         self._enqueue_item(item)
 
     def _on_training_progress_for_prefetch(self, event: dict[str, Any] | Any) -> None:
@@ -929,11 +946,13 @@ class UnifiedDistributionDaemon(HandlerBase):
             model_items = [i for i in items if i.get("data_type") == DataType.MODEL]
             npz_items = [i for i in items if i.get("data_type") == DataType.NPZ]
 
-            # Process models
+            # Phase 5 Step 8: Process models FIRST (small, critical for evaluation/selfplay),
+            # then NPZ files (large, proactive for training). This ensures model
+            # availability is never delayed by large NPZ transfers.
             if model_items:
                 await self._distribute_models(model_items)
 
-            # Process NPZ files
+            # Process NPZ files after models are distributed
             if npz_items:
                 await self._distribute_npz_files(npz_items)
 
@@ -1010,7 +1029,12 @@ class UnifiedDistributionDaemon(HandlerBase):
             )
 
     async def _distribute_npz_files(self, items: list[dict[str, Any]]) -> None:
-        """Distribute NPZ files to training nodes."""
+        """Distribute NPZ files to training nodes.
+
+        Phase 5 Step 9: Proactive items (from NPZ_EXPORT_COMPLETE) are distributed
+        to ALL GPU nodes via get_gpu_nodes(), ensuring training data is pre-positioned
+        cluster-wide before training triggers.
+        """
         # Feb 2026: S3-only mode for low-memory coordinator
         if self.config.s3_only_distribution and self.config.s3_bucket:
             npz_files = []
@@ -1026,9 +1050,18 @@ class UnifiedDistributionDaemon(HandlerBase):
                     self._last_sync_time = time.time()
             return
 
-        target_nodes = await self._get_training_nodes()
+        # Phase 5 Step 9: For proactive items, distribute to ALL GPU nodes
+        has_proactive = any(item.get("proactive") for item in items)
+        if has_proactive:
+            target_nodes = self._get_gpu_distribution_targets()
+            if not target_nodes:
+                # Fallback to training nodes if GPU node list unavailable
+                target_nodes = await self._get_training_nodes()
+        else:
+            target_nodes = await self._get_training_nodes()
+
         if not target_nodes:
-            logger.warning("No training nodes for NPZ distribution")
+            logger.warning("No target nodes for NPZ distribution")
             return
 
         for item in items:
@@ -1484,12 +1517,41 @@ class UnifiedDistributionDaemon(HandlerBase):
     async def _distribute_via_bittorrent(
         self, file_path: Path, target: dict[str, Any] | str
     ) -> bool:
-        """Distribute file via BitTorrent."""
+        """Distribute file via BitTorrent.
+
+        Phase 5 Step 9: Adds S3 web seeds to torrent files so peers can
+        fall back to HTTP download from S3 when BitTorrent swarm is thin.
+        """
         try:
             from app.distributed.aria2_transport import Aria2Config, Aria2Transport
 
             transport = Aria2Transport(Aria2Config(enable_bittorrent=True))
-            torrent_path, info_hash, _error = await transport.create_and_register_torrent(file_path)
+
+            # Phase 5 Step 9: Add S3 web seed for hybrid HTTP+BT downloads.
+            # Determine the S3 key based on file type (model vs training data).
+            web_seeds = []
+            bucket = self.config.s3_bucket
+            if bucket:
+                file_name = file_path.name
+                if file_name.endswith(".npz"):
+                    # NPZ files stored under consolidated/training/
+                    # Derive config_key from filename (e.g., hex8_2p.npz -> hex8_2p)
+                    config_key = file_name.replace(".npz", "")
+                    s3_url = (
+                        f"https://{bucket}.s3.amazonaws.com/"
+                        f"consolidated/training/{config_key}.npz"
+                    )
+                    web_seeds.append(s3_url)
+                elif file_name.endswith(".pth"):
+                    s3_url = (
+                        f"https://{bucket}.s3.amazonaws.com/"
+                        f"consolidated/models/{file_name}"
+                    )
+                    web_seeds.append(s3_url)
+
+            torrent_path, info_hash, _error = await transport.create_and_register_torrent(
+                file_path, web_seeds=web_seeds if web_seeds else None
+            )
 
             if not info_hash:
                 return False
@@ -1884,6 +1946,39 @@ class UnifiedDistributionDaemon(HandlerBase):
                 return nodes
             except (ImportError, OSError, KeyError, TypeError):
                 return []
+
+    def _get_gpu_distribution_targets(self) -> list[dict[str, Any]]:
+        """Get ALL GPU nodes for proactive NPZ distribution.
+
+        Phase 5 Step 9: Returns all active GPU nodes so that NPZ training data
+        is pre-positioned across the entire cluster before training triggers.
+
+        Returns:
+            List of dicts with node_id, host, user, remote_path, ssh_key.
+        """
+        try:
+            from app.config.cluster_config import get_gpu_nodes
+
+            targets = []
+            for node in get_gpu_nodes():
+                host = node.best_ip
+                if host:
+                    targets.append({
+                        "node_id": node.name,
+                        "host": host,
+                        "user": node.ssh_user or "root",
+                        "remote_path": node.ringrift_path,
+                        "ssh_key": getattr(node, "ssh_key_path", None),
+                    })
+
+            logger.info(
+                f"[ProactiveNPZ] Targeting {len(targets)} GPU nodes for NPZ distribution"
+            )
+            return targets
+
+        except (ImportError, OSError, KeyError, TypeError) as e:
+            logger.warning(f"Failed to get GPU distribution targets: {e}")
+            return []
 
     async def _create_model_symlinks(self, model_paths: list[Path]) -> None:
         """Create ringrift_best_*.pth symlinks for canonical models."""

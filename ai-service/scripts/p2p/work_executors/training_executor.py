@@ -75,6 +75,88 @@ async def _try_fetch_npz_from_cluster(
         return None
 
 
+async def _try_fetch_npz_from_s3(config_key: str, output_path: str) -> bool:
+    """Try to fetch an NPZ file from the consolidated S3 bucket.
+
+    Phase 4: S3 as primary data repository. Inserted between rsync-from-coordinator
+    and local-JSONL-fallback in the NPZ resolution order.
+
+    Args:
+        config_key: e.g. "hex8_2p"
+        output_path: Local path to write the NPZ file to.
+
+    Returns:
+        True on success, False on failure.
+    """
+    s3_path = f"s3://ringrift-models-20251214/consolidated/training/{config_key}.npz"
+    logger.info(f"Attempting S3 fetch for NPZ: {s3_path} -> {output_path}")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "aws", "s3", "cp", s3_path, output_path,
+            "--region", "us-east-1",
+            "--cli-read-timeout", "300",
+            "--cli-connect-timeout", "30",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
+        if proc.returncode == 0 and Path(output_path).exists() and Path(output_path).stat().st_size > 1024:
+            size_mb = Path(output_path).stat().st_size / 1e6
+            logger.info(f"S3 NPZ fetch succeeded: {config_key}.npz ({size_mb:.1f}MB)")
+            return True
+        else:
+            err = stderr.decode()[:300] if stderr else ""
+            logger.warning(f"S3 NPZ fetch failed for {config_key}: rc={proc.returncode} {err}")
+            return False
+    except asyncio.TimeoutError:
+        logger.warning(f"S3 NPZ fetch timed out for {config_key}")
+        return False
+    except Exception as e:
+        logger.debug(f"S3 NPZ fetch error for {config_key}: {e}")
+        return False
+
+
+async def _try_fetch_model_from_s3(model_filename: str, output_path: str) -> bool:
+    """Try to fetch a model checkpoint from the consolidated S3 bucket.
+
+    Phase 4: S3 as primary data repository. Inserted between rsync-from-coordinator
+    and random-init-fallback in the model resolution order.
+
+    Args:
+        model_filename: e.g. "canonical_hex8_2p.pth"
+        output_path: Local path to write the model file to.
+
+    Returns:
+        True on success, False on failure.
+    """
+    s3_path = f"s3://ringrift-models-20251214/consolidated/models/{model_filename}"
+    logger.info(f"Attempting S3 fetch for model: {s3_path} -> {output_path}")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "aws", "s3", "cp", s3_path, output_path,
+            "--region", "us-east-1",
+            "--cli-read-timeout", "300",
+            "--cli-connect-timeout", "30",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
+        if proc.returncode == 0 and Path(output_path).exists() and Path(output_path).stat().st_size > 1024:
+            size_mb = Path(output_path).stat().st_size / 1e6
+            logger.info(f"S3 model fetch succeeded: {model_filename} ({size_mb:.1f}MB)")
+            return True
+        else:
+            err = stderr.decode()[:300] if stderr else ""
+            logger.warning(f"S3 model fetch failed for {model_filename}: rc={proc.returncode} {err}")
+            return False
+    except asyncio.TimeoutError:
+        logger.warning(f"S3 model fetch timed out for {model_filename}")
+        return False
+    except Exception as e:
+        logger.debug(f"S3 model fetch error for {model_filename}: {e}")
+        return False
+
+
 async def _try_local_jsonl_export(
     ai_service_root: Path, config_key: str, board_type: str, num_players: int,
 ) -> Path | None:
@@ -246,6 +328,14 @@ async def execute_training_work(
                     f"Replaced stale NPZ ({npz_size / 1e6:.1f}MB) with fresh "
                     f"({fetched.stat().st_size / 1e6:.1f}MB) for {config_key}"
                 )
+            elif await _try_fetch_npz_from_s3(config_key, str(npz_path)):
+                # Phase 4: S3 fallback for small/stale NPZ
+                new_size = npz_path.stat().st_size if npz_path.exists() else 0
+                if new_size > npz_size:
+                    logger.info(
+                        f"Replaced stale NPZ ({npz_size / 1e6:.1f}MB) with S3 copy "
+                        f"({new_size / 1e6:.1f}MB) for {config_key}"
+                    )
         # Validate NPZ structure before launching training subprocess.
         try:
             from app.coordination.npz_validation import quick_npz_check
@@ -259,19 +349,22 @@ async def execute_training_work(
         cmd.extend(["--data-path", str(npz_path)])
     else:
         # Feb 2026: NPZ not available locally. Try to fetch from another node.
-        # 1. Try rsync from coordinator (fastest for large files)
-        # 2. Fall back to local JSONL export
+        # Resolution order: 1. rsync from coordinator -> 2. S3 fetch -> 3. local JSONL
         fetched_npz = await _try_fetch_npz_from_cluster(
             ai_service_root, config_key, npz_path
         )
         if fetched_npz and fetched_npz.exists() and fetched_npz.stat().st_size > 1024:
             logger.info(f"Fetched NPZ from cluster: {fetched_npz}")
             cmd.extend(["--data-path", str(fetched_npz)])
+        elif await _try_fetch_npz_from_s3(config_key, str(npz_path)):
+            # Phase 4: S3 as primary data repository fallback
+            logger.info(f"Fetched NPZ from S3: {npz_path}")
+            cmd.extend(["--data-path", str(npz_path)])
         else:
             # Fall back to converting local JSONL selfplay data to NPZ
             jsonl_npz = await _try_local_jsonl_export(ai_service_root, config_key, board_type, num_players)
             if jsonl_npz and jsonl_npz.exists() and jsonl_npz.stat().st_size > 1024:
-                logger.info(f"Using locally-exported JSONL→NPZ: {jsonl_npz}")
+                logger.info(f"Using locally-exported JSONL->NPZ: {jsonl_npz}")
                 cmd.extend(["--data-path", str(jsonl_npz)])
             else:
                 logger.error(
@@ -318,19 +411,25 @@ async def execute_training_work(
     if canonical_path.exists() and not _skip_init:
         cmd.extend(["--init-weights", str(canonical_path)])
     elif not canonical_path.exists():
-        logger.warning(
-            f"No canonical model at {canonical_path} — training from scratch"
-        )
-        # Refuse from-random training when we have significant data,
-        # since it wastes GPU hours producing a weak model.
-        game_count = config.get("game_count", 0)
-        if game_count and game_count > 100:
-            logger.error(
-                f"Refusing from-random training for {config_key} with "
-                f"{game_count} games. A canonical model should exist by now."
+        # Phase 4: Try fetching canonical model from S3 before giving up
+        canonical_filename = canonical_path.name
+        if await _try_fetch_model_from_s3(canonical_filename, str(canonical_path)):
+            logger.info(f"Fetched canonical model from S3: {canonical_path}")
+            cmd.extend(["--init-weights", str(canonical_path)])
+        else:
+            logger.warning(
+                f"No canonical model at {canonical_path} (local or S3) — training from scratch"
             )
-            work_item["error"] = f"refusing_from_random:{config_key}:games={game_count}"
-            return False
+            # Refuse from-random training when we have significant data,
+            # since it wastes GPU hours producing a weak model.
+            game_count = config.get("game_count", 0)
+            if game_count and game_count > 100:
+                logger.error(
+                    f"Refusing from-random training for {config_key} with "
+                    f"{game_count} games. A canonical model should exist by now."
+                )
+                work_item["error"] = f"refusing_from_random:{config_key}:games={game_count}"
+                return False
 
     logger.info(
         f"Executing training work {work_id}: {config_key} with {model_version} "

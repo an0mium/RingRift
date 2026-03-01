@@ -75,9 +75,10 @@ class S3SyncConfig:
     )
 
     # Sync settings
+    # Phase 4: Reduced from 600s to 120s to keep S3 fresher as primary repository
     sync_interval: float = field(
         default_factory=lambda: float(
-            os.environ.get("RINGRIFT_S3_SYNC_INTERVAL", "600")
+            os.environ.get("RINGRIFT_S3_SYNC_INTERVAL", "120")
         )
     )
     enabled: bool = field(
@@ -200,18 +201,46 @@ class S3SyncDaemon(HandlerBase):
         }
 
     async def _on_model_promoted(self, event: dict[str, Any]) -> None:
-        """Handle MODEL_PROMOTED - queue for debounced backup."""
-        payload = event.get("payload", event) if isinstance(event, dict) else {}
-        promotion_info = {
-            "model_path": payload.get("model_path"),
-            "board_type": payload.get("board_type"),
-            "num_players": payload.get("num_players"),
-            "timestamp": time.time(),
-        }
-        logger.info(f"[S3SyncDaemon] MODEL_PROMOTED received: {promotion_info}")
+        """Handle MODEL_PROMOTED - push immediately to S3.
 
+        Phase 4: Promoted models are pushed immediately (no debounce) to ensure
+        cluster nodes can fetch them from S3 ASAP. Previously this was debounced
+        with a 60s delay, causing GPU nodes to train from random when the model
+        hadn't reached S3 yet.
+        """
+        payload = event.get("payload", event) if isinstance(event, dict) else {}
+        model_path_str = payload.get("model_path")
+        board_type = payload.get("board_type")
+        num_players = payload.get("num_players")
+        logger.info(
+            f"[S3SyncDaemon] MODEL_PROMOTED received: "
+            f"model={model_path_str}, board={board_type}, players={num_players}"
+        )
+
+        # Immediate push: push the promoted model to both node-namespaced AND
+        # consolidated paths so training_executor's S3 fetch can find it.
+        if model_path_str:
+            model_path = self._base_path / model_path_str if not Path(model_path_str).is_absolute() else Path(model_path_str)
+            if model_path.exists():
+                # Push to node-namespaced path
+                node_key = f"nodes/{self.node_id}/models/{model_path.name}"
+                await self._push_file(model_path, node_key)
+                # Push to consolidated path (Phase 4: ensures cross-node visibility)
+                consolidated_key = f"consolidated/models/{model_path.name}"
+                await self._push_file(model_path, consolidated_key)
+                logger.info(
+                    f"[S3SyncDaemon] Immediate push for promoted model: "
+                    f"{model_path.name} (node + consolidated)"
+                )
+
+        # Still track for periodic backup completions
         async with self._pending_lock:
-            self._pending_promotions.append(promotion_info)
+            self._pending_promotions.append({
+                "model_path": model_path_str,
+                "board_type": board_type,
+                "num_players": num_players,
+                "timestamp": time.time(),
+            })
         self._stats.events_processed += 1
 
     async def _on_training_completed(self, event: Any) -> None:
@@ -402,28 +431,50 @@ class S3SyncDaemon(HandlerBase):
             await self._push_if_modified(db_path, self._get_s3_key(db_path, "games"))
 
     async def _sync_npz(self) -> None:
-        """Sync NPZ training files to S3."""
+        """Sync NPZ training files to S3.
+
+        Phase 4: Pushes to BOTH node-namespaced and consolidated paths so that
+        training_executor's S3 fetch (from consolidated/) can find the files.
+        """
         training_dir = self._base_path / "data" / "training"
         if not training_dir.exists():
             return
 
         for npz_path in training_dir.glob("*.npz"):
+            # Push to primary path (node-namespaced or consolidated based on config)
             await self._push_if_modified(npz_path, self._get_s3_key(npz_path, "training"))
+            # Phase 4: Always push to consolidated path for cross-node visibility
+            consolidated_key = f"consolidated/training/{npz_path.name}"
+            if self._get_s3_key(npz_path, "training") != consolidated_key:
+                await self._push_if_modified(npz_path, consolidated_key)
 
     async def _sync_models(self) -> None:
-        """Sync model checkpoints to S3."""
+        """Sync model checkpoints to S3.
+
+        Phase 4: Pushes to BOTH node-namespaced and consolidated paths so that
+        training_executor's S3 fetch (from consolidated/) can find the files.
+        """
         models_dir = self._base_path / "models"
         if not models_dir.exists():
             return
 
+        all_model_paths: list[Path] = []
         for model_path in models_dir.glob("canonical_*.pth"):
-            await self._push_if_modified(model_path, self._get_s3_key(model_path, "models"))
+            all_model_paths.append(model_path)
 
         # Feb 2026: Also sync candidate and best models — these are training pipeline
         # outputs and promotion snapshots that were previously unprotected.
         for pattern in ["candidate_*.pth", "ringrift_best_*.pth"]:
             for model_path in models_dir.glob(pattern):
-                await self._push_if_modified(model_path, self._get_s3_key(model_path, "models"))
+                all_model_paths.append(model_path)
+
+        for model_path in all_model_paths:
+            # Push to primary path (node-namespaced or consolidated based on config)
+            await self._push_if_modified(model_path, self._get_s3_key(model_path, "models"))
+            # Phase 4: Always push to consolidated path for cross-node visibility
+            consolidated_key = f"consolidated/models/{model_path.name}"
+            if self._get_s3_key(model_path, "models") != consolidated_key:
+                await self._push_if_modified(model_path, consolidated_key)
 
     async def _sync_metadata(self) -> None:
         """Sync critical metadata databases to S3.

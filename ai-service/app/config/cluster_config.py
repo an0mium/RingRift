@@ -506,6 +506,39 @@ def get_p2p_voters(config_path: str | Path | None = None) -> list[str]:
     return load_cluster_config(config_path).p2p_voters
 
 
+def get_raft_members(config_path: str | Path | None = None) -> list[str]:
+    """Get Raft consensus member list (coordinators only).
+
+    Raft is restricted to coordinator nodes to prevent split-brain from
+    GPU workers and Hetzner CPUs joining consensus. Falls back to p2p_voters
+    if raft_members is not configured in YAML.
+    """
+    config = load_cluster_config(config_path)
+    members = config._raw_config.get("raft_members")
+    if members and isinstance(members, list):
+        return members
+    # Backward-compatible fallback
+    return config.p2p_voters
+
+
+def get_coordinator_nodes(config_path: str | Path | None = None) -> list[str]:
+    """Get coordinator node list.
+
+    Returns the list of nodes designated as coordinators (run P2P leader
+    election, data pipeline orchestration, etc.). Falls back to extracting
+    nodes with role=coordinator from hosts config.
+    """
+    config = load_cluster_config(config_path)
+    coordinators = config._raw_config.get("coordinator_nodes")
+    if coordinators and isinstance(coordinators, list):
+        return coordinators
+    # Fallback: extract from hosts with role=coordinator
+    return [
+        name for name, host in config.hosts_raw.items()
+        if host.get("role", "").lower() == "coordinator"
+    ]
+
+
 def get_p2p_port() -> int:
     """Get P2P orchestrator port from environment or default.
 
