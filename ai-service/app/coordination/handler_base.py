@@ -845,15 +845,18 @@ class HandlerBase(SafeEventEmitterMixin, ABC):
         else:
             error_rate = 0.0
 
-        # Degraded if error rate > 20%, unhealthy if > 50%
-        if error_rate > 0.5:
+        # Feb 28, 2026: Raised thresholds from 50%/20% to 80%/40%.
+        # In distributed clusters, transient SSH/network errors are common and
+        # don't indicate daemon dysfunction. The old 50% threshold caused cascading
+        # restarts of ALL daemons every 5 minutes, preventing any cycle completion.
+        if error_rate > 0.8:
             return HealthCheckResult(
                 healthy=False,
                 status=CoordinatorStatus.ERROR,
                 message=f"High error rate: {error_rate:.1%}",
                 details=self._get_health_details(),
             )
-        elif error_rate > 0.2:
+        elif error_rate > 0.4:
             return HealthCheckResult(
                 healthy=True,
                 status=CoordinatorStatus.DEGRADED,

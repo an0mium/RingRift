@@ -722,7 +722,11 @@ class DaemonManagerConfig:
 
     # December 2025: Default startup grace period before health checks begin
     # Slow-starting daemons won't be incorrectly marked as unhealthy during initialization
-    default_startup_grace_period: float = 60.0  # seconds
+    # Feb 28, 2026: Raised from 60s to 300s. In a distributed cluster with SSH/network
+    # errors, daemons accumulate transient errors during startup (SSH timeouts, database
+    # locks, peer discovery). At 60s, the error rate exceeds 50% before the first
+    # successful cycle, triggering cascading restarts of ALL daemons every 5 minutes.
+    default_startup_grace_period: float = 300.0  # seconds
 
 
 # P11-HIGH-2: Daemons critical for cluster health that need faster failure detection
