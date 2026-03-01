@@ -429,7 +429,18 @@ class NPZDatasetWriter:
         if victory_types is not None:
             save_kwargs["victory_types"] = victory_types
 
-        np.savez_compressed(str(output_path), **save_kwargs)
+        # Feb 28, 2026: Atomic write — temp file + rename to prevent corruption
+        # when concurrent processes write to the same output path.
+        import tempfile as _tempfile
+        _fd, _tmp = _tempfile.mkstemp(suffix=".npz", dir=str(Path(output_path).parent))
+        os.close(_fd)
+        try:
+            np.savez_compressed(_tmp, **save_kwargs)
+            os.replace(_tmp, str(output_path))
+        except BaseException:
+            if os.path.exists(_tmp):
+                os.unlink(_tmp)
+            raise
         logger.info(f"Saved {len(values)} samples to {output_path}")
 
     @staticmethod
@@ -506,7 +517,17 @@ class NPZDatasetWriter:
             if "victory_types" in data and victory_types is not None:
                 save_kwargs["victory_types"] = np.concatenate([data["victory_types"], victory_types], axis=0)
 
-        np.savez_compressed(str(output_path), **save_kwargs)
+        # Feb 28, 2026: Atomic write for append too
+        import tempfile as _tempfile
+        _fd, _tmp = _tempfile.mkstemp(suffix=".npz", dir=str(Path(output_path).parent))
+        os.close(_fd)
+        try:
+            np.savez_compressed(_tmp, **save_kwargs)
+            os.replace(_tmp, str(output_path))
+        except BaseException:
+            if os.path.exists(_tmp):
+                os.unlink(_tmp)
+            raise
         return len(new_values)
 
     @staticmethod

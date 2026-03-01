@@ -1616,6 +1616,19 @@ def export_replay_dataset_multi(
         )
     print(f"[Disk Space] {space_msg}")
 
+    # Feb 2026: Cross-process lock prevents concurrent exports to the same file.
+    # Without this, auto_export_daemon + manual exports + P2P exports can all
+    # write simultaneously, causing corruption even with atomic writes below.
+    import fcntl
+    _lock_path = str(output_path) + ".lock"
+    _lock_fd = open(_lock_path, "w")
+    try:
+        fcntl.flock(_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print(f"[EXPORT SKIPPED] Another export is writing to {output_path}")
+        _lock_fd.close()
+        return None
+
     # Feb 2026: Atomic write — write to temp file, validate, then rename.
     # Prevents corrupt NPZ files when process is killed mid-write.
     import tempfile as _tempfile
@@ -1653,6 +1666,14 @@ def export_replay_dataset_multi(
         if os.path.exists(_tmp_path):
             os.unlink(_tmp_path)
         raise
+    finally:
+        # Release the cross-process file lock
+        fcntl.flock(_lock_fd, fcntl.LOCK_UN)
+        _lock_fd.close()
+        try:
+            os.unlink(_lock_path)
+        except OSError:
+            pass
 
     # Log engine mode distribution for sample weighting visibility
     from collections import Counter
