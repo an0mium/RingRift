@@ -2427,6 +2427,20 @@ class EvaluationDaemon(HandlerBase):
         Mar 1, 2026: Skip hexagonal board (469 cells) — too slow for CPU even with
         10 games. Hexagonal evals need GPU nodes.
         """
+        # Mar 1, 2026: Standby coordinators (e.g., MacBook) do no heavy work.
+        # Gauntlets should only run on the primary coordinator (mac-studio).
+        from app.config.env import env as _env
+        if _env.is_standby_coordinator:
+            logger.info(
+                f"[EvaluationDaemon] Skipping gauntlet on standby coordinator: {model_path}"
+            )
+            persistent_request_id = request.get("_persistent_request_id")
+            if persistent_request_id and self._persistent_queue:
+                self._persistent_queue.fail(persistent_request_id, "standby_coordinator")
+                for sid in request.get("_sibling_request_ids", []):
+                    self._persistent_queue.fail(sid, "standby_coordinator")
+            return
+
         # Hexagonal board has 469 cells — each move evaluates all positions via
         # policy network forward pass. Even 10 games takes 30+ minutes on CPU,
         # repeatedly timing out. Skip and let cluster handle when available.

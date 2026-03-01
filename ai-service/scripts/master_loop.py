@@ -1650,11 +1650,29 @@ class MasterLoopController:
                         f"[MasterLoop] Coordinator mode: added {daemon.value} for disk management"
                     )
 
+        # March 2026: Standby coordinator mode — minimal daemon set.
+        # Standby coordinators (e.g., local-mac MacBook) only run health
+        # monitoring, Elo sync, and dashboard. No evaluations, exports,
+        # training triggers, S3 pushes, or any disk/CPU-intensive work.
+        if env.is_standby_coordinator:
+            # Allow-list: only these daemons run on standby coordinators
+            standby_allowed = {
+                DaemonType.PROGRESS_WATCHDOG,
+                DaemonType.NODE_HEALTH_MONITOR,
+                DaemonType.NODE_AVAILABILITY,
+            }
+            original_count = len(daemons)
+            daemons = [d for d in daemons if d in standby_allowed]
+            logger.info(
+                f"[MasterLoop] Standby coordinator mode: keeping {len(daemons)} of "
+                f"{original_count} daemons (node: {env.node_id})"
+            )
+
         # January 2026: Add PARITY_VALIDATION on any node with npx available
         # The parity daemon validates pending_gate databases and stores TS hashes.
         # It requires Node.js (npx) but isn't resource-intensive, so it can run
         # on non-coordinator nodes that have npx installed.
-        if DaemonType.PARITY_VALIDATION not in daemons:
+        if DaemonType.PARITY_VALIDATION not in daemons and not env.is_standby_coordinator:
             if self._has_npx():
                 daemons.append(DaemonType.PARITY_VALIDATION)
                 logger.info(

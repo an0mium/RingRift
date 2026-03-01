@@ -371,35 +371,70 @@ class RingRiftEnv:
         return self.node_id == "local-mac"
 
     @cached_property
+    def is_standby_coordinator(self) -> bool:
+        """Whether this node is a standby coordinator (lightweight mode).
+
+        Standby coordinators run minimal daemons (health monitoring, Elo sync,
+        dashboard) and do no heavy work. They can take over leadership in an
+        emergency but normally just observe.
+
+        Mar 2026: Checked via env var, YAML role, or is_heavy_work_blocked.
+        """
+        explicit = os.environ.get("RINGRIFT_STANDBY_COORDINATOR", "").lower()
+        if explicit in ("1", "true", "yes"):
+            return True
+        # Check YAML role
+        config = self._get_node_config()
+        if config and config.get("role") == "standby_coordinator":
+            return True
+        return False
+
+    @cached_property
     def selfplay_enabled(self) -> bool:
-        """Whether selfplay is enabled on this node."""
-        if self.is_heavy_work_blocked:
-            return False
-        # Explicit override
+        """Whether selfplay is enabled on this node.
+
+        Priority: env var > YAML config > is_heavy_work_blocked > coordinator default.
+        """
+        # Explicit env var ALWAYS takes precedence
         explicit = os.environ.get("RINGRIFT_SELFPLAY_ENABLED", "").lower()
         if explicit in ("0", "false", "no"):
             return False
         if explicit in ("1", "true", "yes"):
             return True
+        # YAML config overrides is_heavy_work_blocked (intentional per-node config)
+        config = self._get_node_config()
+        if config and "selfplay_enabled" in config:
+            val = config["selfplay_enabled"]
+            return val if isinstance(val, bool) else str(val).lower() in ("1", "true", "yes")
+        if self.is_heavy_work_blocked:
+            return False
         # Coordinators have selfplay disabled by default
         if self.is_coordinator:
             return False
-        # Check config
-        return self._get_node_config_bool("selfplay_enabled", default=True)
+        return True
 
     @cached_property
     def training_enabled(self) -> bool:
-        """Whether training is enabled on this node."""
-        if self.is_heavy_work_blocked:
-            return False
+        """Whether training is enabled on this node.
+
+        Priority: env var > YAML config > is_heavy_work_blocked > coordinator default.
+        """
+        # Explicit env var ALWAYS takes precedence
         explicit = os.environ.get("RINGRIFT_TRAINING_ENABLED", "").lower()
         if explicit in ("0", "false", "no"):
             return False
         if explicit in ("1", "true", "yes"):
             return True
+        # YAML config overrides is_heavy_work_blocked (intentional per-node config)
+        config = self._get_node_config()
+        if config and "training_enabled" in config:
+            val = config["training_enabled"]
+            return val if isinstance(val, bool) else str(val).lower() in ("1", "true", "yes")
+        if self.is_heavy_work_blocked:
+            return False
         if self.is_coordinator:
             return False
-        return self._get_node_config_bool("training_enabled", default=True)
+        return True
 
     @cached_property
     def gauntlet_enabled(self) -> bool:
@@ -409,17 +444,25 @@ class RingRiftEnv:
         during forward passes, blocking the asyncio event loop for minutes
         on large boards (square19=361 cells). Evaluations dispatch to GPU
         cluster nodes instead via _dispatch_gauntlet_to_cluster().
+
+        Priority: env var > YAML config > is_heavy_work_blocked > coordinator default.
         """
-        if self.is_heavy_work_blocked:
-            return False
+        # Explicit env var ALWAYS takes precedence
         explicit = os.environ.get("RINGRIFT_GAUNTLET_ENABLED", "").lower()
         if explicit in ("0", "false", "no"):
             return False
         if explicit in ("1", "true", "yes"):
             return True
+        # YAML config overrides is_heavy_work_blocked (intentional per-node config)
+        config = self._get_node_config()
+        if config and "gauntlet_enabled" in config:
+            val = config["gauntlet_enabled"]
+            return val if isinstance(val, bool) else str(val).lower() in ("1", "true", "yes")
+        if self.is_heavy_work_blocked:
+            return False
         if self.is_coordinator:
             return False
-        return self._get_node_config_bool("gauntlet_enabled", default=True)
+        return True
 
     @cached_property
     def export_enabled(self) -> bool:
@@ -428,15 +471,23 @@ class RingRiftEnv:
         Note: Coordinators NEED export enabled to convert consolidated game
         data into NPZ training files. Without this, the training pipeline
         stalls because no training data is ever generated.
+
+        Priority: env var > YAML config > is_heavy_work_blocked > default True.
         """
-        if self.is_heavy_work_blocked:
-            return False
+        # Explicit env var ALWAYS takes precedence
         explicit = os.environ.get("RINGRIFT_EXPORT_ENABLED", "").lower()
         if explicit in ("0", "false", "no"):
             return False
         if explicit in ("1", "true", "yes"):
             return True
-        return self._get_node_config_bool("export_enabled", default=True)
+        # YAML config overrides is_heavy_work_blocked (intentional per-node config)
+        config = self._get_node_config()
+        if config and "export_enabled" in config:
+            val = config["export_enabled"]
+            return val if isinstance(val, bool) else str(val).lower() in ("1", "true", "yes")
+        if self.is_heavy_work_blocked:
+            return False
+        return True
 
     @cached_property
     def consolidation_enabled(self) -> bool:
@@ -444,17 +495,25 @@ class RingRiftEnv:
 
         Coordinators should NOT consolidate data locally as it creates
         large canonical_*.db files that fill up disk space.
+
+        Priority: env var > YAML config > is_heavy_work_blocked > coordinator default.
         """
-        if self.is_heavy_work_blocked:
-            return False
+        # Explicit env var ALWAYS takes precedence
         explicit = os.environ.get("RINGRIFT_CONSOLIDATION_ENABLED", "").lower()
         if explicit in ("0", "false", "no"):
             return False
         if explicit in ("1", "true", "yes"):
             return True
+        # YAML config overrides is_heavy_work_blocked (intentional per-node config)
+        config = self._get_node_config()
+        if config and "consolidation_enabled" in config:
+            val = config["consolidation_enabled"]
+            return val if isinstance(val, bool) else str(val).lower() in ("1", "true", "yes")
+        if self.is_heavy_work_blocked:
+            return False
         if self.is_coordinator:
             return False
-        return self._get_node_config_bool("consolidation_enabled", default=True)
+        return True
 
     def _check_coordinator_from_config(self) -> bool:
         """Check distributed_hosts.yaml for coordinator role."""
