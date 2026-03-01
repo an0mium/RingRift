@@ -302,7 +302,12 @@ def run_promotion(db_path: Path, dry_run: bool = False) -> list[str]:
     with fallback to direct database checks.
     """
     history = load_promotion_history()
-    promoted_ids = set(history.get("promoted", []))
+    # Promoted entries may be dicts (with model_id key) or strings
+    raw_promoted = history.get("promoted", [])
+    promoted_ids = set(
+        p["model_id"] if isinstance(p, dict) else str(p)
+        for p in raw_promoted
+    )
 
     # Try to use PromotionController for unified logic (December 2025)
     if HAS_PROMOTION_CONTROLLER:

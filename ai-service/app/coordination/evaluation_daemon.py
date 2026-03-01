@@ -1405,9 +1405,22 @@ class EvaluationDaemon(HandlerBase):
         from app.config.env import env
         if gauntlet_override not in ("1", "true", "yes") and not env.gauntlet_enabled:
             logger.info(
-                f"[EvaluationDaemon] Gauntlet disabled on this node, dispatching to cluster: {model_path}"
+                f"[EvaluationDaemon] Gauntlet disabled on this node, trying cluster dispatch: {model_path}"
             )
-            await self._dispatch_gauntlet_to_cluster(model_path, board_type, num_players, request)
+            dispatch_ok = await self._dispatch_gauntlet_to_cluster_with_fallback(
+                model_path, board_type, num_players, request
+            )
+            if dispatch_ok:
+                return
+            # Feb 28, 2026: Cluster dispatch failed — fall back to lightweight local
+            # gauntlet with policy-only inference (no GPU needed, ~30s per eval).
+            # Better than no evaluation at all.
+            logger.info(
+                f"[EvaluationDaemon] Cluster dispatch failed, running lightweight local gauntlet: {model_path}"
+            )
+            await self._run_lightweight_local_gauntlet(
+                model_path, board_type, num_players, request
+            )
             return
 
         # December 2025 - Phase 3B: Pre-evaluation distribution check
@@ -2329,6 +2342,176 @@ class EvaluationDaemon(HandlerBase):
         except (OSError, RuntimeError) as e:
             logger.error(f"[EvaluationDaemon] Dispatch to cluster failed: {e}")
             self._eval_stats.evaluations_failed += 1
+
+    async def _dispatch_gauntlet_to_cluster_with_fallback(
+        self,
+        model_path: str,
+        board_type: str,
+        num_players: int,
+        request: dict,
+    ) -> bool:
+        """Try dispatching gauntlet to cluster. Returns True if dispatch succeeded.
+
+        Feb 28, 2026: Wrapper around _dispatch_gauntlet_to_cluster that returns
+        success/failure so the caller can fall back to local execution.
+        """
+        try:
+            from app.coordination.work_distributor import (
+                get_work_distributor,
+                DistributedWorkConfig,
+            )
+
+            distributor = get_work_distributor()
+            config = DistributedWorkConfig(priority=85, require_gpu=True)
+            work_id = await distributor.submit_evaluation(
+                candidate_model=model_path,
+                baseline_model=None,
+                games=self.config.games_per_baseline * len(self.config.baselines),
+                board=board_type,
+                num_players=num_players,
+                evaluation_type="gauntlet",
+                config=config,
+            )
+
+            if work_id:
+                logger.info(
+                    f"[EvaluationDaemon] Dispatched gauntlet to cluster: {work_id} "
+                    f"for {model_path}"
+                )
+                self._eval_stats.evaluations_triggered += 1
+                persistent_request_id = request.get("_persistent_request_id")
+                if persistent_request_id:
+                    sibling_ids = request.get("_sibling_request_ids", [])
+                    self._dispatched_evaluations[work_id] = (persistent_request_id, sibling_ids)
+                return True
+            else:
+                logger.warning(
+                    f"[EvaluationDaemon] Cluster dispatch returned no work_id: {model_path}"
+                )
+                return False
+
+        except ImportError:
+            logger.warning(
+                "[EvaluationDaemon] WorkDistributor not available for cluster dispatch"
+            )
+            return False
+        except (OSError, RuntimeError) as e:
+            logger.warning(f"[EvaluationDaemon] Cluster dispatch error: {e}")
+            return False
+
+    async def _run_lightweight_local_gauntlet(
+        self,
+        model_path: str,
+        board_type: str,
+        num_players: int,
+        request: dict,
+    ) -> None:
+        """Run a lightweight local gauntlet as fallback when cluster dispatch fails.
+
+        Feb 28, 2026: Uses policy-only inference (no GPU/MCTS needed) with reduced
+        game count (~10 per opponent). Runs in ~30s on CPU. Better than no evaluation.
+        """
+        start_time = time.time()
+        config_key = make_config_key(board_type, num_players)
+        run_id = str(uuid.uuid4())
+
+        logger.info(
+            f"[EvaluationDaemon] Running lightweight local gauntlet for {model_path} "
+            f"({config_key})"
+        )
+
+        self._record_gauntlet_start(run_id, config_key)
+        await self._emit_evaluation_started(model_path, board_type, num_players)
+
+        try:
+            # Use only RANDOM and HEURISTIC baselines for lightweight eval.
+            # 30 games per opponent (60 total) meets the 50-game promotion
+            # threshold while staying fast on CPU (~1-2 min with policy-only).
+            lightweight_opponents = [BaselineOpponent.RANDOM, BaselineOpponent.HEURISTIC]
+
+            result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    run_baseline_gauntlet,
+                    model_path=model_path,
+                    board_type=board_type,
+                    opponents=lightweight_opponents,
+                    games_per_opponent=30,
+                    num_players=num_players,
+                    verbose=False,
+                    early_stopping=False,
+                    parallel_games=4,
+                    parallel_opponents=False,
+                    use_search=False,
+                ),
+                timeout=300.0,  # 5 minutes max for lightweight eval
+            )
+
+            elapsed = time.time() - start_time
+            self._eval_stats.evaluations_completed += 1
+            self._eval_stats.last_evaluation_time = elapsed
+            self._update_average_time(elapsed)
+
+            # Convert result to dict
+            if hasattr(result, "opponent_results"):
+                result_dict = {
+                    "overall_win_rate": result.win_rate,
+                    "opponent_results": result.opponent_results,
+                    "estimated_elo": getattr(result, "estimated_elo", 0.0),
+                    "best_elo": getattr(result, "estimated_elo", 0.0),
+                    "source": "lightweight_local_fallback",
+                }
+            elif isinstance(result, dict):
+                result_dict = result
+                result_dict["source"] = "lightweight_local_fallback"
+            else:
+                result_dict = {"overall_win_rate": 0.0, "opponent_results": {}}
+
+            total_games = sum(
+                opp.get("games_played", 0)
+                for opp in result_dict.get("opponent_results", {}).values()
+            )
+            self._eval_stats.games_played += total_games
+
+            # Compute Elo from results
+            estimated_elo = await self._compute_elo_from_gauntlet(
+                model_path=model_path,
+                board_type=board_type,
+                num_players=num_players,
+                result=result_dict,
+            )
+            if estimated_elo is not None:
+                result_dict["estimated_elo"] = estimated_elo
+                result_dict["best_elo"] = estimated_elo
+
+            await self._emit_evaluation_completed(
+                model_path=model_path,
+                board_type=board_type,
+                num_players=num_players,
+                result=result_dict,
+            )
+
+            self._recently_evaluated[model_path] = time.time()
+            self._record_gauntlet_complete(run_id, 1, total_games, "completed_local_fallback")
+
+            logger.info(
+                f"[EvaluationDaemon] Lightweight local gauntlet completed: {model_path} "
+                f"(win_rate={result_dict.get('overall_win_rate', 0):.1%}, "
+                f"{total_games} games, {elapsed:.1f}s)"
+            )
+
+        except asyncio.TimeoutError:
+            self._eval_stats.evaluations_failed += 1
+            self._record_gauntlet_complete(run_id, 0, 0, "failed:local_timeout")
+            await self._emit_evaluation_failed(model_path, board_type, num_players, "local_timeout")
+            logger.error(f"[EvaluationDaemon] Lightweight local gauntlet timed out: {model_path}")
+
+        except Exception as e:  # noqa: BLE001
+            self._eval_stats.evaluations_failed += 1
+            self._record_gauntlet_complete(run_id, 0, 0, f"failed:local_error:{e}")
+            await self._emit_evaluation_failed(model_path, board_type, num_players, str(e))
+            logger.error(
+                f"[EvaluationDaemon] Lightweight local gauntlet failed: {model_path}: {e}"
+            )
 
     def _should_activate_backpressure(self) -> bool:
         """Session 17.24: Check if backpressure can be activated respecting hysteresis.

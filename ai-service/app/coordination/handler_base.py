@@ -366,6 +366,9 @@ class HandlerBase(SafeEventEmitterMixin, ABC):
         """Extract board type and num players from event payload.
 
         December 30, 2025: Consolidates board config extraction pattern.
+        Feb 28, 2026: Added config_key and model_path fallback parsing.
+        When board_type is missing from the payload, parse it from config_key
+        (e.g., "hex8_2p") or model_path (e.g., "candidate_hex8_2p.pth").
 
         Args:
             payload: Event payload dictionary
@@ -373,9 +376,32 @@ class HandlerBase(SafeEventEmitterMixin, ABC):
         Returns:
             Tuple of (board_type, num_players) with defaults if not found
         """
-        board_type = payload.get("board_type", "unknown")
-        num_players = payload.get("num_players", 2)
-        return (board_type, num_players)
+        board_type = payload.get("board_type")
+        num_players = payload.get("num_players")
+
+        # Fallback: parse from config_key or model_path
+        if not board_type or board_type == "unknown":
+            config_key = payload.get("config_key", "")
+            if not config_key:
+                # Try extracting config_key from model_path
+                model_path = payload.get("model_path", "")
+                if model_path:
+                    import re
+                    # Match patterns like candidate_hex8_2p.pth, canonical_square8_3p.pth
+                    m = re.search(r"(hex8|hexagonal|square8|square19)_(\d)p", model_path)
+                    if m:
+                        config_key = f"{m.group(1)}_{m.group(2)}p"
+            if config_key:
+                try:
+                    from app.coordination.event_utils import parse_config_key
+                    parsed = parse_config_key(config_key)
+                    if parsed:
+                        board_type = parsed.board_type
+                        num_players = parsed.num_players
+                except ImportError:
+                    pass
+
+        return (board_type or "unknown", num_players if num_players else 2)
 
     def _normalize_event_payload(self, event: Any) -> dict[str, Any]:
         """Normalize event to a consistent payload dictionary.

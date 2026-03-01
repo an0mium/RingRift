@@ -345,11 +345,17 @@ class AutoPromotionDaemon(HandlerBase):
                         try:
                             from app.coordination.event_router import emit_event
                             from app.coordination.data_events import DataEventType
+                            # Feb 28, 2026: Parse config_key to include board_type/num_players
+                            # in payload. Downstream consumers (distribution, S3, tournament)
+                            # require these fields and log errors when they're None.
+                            parsed = parse_config_key(config_key)
                             emit_event(
                                 DataEventType.MODEL_PROMOTED,
                                 {
                                     "config_key": config_key,
                                     "model_path": str(candidate_path),
+                                    "board_type": parsed.board_type if parsed else None,
+                                    "num_players": parsed.num_players if parsed else None,
                                     "source": "elo_scan",
                                     "elo_gap": gap,
                                     "candidate_elo": candidate_elo,
@@ -1697,11 +1703,17 @@ class AutoPromotionDaemon(HandlerBase):
 
             router = get_router()
             if router:
+                # Feb 28, 2026: Parse config_key to include board_type/num_players
+                # in payload. Downstream consumers (distribution, S3, tournament)
+                # require these fields and log errors when they're None.
+                parsed = parse_config_key(candidate.config_key)
                 await router.publish(
                     event_type=DataEventType.MODEL_PROMOTED,
                     payload={
                         "config_key": candidate.config_key,
                         "model_path": candidate.model_path,
+                        "board_type": parsed.board_type if parsed else None,
+                        "num_players": parsed.num_players if parsed else None,
                         "reason": "auto_promotion_daemon",
                         "vs_random": candidate.evaluation_results.get("RANDOM", 0.0),
                         "vs_heuristic": candidate.evaluation_results.get("HEURISTIC", 0.0),

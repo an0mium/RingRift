@@ -362,6 +362,10 @@ class ProcessSpawnerOrchestrator(BaseOrchestrator):
                 return await self._start_data_export_job(
                     job_id, job_type, board_type, num_players, export_params
                 )
+            elif job_type_val == "training":
+                return await self._start_training_job(
+                    job_id, job_type, board_type, num_players
+                )
             else:
                 self._log_warning(f"Unknown job type: {job_type_val}")
                 return None
@@ -954,6 +958,78 @@ class ProcessSpawnerOrchestrator(BaseOrchestrator):
         if job_orchestration is not None:
             job_type_val = job_type.value if hasattr(job_type, "value") else str(job_type)
             job_orchestration.record_job_started(job_type_val)
+
+        return job
+
+    async def _start_training_job(
+        self,
+        job_id: str,
+        job_type: Any,
+        board_type: str,
+        num_players: int,
+    ) -> Any | None:
+        """Start a training job via subprocess.
+
+        Feb 28, 2026: Added to close the gap where push-dispatched training
+        fell through to "Unknown job type". Builds the same training command
+        as training_executor.py but adapted to the process spawner interface.
+        """
+        config_key = f"{board_type}_{num_players}p"
+        ai_service_path = self._get_ai_service_path()
+
+        # Resolve paths
+        npz_path = Path(ai_service_path) / f"data/training/{config_key}.npz"
+        canonical_path = Path(ai_service_path) / f"models/canonical_{config_key}.pth"
+        output_model = f"models/candidate_{config_key}.pth"
+
+        if not npz_path.exists():
+            self._log_warning(
+                f"Training data not found for {config_key}: {npz_path}"
+            )
+            return None
+
+        venv_python = Path(ai_service_path, "venv", "bin", "python")
+        python_exec = str(venv_python) if venv_python.exists() else "python3"
+
+        cmd = [
+            python_exec, "-m", "app.training.train",
+            "--board-type", board_type,
+            "--num-players", str(num_players),
+            "--data-path", str(npz_path),
+            "--save-path", output_model,
+            "--epochs", "50",
+            "--batch-size", "256",
+            "--allow-stale-data",
+            "--max-data-age-hours", "168",
+        ]
+
+        # Use canonical model as init weights if available
+        if canonical_path.exists():
+            cmd.extend(["--init-weights", str(canonical_path)])
+
+        output_dir = Path(ai_service_path) / "data" / "training" / "logs"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        result = self._spawn_and_track_job(
+            job_id=job_id,
+            job_type=job_type,
+            board_type=board_type,
+            num_players=num_players,
+            engine_mode="training",
+            cmd=cmd,
+            output_dir=output_dir,
+            safeguard_reason=f"training-{config_key}",
+        )
+        if result is None:
+            return None
+
+        job, proc = result
+        self._local_jobs_started += 1
+
+        # Monitor training process
+        safe_create_task(self._monitor_selfplay_process(
+            job_id, proc, output_dir, board_type, num_players, "training"
+        ), name=f"spawner-monitor-training-{job_id[:8]}")
 
         return job
 
