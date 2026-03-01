@@ -1655,11 +1655,16 @@ class MasterLoopController:
         # monitoring, Elo sync, and dashboard. No evaluations, exports,
         # training triggers, S3 pushes, or any disk/CPU-intensive work.
         if env.is_standby_coordinator:
-            # Allow-list: only these daemons run on standby coordinators
+            # Allow-list: only lightweight observe-only daemons
             standby_allowed = {
-                DaemonType.PROGRESS_WATCHDOG,
-                DaemonType.NODE_HEALTH_MONITOR,
-                DaemonType.NODE_AVAILABILITY,
+                DaemonType.EVENT_ROUTER,              # Core event infrastructure
+                DaemonType.COORDINATOR_HEALTH_MONITOR, # Health monitoring
+                DaemonType.CLUSTER_MONITOR,            # Cluster observability
+                DaemonType.HEALTH_SERVER,              # Health HTTP endpoint
+                DaemonType.ELO_SYNC,                   # Receive Elo updates
+                DaemonType.ELO_PROGRESS,               # Elo trend tracking
+                DaemonType.CONFIG_SYNC,                # Config sync
+                DaemonType.NODE_AVAILABILITY,          # Node status tracking
             }
             original_count = len(daemons)
             daemons = [d for d in daemons if d in standby_allowed]
