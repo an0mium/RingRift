@@ -321,14 +321,25 @@ async def emit_p2p_work_completed(
             logger.debug(f"[P2PEventBridge] Emitted SELFPLAY_COMPLETE for {config_key}")
 
         elif work_type == "training":
+            # Mar 2026: Include training_samples, training_games, and final_loss
+            # from training_executor result. Previously these were omitted, causing
+            # ALL model_generations rows to record training_games=0, training_samples=0.
+            # Also fix key mismatch: training_executor uses "final_loss" not "val_loss".
+            final_loss = result.get("final_loss", 0.0) or result.get("val_loss", 0.0)
             await publish(
                 event_type="TRAINING_COMPLETED",
                 payload={
                     "config_key": config_key,
+                    "board_type": board_type,
+                    "num_players": num_players,
                     "model_id": result.get("model_id", ""),
                     "model_path": result.get("model_path", ""),
-                    "val_loss": result.get("val_loss", 0.0),
-                    "train_loss": result.get("train_loss", 0.0),
+                    "model_version": result.get("model_version", ""),
+                    "final_loss": final_loss,
+                    "val_loss": final_loss,
+                    "train_loss": result.get("train_loss", 0.0) or final_loss,
+                    "training_samples": result.get("training_samples", 0),
+                    "training_games": result.get("training_games", 0),
                     "epochs": result.get("epochs", 0),
                     "success": True,
                     "node_id": node_id,

@@ -589,19 +589,54 @@ class ModelLifecycleCoordinator:
                         latest = tracker.get_latest_generation(board_type, num_players)
                         parent_id = latest.generation_id if latest else None
 
-                        # Record the new generation
-                        gen_id = tracker.record_generation(
-                            model_path=model_path,
-                            board_type=board_type,
-                            num_players=num_players,
-                            parent_generation_id=parent_id,
-                            training_games=training_games,
-                            training_samples=training_samples,
-                        )
-                        logger.info(
-                            f"[ModelLifecycleCoordinator] Recorded generation {gen_id} "
-                            f"for {config_key} (parent={parent_id})"
-                        )
+                        # Mar 2026: Deduplicate generation recording. Two TRAINING_COMPLETED
+                        # events fire for each training completion (p2p_event_bridge +
+                        # _sync_then_emit_training_completed), creating duplicate rows.
+                        # Skip if a generation for the same config+model was recorded
+                        # within the last 60 seconds. If the existing row has 0 samples
+                        # but we now have data, update it instead of creating a new row.
+                        _skip_record = False
+                        if latest and model_path and latest.model_path == model_path:
+                            age = time.time() - latest.created_at
+                            if age < 60:
+                                if (latest.training_samples or 0) == 0 and training_samples > 0:
+                                    # Update the existing row with actual data
+                                    try:
+                                        import sqlite3 as _sqlite3
+                                        with _sqlite3.connect(tracker.db_path) as _conn:
+                                            _conn.execute(
+                                                "UPDATE model_generations SET training_samples=?, training_games=? WHERE generation_id=?",
+                                                (training_samples, training_games, latest.generation_id),
+                                            )
+                                            _conn.commit()
+                                        logger.info(
+                                            f"[ModelLifecycleCoordinator] Updated generation {latest.generation_id} "
+                                            f"with actual data: samples={training_samples}, games={training_games}"
+                                        )
+                                    except Exception as upd_err:
+                                        logger.debug(f"[ModelLifecycleCoordinator] Failed to update generation: {upd_err}")
+                                else:
+                                    logger.debug(
+                                        f"[ModelLifecycleCoordinator] Skipping duplicate generation for "
+                                        f"{config_key} (latest={latest.generation_id}, age={age:.0f}s)"
+                                    )
+                                _skip_record = True
+
+                        if not _skip_record:
+                            # Record the new generation
+                            gen_id = tracker.record_generation(
+                                model_path=model_path,
+                                board_type=board_type,
+                                num_players=num_players,
+                                parent_generation_id=parent_id,
+                                training_games=training_games,
+                                training_samples=training_samples,
+                            )
+                            logger.info(
+                                f"[ModelLifecycleCoordinator] Recorded generation {gen_id} "
+                                f"for {config_key} (parent={parent_id}, "
+                                f"samples={training_samples}, games={training_games})"
+                            )
             except Exception as e:
                 logger.warning(f"[ModelLifecycleCoordinator] Failed to record generation: {e}")
 
