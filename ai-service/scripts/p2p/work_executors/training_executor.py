@@ -311,28 +311,35 @@ async def execute_training_work(
 
         if proc.returncode == 0:
             # Parse training output for loss, sample count, and game count.
-            # Search all lines (not just until first loss match) so we
-            # can find all metrics regardless of line order.
+            # Feb 28, 2026: Prefer the structured TRAINING_SUMMARY line that
+            # train.py prints at completion. Fallback to regex for older versions.
             final_loss = 0.0
             training_samples = 0
             training_games = 0
+
+            # First try: structured summary line (reliable)
             for line in reversed(output.splitlines()):
-                line_lower = line.lower()
-                if final_loss == 0.0 and "loss" in line_lower and "=" in line_lower:
-                    loss_match = re.search(r'loss[=:\s]+([0-9]+\.?[0-9]*)', line_lower)
-                    if loss_match:
-                        final_loss = float(loss_match.group(1))
-                if training_samples == 0 and "samples" in line_lower:
-                    samples_match = re.search(r'(\d+)\s*samples', line_lower)
-                    if samples_match:
-                        training_samples = int(samples_match.group(1))
-                if training_games == 0 and "games" in line_lower:
-                    games_match = re.search(r'(\d+)\s*games', line_lower)
-                    if games_match:
-                        training_games = int(games_match.group(1))
-                if final_loss > 0 and training_samples > 0:
+                if line.startswith("TRAINING_SUMMARY:"):
+                    summary_match = re.search(
+                        r'loss=([0-9.]+)\s+samples=(\d+)\s+games=(\d+)', line
+                    )
+                    if summary_match:
+                        final_loss = float(summary_match.group(1))
+                        training_samples = int(summary_match.group(2))
+                        training_games = int(summary_match.group(3))
                     break
-            # Feb 24, 2026: Estimate training_games from samples if not parsed
+
+            # Fallback: regex search (for older train.py versions)
+            if final_loss == 0.0:
+                for line in reversed(output.splitlines()):
+                    line_lower = line.lower()
+                    if final_loss == 0.0 and "loss" in line_lower and "=" in line_lower:
+                        loss_match = re.search(r'loss[=:\s]+([0-9]+\.?[0-9]*)', line_lower)
+                        if loss_match:
+                            final_loss = float(loss_match.group(1))
+                    if final_loss > 0:
+                        break
+
             if training_games == 0 and training_samples > 0:
                 avg_moves = 100 if board_type in ("square19", "hexagonal") else 40
                 training_games = max(1, training_samples // avg_moves)

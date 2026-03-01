@@ -5421,6 +5421,17 @@ def train_model(
                 # Mark training as completed successfully (for hardened event emission)
                 _training_completed_normally = True
 
+                # Feb 28, 2026: Print a clear machine-parseable summary line to stdout.
+                # training_executor.py parses this to report training_samples and final_loss
+                # in the work result. Previously, it used regex matching on log lines which
+                # matched wrong numbers (validation samples instead of total).
+                _summary_loss = best_val_loss if best_val_loss != float('inf') else avg_val_loss
+                print(
+                    f"TRAINING_SUMMARY: loss={_summary_loss:.4f} "
+                    f"samples={_total_samples} games={_num_data_files} "
+                    f"epochs={config.epochs}"
+                )
+
     except (RuntimeError, ValueError, OSError, KeyError) as e:
         # RuntimeError: CUDA/tensor operations, training loop errors
         # ValueError: invalid training parameters or data

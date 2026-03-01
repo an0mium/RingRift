@@ -182,8 +182,23 @@ class PromotionDecision:
     harness_type: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        # Feb 28, 2026: Parse board_type/num_players from model_id for downstream
+        # handlers (S3SyncDaemon, UnifiedDistributionDaemon) that need them.
+        board_type = None
+        num_players = None
+        if self.model_id:
+            import re
+            m = re.match(r"(?:canonical_|candidate_|ringrift_best_)?(\w+?)_(\d)p", self.model_id)
+            if m:
+                board_type = m.group(1)
+                num_players = int(m.group(2))
+
         return {
             "model_id": self.model_id,
+            "model_path": self.model_path,
+            "board_type": board_type,
+            "num_players": num_players,
+            "config_key": f"{board_type}_{num_players}p" if board_type else None,
             "promotion_type": self.promotion_type.value,
             "should_promote": self.should_promote,
             "reason": self.reason,
