@@ -1413,25 +1413,17 @@ class EvaluationDaemon(HandlerBase):
         model_path = local_model_path
 
         # February 2026: Check if this node should run gauntlets locally.
-        # Must be checked BEFORE distribution availability - coordinators dispatch
-        # to cluster and let GPU nodes pull the model on demand.
+        # Feb 28, 2026: Changed from "try cluster then fallback" to "always run
+        # local" because cluster gauntlet dispatch was 0% completion rate — 21+
+        # items dispatched but zero ever completed by any cluster node. The
+        # lightweight local gauntlet (policy-only, 30 games/opponent) runs in
+        # ~2-5 min on CPU and actually produces results for promotion.
         import os
         gauntlet_override = os.environ.get("RINGRIFT_GAUNTLET_ENABLED", "").lower()
         from app.config.env import env
         if gauntlet_override not in ("1", "true", "yes") and not env.gauntlet_enabled:
             logger.info(
-                f"[EvaluationDaemon] Gauntlet disabled on this node, trying cluster dispatch: {model_path}"
-            )
-            dispatch_ok = await self._dispatch_gauntlet_to_cluster_with_fallback(
-                model_path, board_type, num_players, request
-            )
-            if dispatch_ok:
-                return
-            # Feb 28, 2026: Cluster dispatch failed — fall back to lightweight local
-            # gauntlet with policy-only inference (no GPU needed, ~30s per eval).
-            # Better than no evaluation at all.
-            logger.info(
-                f"[EvaluationDaemon] Cluster dispatch failed, running lightweight local gauntlet: {model_path}"
+                f"[EvaluationDaemon] Running lightweight local gauntlet (gauntlet_enabled=false): {model_path}"
             )
             await self._run_lightweight_local_gauntlet(
                 model_path, board_type, num_players, request
