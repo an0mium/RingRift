@@ -217,8 +217,13 @@ async def execute_training_work(
     # Validate training data exists before launching subprocess.
     # Without --data-path, train.py relies on flaky catalog discovery that
     # often fails on GPU nodes (missing DBs, stale indexes).
+    # Feb 28, 2026: Minimum NPZ size thresholds. A stale local NPZ with only
+    # 68 samples (few KB) produces garbage models (loss 4+). Worker nodes may
+    # have old copies that pass the exists() check but are far too small for
+    # meaningful training. If below threshold, fetch a fresh copy.
+    MIN_NPZ_SIZE_BYTES = 5 * 1024 * 1024  # 5MB — even smallest configs have 40MB+
+
     if npz_path.exists():
-        # Reject suspiciously small NPZ files (likely corrupt or partial transfer)
         npz_size = npz_path.stat().st_size
         if npz_size < 1024:
             logger.error(
@@ -227,8 +232,21 @@ async def execute_training_work(
             )
             work_item["error"] = f"npz_too_small:{npz_size}bytes:{config_key}"
             return False
-        # Feb 2026: Validate NPZ structure before launching training subprocess.
-        # Catches corruption from interrupted exports/syncs (3 corrupt files in one session).
+        # If local NPZ exists but is suspiciously small, try fetching a fresh copy
+        if npz_size < MIN_NPZ_SIZE_BYTES:
+            logger.warning(
+                f"Local NPZ small ({npz_size / 1e6:.1f}MB < {MIN_NPZ_SIZE_BYTES / 1e6:.0f}MB). "
+                f"Fetching fresh copy for {config_key}."
+            )
+            fetched = await _try_fetch_npz_from_cluster(
+                ai_service_root, config_key, npz_path
+            )
+            if fetched and fetched.exists() and fetched.stat().st_size > npz_size:
+                logger.info(
+                    f"Replaced stale NPZ ({npz_size / 1e6:.1f}MB) with fresh "
+                    f"({fetched.stat().st_size / 1e6:.1f}MB) for {config_key}"
+                )
+        # Validate NPZ structure before launching training subprocess.
         try:
             from app.coordination.npz_validation import quick_npz_check
             _ok, _err = quick_npz_check(npz_path)
