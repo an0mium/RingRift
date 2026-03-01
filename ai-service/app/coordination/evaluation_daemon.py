@@ -2424,7 +2424,23 @@ class EvaluationDaemon(HandlerBase):
 
         Feb 28, 2026: Uses policy-only inference (no GPU/MCTS needed) with reduced
         game count (~10 per opponent). Runs in ~30s on CPU. Better than no evaluation.
+        Mar 1, 2026: Skip hexagonal board (469 cells) — too slow for CPU even with
+        10 games. Hexagonal evals need GPU nodes.
         """
+        # Hexagonal board has 469 cells — each move evaluates all positions via
+        # policy network forward pass. Even 10 games takes 30+ minutes on CPU,
+        # repeatedly timing out. Skip and let cluster handle when available.
+        if board_type == "hexagonal":
+            logger.info(
+                f"[EvaluationDaemon] Skipping hexagonal local gauntlet (too slow for CPU): {model_path}"
+            )
+            persistent_request_id = request.get("_persistent_request_id")
+            if persistent_request_id and self._persistent_queue:
+                self._persistent_queue.fail(persistent_request_id, "hexagonal_too_slow_for_cpu")
+                for sid in request.get("_sibling_request_ids", []):
+                    self._persistent_queue.fail(sid, "hexagonal_too_slow_for_cpu")
+            return
+
         start_time = time.time()
         config_key = make_config_key(board_type, num_players)
         run_id = str(uuid.uuid4())
