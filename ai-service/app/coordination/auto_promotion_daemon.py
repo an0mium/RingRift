@@ -247,6 +247,10 @@ class AutoPromotionDaemon(HandlerBase):
             if not models_dir.exists():
                 return
 
+            # Mar 2026: Fetch candidate models from S3 that workers pushed
+            # after training. Closes the worker→coordinator model sync gap.
+            await self._fetch_candidates_from_s3(models_dir)
+
             for candidate_path in models_dir.glob("candidate_*.pth"):
                 stem = candidate_path.stem  # e.g., "candidate_square8_2p"
                 parts = stem.split("_", 1)  # ["candidate", "square8_2p"]
@@ -374,6 +378,60 @@ class AutoPromotionDaemon(HandlerBase):
 
         except Exception as e:
             logger.error(f"[AutoPromotion] Elo scan failed: {e}")
+
+    async def _fetch_candidates_from_s3(self, models_dir: "Path") -> int:
+        """Download candidate models from S3 that don't exist locally.
+
+        Mar 2026: Workers push candidates to S3 after training. The coordinator
+        polls S3 here to discover and download them for evaluation/promotion.
+        """
+        import os
+        import subprocess
+
+        bucket = os.environ.get("RINGRIFT_S3_BUCKET", "ringrift-models-20251214")
+        region = os.environ.get("AWS_REGION", "us-east-1")
+        s3_prefix = f"s3://{bucket}/consolidated/models/"
+
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ["aws", "s3", "ls", s3_prefix, "--region", region],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode != 0:
+                return 0
+
+            fetched = 0
+            for line in result.stdout.strip().split("\n"):
+                if not line.strip():
+                    continue
+                parts = line.split()
+                if len(parts) < 4:
+                    continue
+                filename = parts[-1]
+                if not filename.startswith("candidate_") or not filename.endswith(".pth"):
+                    continue
+                local_path = models_dir / filename
+                if local_path.exists():
+                    continue
+                # Download from S3
+                s3_uri = f"{s3_prefix}{filename}"
+                dl = await asyncio.to_thread(
+                    subprocess.run,
+                    ["aws", "s3", "cp", s3_uri, str(local_path), "--region", region],
+                    capture_output=True, text=True, timeout=600,
+                )
+                if dl.returncode == 0 and local_path.exists():
+                    fetched += 1
+                    size_mb = local_path.stat().st_size / 1e6
+                    logger.info(
+                        f"[AutoPromotion] Fetched candidate from S3: "
+                        f"{filename} ({size_mb:.1f}MB)"
+                    )
+            return fetched
+        except Exception as e:
+            logger.debug(f"[AutoPromotion] S3 candidate fetch error: {e}")
+            return 0
 
     def _get_best_elo_for_model(self, model_stem: str) -> tuple[float | None, int]:
         """Get the best Elo rating for a model across all harness types.

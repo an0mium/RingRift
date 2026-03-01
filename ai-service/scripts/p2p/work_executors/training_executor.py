@@ -24,6 +24,39 @@ if TYPE_CHECKING:
 logger = logging.getLogger("p2p_orchestrator")
 
 
+async def _try_push_candidate_to_s3(
+    local_path: str, filename: str, config_key: str,
+) -> bool:
+    """Push candidate model to S3 after training completes.
+
+    Mar 2026: Closes the critical gap where candidate models were stranded
+    on workers with no automated path back to the coordinator. The coordinator's
+    auto_promotion_daemon polls S3 for new candidates.
+    """
+    bucket = os.environ.get("RINGRIFT_S3_BUCKET", "ringrift-models-20251214")
+    s3_uri = f"s3://{bucket}/consolidated/models/{filename}"
+    logger.info(f"Pushing candidate to S3: {local_path} -> {s3_uri}")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "aws", "s3", "cp", local_path, s3_uri,
+            "--region", os.environ.get("AWS_REGION", "us-east-1"),
+            "--storage-class", "STANDARD_IA",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
+        if proc.returncode == 0:
+            size_mb = Path(local_path).stat().st_size / 1e6
+            logger.info(f"S3 candidate push OK: {config_key} ({size_mb:.1f}MB)")
+            return True
+        err = stderr.decode()[:200] if stderr else ""
+        logger.warning(f"S3 candidate push failed for {config_key}: {err}")
+        return False
+    except Exception as e:
+        logger.debug(f"S3 candidate push error for {config_key}: {e}")
+        return False
+
+
 async def _try_fetch_npz_from_cluster(
     ai_service_root: Path, config_key: str, npz_path: Path,
 ) -> Path | None:
@@ -558,6 +591,15 @@ async def execute_training_work(
                 })
             except ImportError:
                 pass
+
+            # Mar 2026: Push candidate model to S3 so coordinator can discover it.
+            # Workers produce candidates locally but the coordinator needs them for
+            # evaluation/promotion. S3 bridges the gap without direct SSH.
+            if candidate_path.exists():
+                await _try_push_candidate_to_s3(
+                    str(candidate_path), model_filename, config_key
+                )
+
             return True
         else:
             truncated = output[:2000] if output else "no output"
