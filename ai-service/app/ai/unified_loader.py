@@ -547,9 +547,19 @@ class UnifiedModelLoader:
 
     @staticmethod
     def _resolve_device(device: str | torch.device | None) -> torch.device:
-        """Resolve device specification to torch.device."""
+        """Resolve device specification to torch.device.
+
+        Mar 2, 2026: Added RINGRIFT_FORCE_CPU env var to bypass MPS
+        auto-detection. MPS has tensor type mismatch bugs where the model
+        loads to MPS but encoder features stay on CPU, causing 1400+
+        errors in evaluation gauntlets.
+        """
         if device is not None:
             return torch.device(device) if isinstance(device, str) else device
+
+        import os
+        if os.environ.get("RINGRIFT_FORCE_CPU", "").lower() in ("1", "true"):
+            return torch.device("cpu")
 
         if torch.cuda.is_available():
             return torch.device("cuda")

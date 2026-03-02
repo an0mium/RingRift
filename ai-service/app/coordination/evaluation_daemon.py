@@ -2455,6 +2455,28 @@ class EvaluationDaemon(HandlerBase):
                     self._persistent_queue.fail(sid, "hexagonal_too_slow_for_cpu")
             return
 
+        # Mar 2, 2026: Skip models with remote paths (from cluster node scans)
+        # that don't exist locally. These have paths like /home/ubuntu/ringrift/...
+        from pathlib import Path as _Path
+        if not _Path(model_path).exists():
+            logger.info(
+                f"[EvaluationDaemon] Skipping local gauntlet (model not local): {model_path}"
+            )
+            persistent_request_id = request.get("_persistent_request_id")
+            if persistent_request_id and self._persistent_queue:
+                self._persistent_queue.fail(persistent_request_id, "model_not_local")
+                for sid in request.get("_sibling_request_ids", []):
+                    self._persistent_queue.fail(sid, "model_not_local")
+            return
+
+        # Mar 2, 2026: Force CPU to avoid MPS tensor type mismatch.
+        # MPS auto-detection loads model to MPS but encoder features
+        # stay on CPU, causing "Input type (MPSFloatType) and weight type
+        # (torch.FloatTensor)" errors (1400+ occurrences). CPU is fine
+        # for policy-only inference at 30 games.
+        import os
+        os.environ["RINGRIFT_FORCE_CPU"] = "1"
+
         start_time = time.time()
         config_key = make_config_key(board_type, num_players)
         run_id = str(uuid.uuid4())
