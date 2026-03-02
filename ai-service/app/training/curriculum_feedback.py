@@ -1869,8 +1869,8 @@ class PromotionToCurriculumWatcher:
         # Reset curriculum weight to baseline (1.0) after successful promotion
         # This ensures other configs get fair allocation
         self.feedback._config_metrics[config_key].model_count += 1
-        old_weight = self.feedback._weights.get(config_key, 1.0)
-        self.feedback._weights[config_key] = 1.0  # Reset to baseline
+        old_weight = self.feedback._current_weights.get(config_key, 1.0)
+        self.feedback._current_weights[config_key] = 1.0  # Reset to baseline
 
         # Emit curriculum update
         self.feedback._emit_curriculum_updated(config_key, 1.0, "model_promoted")

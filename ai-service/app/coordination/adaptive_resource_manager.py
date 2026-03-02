@@ -274,7 +274,11 @@ class AdaptiveResourceManager:
         """Get resource status for NFS mount."""
         status = ResourceStatus(node_id="nfs")
 
-        if not self.nfs_path.exists():
+        try:
+            nfs_exists = self.nfs_path.exists()
+        except (PermissionError, OSError):
+            nfs_exists = False
+        if not nfs_exists:
             status.errors.append("NFS path not accessible")
             status.is_healthy = False
             return status

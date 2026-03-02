@@ -1046,7 +1046,7 @@ class FeedbackLoopController(SelfplayFeedbackMixin, RegressionHandlingMixin, Eva
                         "reason": "evaluation_failures_exceeded",
                         "exploration_boost": state.current_exploration_boost,
                     },
-                    context="FeedbackLoopController._on_evaluation_failed",
+                    source="FeedbackLoopController._on_evaluation_failed",
                 )
 
                 # Reset failure counter after signaling

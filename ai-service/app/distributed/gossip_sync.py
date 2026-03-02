@@ -198,7 +198,7 @@ class GossipSyncDaemon:
     def _load_known_games(self):
         """Load game IDs from local databases into memory."""
         game_ids = set()
-        for db_path in self.data_dir.glob("*.db"):
+        for db_path in self.data_dir.glob("canonical_*.db"):
             if "schema" in db_path.name:
                 continue
             try:
