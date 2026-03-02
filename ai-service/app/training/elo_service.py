@@ -362,8 +362,22 @@ class EloService:
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
-        """Get thread-local database connection."""
-        if not hasattr(self._local, 'connection') or self._local.connection is None:
+        """Get thread-local database connection.
+
+        Mar 2026: Also recreate if the cached connection was closed externally.
+        This fixes "Cannot operate on a closed database" errors when the P2P
+        EloSyncManager closes the DB during a restart and the EloProgressTracker
+        tries to use the stale cached connection.
+        """
+        conn = getattr(self._local, 'connection', None)
+        if conn is not None:
+            try:
+                conn.execute("SELECT 1")
+            except Exception:
+                # Connection is stale/closed — recreate
+                conn = None
+                self._local.connection = None
+        if conn is None:
             self._local.connection = sqlite3.connect(
                 str(self.db_path),
                 timeout=30.0,
