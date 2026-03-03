@@ -447,14 +447,16 @@ class AutoPromotionDaemon(HandlerBase):
 
         try:
             conn = sqlite3.connect(str(db_path), timeout=5)
-            # Match participant_id starting with model_stem (e.g., "candidate_square8_2p:gumbel_mcts:d2")
-            rows = conn.execute(
-                """SELECT rating, games_played FROM elo_ratings
-                   WHERE participant_id LIKE ? AND archived_at IS NULL AND games_played > 0
-                   ORDER BY rating DESC LIMIT 1""",
-                (f"{model_stem}%",),
-            ).fetchall()
-            conn.close()
+            try:
+                # Match participant_id starting with model_stem (e.g., "candidate_square8_2p:gumbel_mcts:d2")
+                rows = conn.execute(
+                    """SELECT rating, games_played FROM elo_ratings
+                       WHERE participant_id LIKE ? AND archived_at IS NULL AND games_played > 0
+                       ORDER BY rating DESC LIMIT 1""",
+                    (f"{model_stem}%",),
+                ).fetchall()
+            finally:
+                conn.close()
 
             if rows:
                 return rows[0][0], rows[0][1]

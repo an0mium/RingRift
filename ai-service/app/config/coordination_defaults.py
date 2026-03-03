@@ -90,7 +90,7 @@ class TransportDefaults:
     HTTP_TIMEOUT: int = _env_int("RINGRIFT_HTTP_TIMEOUT", 15)
 
     # Circuit breaker recovery timeout (seconds)
-    # Dec 30, 2025: Reduced from 300 to 60 for faster recovery during 48h autonomous ops
+    # Dec 30, 2025: Reduced from 300 to 60 for faster recovery during autonomous ops
     # Matches CircuitBreakerDefaults.RECOVERY_TIMEOUT for consistency
     CIRCUIT_BREAKER_RECOVERY: int = _env_int("RINGRIFT_CIRCUIT_BREAKER_RECOVERY", 60)
 
@@ -287,10 +287,11 @@ class DataFreshnessDefaults:
     """
     # Maximum acceptable age of training data (hours)
     # Data older than this is considered stale and may trigger sync
-    # December 29, 2025: Relaxed from 4.0 to 48.0 for 48-hour autonomous operation
+    # December 29, 2025: Relaxed from 4.0 to 48.0 for autonomous operation
+    # March 2, 2026: Increased from 48.0 to 168.0 for 7-day autonomous operation
     # This reduces training gate blocks by allowing older data when fresh data
     # isn't available, prioritizing training throughput
-    MAX_DATA_AGE_HOURS: float = _env_float("RINGRIFT_MAX_DATA_AGE_HOURS", 48.0)
+    MAX_DATA_AGE_HOURS: float = _env_float("RINGRIFT_MAX_DATA_AGE_HOURS", 168.0)
 
     # Warning threshold (hours) - emit DATA_STALE warning above this
     # December 29, 2025: Tightened from 8.0 to 1.0 for earlier warnings
@@ -557,7 +558,7 @@ class CascadeBreakerDefaults:
 class PartitionRecoveryDefaults:
     """Default values for network partition recovery.
 
-    Part of 48-hour autonomous operation optimization.
+    Part of 7-day autonomous operation optimization.
     Used by: scripts/p2p/loops/resilience_loops.py
 
     Previous assumption: Partitions heal within ~60s
@@ -936,7 +937,7 @@ class MonitoringDefaults:
     GPU_MEMORY_CRITICAL: float = _env_float("RINGRIFT_GPU_MEMORY_CRITICAL", 98.0)
 
     # Node offline detection (seconds)
-    # Jan 13, 2026: Reduced from 300s to 60s for faster quorum detection during 48h autonomous ops
+    # Jan 13, 2026: Reduced from 300s to 60s for faster quorum detection during autonomous ops
     NODE_OFFLINE_THRESHOLD: int = _env_int("RINGRIFT_NODE_OFFLINE_THRESHOLD", 60)
 
     # Cluster health check interval (seconds)
@@ -1245,12 +1246,13 @@ class P2PRecoveryDefaults:
     Used by: app/coordination/p2p_recovery_daemon.py,
              scripts/p2p/loops/remote_p2p_recovery_loop.py
 
-    January 2026: Centralized defaults for 48-hour autonomous operation.
+    January 2026: Centralized defaults for autonomous operation.
+    March 2026: Extended to support 7-day autonomous operation.
     These values optimize P2P cluster connectivity by enabling faster
     recovery intervals and NAT-aware thresholds.
     """
     # Remote recovery loop interval (seconds) - how often to check for missing nodes
-    # Jan 2026: Reduced from 300s to 60s for faster 48h autonomous recovery
+    # Jan 2026: Reduced from 300s to 60s for faster autonomous recovery
     REMOTE_RECOVERY_INTERVAL: float = _env_float("RINGRIFT_REMOTE_P2P_RECOVERY_INTERVAL", 60.0)
 
     # Maximum nodes to recover per cycle (prevents thundering herd)
@@ -1992,14 +1994,14 @@ def get_adaptive_health_timeout() -> float:
 
 
 # =============================================================================
-# Degraded Mode Defaults (December 2025 - 48-Hour Autonomous Operation)
+# Degraded Mode Defaults (December 2025 - 7-Day Autonomous Operation)
 # =============================================================================
 
 @dataclass(frozen=True)
 class DegradedModeDefaults:
     """Default values for daemon graceful degradation.
 
-    December 2025: Part of 48-hour autonomous operation plan.
+    December 2025: Part of autonomous operation plan (originally 48h, now 7-day).
     Instead of blocking daemons for 24 hours when restart limits are exceeded,
     we use tiered restart policies with degraded mode.
 
@@ -2045,14 +2047,14 @@ class DegradedModeDefaults:
 
 
 # =============================================================================
-# Stale Data Fallback Defaults (December 2025 - 48-hour autonomous operation)
+# Stale Data Fallback Defaults (December 2025 - 7-day autonomous operation)
 # =============================================================================
 
 @dataclass(frozen=True)
 class StaleFallbackDefaults:
     """Default values for training stale data fallback.
 
-    December 2025: Part of 48-hour autonomous operation plan.
+    December 2025: Part of autonomous operation plan (originally 48h, now 7-day).
     When sync failures block training indefinitely, allow training to proceed
     with stale data after N failures or timeout.
 
@@ -2091,7 +2093,8 @@ class StaleFallbackDefaults:
     # Absolute maximum data age allowed even in fallback mode (hours)
     # Training will NEVER proceed if data is older than this
     # December 29, 2025: Increased from 24h to 48h for extended autonomous runs
-    ABSOLUTE_MAX_DATA_AGE: float = _env_float("RINGRIFT_ABSOLUTE_MAX_DATA_AGE", 48.0)
+    # March 2, 2026: Increased from 48h to 168h for 7-day autonomous operation
+    ABSOLUTE_MAX_DATA_AGE: float = _env_float("RINGRIFT_ABSOLUTE_MAX_DATA_AGE", 168.0)
 
     # Whether stale fallback is enabled (can disable for strict mode)
     ENABLE_STALE_FALLBACK: bool = _env_bool("RINGRIFT_ENABLE_STALE_FALLBACK", True)
@@ -2616,7 +2619,7 @@ class SelfplayPriorityWeightDefaults:
         "RINGRIFT_DATA_STARVATION_CRITICAL_THRESHOLD", 3000
     )
     DATA_STARVATION_ULTRA_MULTIPLIER: float = _env_float(
-        # Dec 31, 2025: Increased from 25x to 100x for 48h autonomous operation
+        # Dec 31, 2025: Increased from 25x to 100x for autonomous operation
         # Jan 2026: Increased to 200x to ensure critically starved configs get priority
         # Jan 5, 2026: Increased to 500x to address 3-player config starvation
         "RINGRIFT_DATA_STARVATION_ULTRA_MULTIPLIER", 500.0
@@ -2652,7 +2655,8 @@ class SelfplayPriorityWeightDefaults:
     FRESH_DATA_THRESHOLD: float = _env_float("RINGRIFT_FRESH_DATA_THRESHOLD", 1.0)
     STALE_DATA_THRESHOLD: float = _env_float("RINGRIFT_STALE_DATA_THRESHOLD", 4.0)
     # December 29, 2025: Increased from 24h to 48h for extended autonomous operation
-    MAX_STALENESS_HOURS: float = _env_float("RINGRIFT_MAX_STALENESS_HOURS", 48.0)
+    # March 2, 2026: Increased from 48h to 168h for 7-day autonomous operation
+    MAX_STALENESS_HOURS: float = _env_float("RINGRIFT_MAX_STALENESS_HOURS", 168.0)
 
     # VOI (Value of Information) target
     VOI_ELO_TARGET: float = _env_float("RINGRIFT_VOI_ELO_TARGET", 2000.0)
@@ -3342,7 +3346,7 @@ class GossipDefaults:
     # =========================================================================
 
     # Dead peer detection: seconds since last seen before marking as dead
-    # Jan 13, 2026: Reduced from 300s to 60s for faster quorum detection during 48h autonomous ops
+    # Jan 13, 2026: Reduced from 300s to 60s for faster quorum detection during autonomous ops
     # Jan 25, 2026: CRITICAL FIX - Increased from 60s to 240s.
     # DEAD_PEER_TIMEOUT MUST be >= PEER_TIMEOUT (180s) to avoid premature gossip cleanup.
     # With 60s, peers were removed from gossip before being marked dead, creating "zombie peers"
@@ -3636,7 +3640,7 @@ def get_all_defaults() -> dict:
             "startup_timeout": DaemonHealthDefaults.STARTUP_TIMEOUT,
             "shutdown_timeout": DaemonHealthDefaults.SHUTDOWN_TIMEOUT,
         },
-        # December 2025: Degraded mode (48-hour autonomous operation)
+        # December 2025: Degraded mode (7-day autonomous operation)
         "degraded_mode": {
             "critical_retry_interval": DegradedModeDefaults.CRITICAL_RETRY_INTERVAL,
             "noncritical_retry_interval": DegradedModeDefaults.NONCRITICAL_RETRY_INTERVAL,
@@ -3645,7 +3649,7 @@ def get_all_defaults() -> dict:
             "enabled": DegradedModeDefaults.ENABLED,
             "reset_after_hours": DegradedModeDefaults.RESET_AFTER_HOURS,
         },
-        # December 2025: Stale fallback (48-hour autonomous operation)
+        # December 2025: Stale fallback (7-day autonomous operation)
         "stale_fallback": {
             "max_sync_failures": StaleFallbackDefaults.MAX_SYNC_FAILURES,
             "max_sync_duration": StaleFallbackDefaults.MAX_SYNC_DURATION,
@@ -4024,8 +4028,8 @@ __all__ = [
     "CurriculumDefaults",  # December 28, 2025
     "DaemonHealthDefaults",
     "DaemonLoopDefaults",
-    "DegradedModeDefaults",  # December 2025 - 48-hour autonomous operation
-    "StaleFallbackDefaults",  # December 2025 - 48-hour autonomous operation
+    "DegradedModeDefaults",  # December 2025 - 7-day autonomous operation
+    "StaleFallbackDefaults",  # December 2025 - 7-day autonomous operation
     "DurationDefaults",
     "EphemeralDefaults",
     "EphemeralGuardDefaults",

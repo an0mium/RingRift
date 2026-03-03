@@ -130,30 +130,32 @@ class FreshnessFetcherMixin:
             elo_service = get_elo_service()
             if hasattr(elo_service, '_db_path'):
                 conn = sqlite3.connect(elo_service._db_path)
-                # Query composite entries with highest budget (b800, b1600)
-                # Format: canonical_hex8_2p:gumbel_mcts:b800
-                for config_key in ALL_CONFIGS:
-                    board_type, num_players = parse_config_key(config_key)
-                    cur = conn.execute("""
-                        SELECT participant_id, rating, games_played, simulation_count
-                        FROM elo_ratings
-                        WHERE board_type = ? AND num_players = ?
-                          AND participant_id LIKE ?
-                          AND participant_id NOT LIKE '%heuristic%'
-                          AND participant_id NOT LIKE '%random%'
-                          AND participant_id NOT LIKE '%baseline%'
-                          AND games_played >= 10
-                        ORDER BY simulation_count DESC NULLS LAST, rating DESC
-                        LIMIT 1
-                    """, (board_type, num_players, f"canonical_{config_key}:%"))
-                    row = cur.fetchone()
-                    if row:
-                        result[config_key] = row[1]  # rating
-                        logger.debug(
-                            f"[SelfplayScheduler] Using composite Elo for {config_key}: "
-                            f"{row[1]:.0f} ({row[0]}, {row[2]} games)"
-                        )
-                conn.close()
+                try:
+                    # Query composite entries with highest budget (b800, b1600)
+                    # Format: canonical_hex8_2p:gumbel_mcts:b800
+                    for config_key in ALL_CONFIGS:
+                        board_type, num_players = parse_config_key(config_key)
+                        cur = conn.execute("""
+                            SELECT participant_id, rating, games_played, simulation_count
+                            FROM elo_ratings
+                            WHERE board_type = ? AND num_players = ?
+                              AND participant_id LIKE ?
+                              AND participant_id NOT LIKE '%heuristic%'
+                              AND participant_id NOT LIKE '%random%'
+                              AND participant_id NOT LIKE '%baseline%'
+                              AND games_played >= 10
+                            ORDER BY simulation_count DESC NULLS LAST, rating DESC
+                            LIMIT 1
+                        """, (board_type, num_players, f"canonical_{config_key}:%"))
+                        row = cur.fetchone()
+                        if row:
+                            result[config_key] = row[1]  # rating
+                            logger.debug(
+                                f"[SelfplayScheduler] Using composite Elo for {config_key}: "
+                                f"{row[1]:.0f} ({row[0]}, {row[2]} games)"
+                            )
+                finally:
+                    conn.close()
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Composite Elo query failed: {e}")
 

@@ -52,6 +52,7 @@ import sqlite3
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -229,11 +230,20 @@ class PersistentEvaluationQueue:
 
             conn.commit()
 
-    def _get_connection(self) -> sqlite3.Connection:
-        """Get a database connection with row factory."""
+    @contextmanager
+    def _get_connection(self):
+        """Get a database connection with row factory (context manager).
+
+        Ensures connection is always closed, even if an exception occurs.
+        March 2026: Changed from bare return to context manager to prevent
+        connection leaks during 7-day autonomous operation.
+        """
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            yield conn
+        finally:
+            conn.close()
 
     def add_request(
         self,

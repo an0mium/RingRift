@@ -312,6 +312,21 @@ CANONICAL_EVENT_NAMES: Final[dict[str, str]] = {
     # Canonical: CURRICULUM_REBALANCED
     "curriculum_rebalanced": "CURRICULUM_REBALANCED",
     "CURRICULUM_REBALANCED": "CURRICULUM_REBALANCED",  # Canonical
+
+    # =============================================================================
+    # Extended Stall Recovery Events (Mar 2026 - 14-day autonomous operation)
+    # =============================================================================
+    # Canonical: STALL_RECOVERY_ESCALATED
+    "stall_recovery_escalated": "STALL_RECOVERY_ESCALATED",
+    "STALL_RECOVERY_ESCALATED": "STALL_RECOVERY_ESCALATED",  # Canonical
+
+    # Canonical: FORCED_REEVALUATION_REQUESTED
+    "forced_reevaluation_requested": "FORCED_REEVALUATION_REQUESTED",
+    "FORCED_REEVALUATION_REQUESTED": "FORCED_REEVALUATION_REQUESTED",  # Canonical
+
+    # Canonical: AGGRESSIVE_CURRICULUM_REQUESTED
+    "aggressive_curriculum_requested": "AGGRESSIVE_CURRICULUM_REQUESTED",
+    "AGGRESSIVE_CURRICULUM_REQUESTED": "AGGRESSIVE_CURRICULUM_REQUESTED",  # Canonical
 }
 
 # =============================================================================

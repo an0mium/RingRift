@@ -93,6 +93,10 @@ from .maintenance_loops import (
     CircuitBreakerDecayLoop,
     GitUpdateConfig,
     GitUpdateLoop,
+    HttpPoolMonitorConfig,
+    HttpPoolMonitorLoop,
+    WalCleanupConfig,
+    WalCleanupLoop,
 )
 from .network_loops import (
     AwsIpUpdateLoop,
@@ -253,6 +257,10 @@ __all__ = [
     # Maintenance
     "GitUpdateConfig",
     "GitUpdateLoop",
+    "HttpPoolMonitorConfig",
+    "HttpPoolMonitorLoop",
+    "WalCleanupConfig",
+    "WalCleanupLoop",
     # Network
     "AwsIpUpdateLoop",
     "HeartbeatConfig",

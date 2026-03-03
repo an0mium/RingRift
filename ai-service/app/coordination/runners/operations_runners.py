@@ -781,7 +781,8 @@ async def create_progress_watchdog() -> None:
     - Triggers recovery via PROGRESS_STALL_DETECTED event
 
     Subscribes to: ELO_UPDATED
-    Emits: PROGRESS_STALL_DETECTED, PROGRESS_RECOVERED
+    Emits: PROGRESS_STALL_DETECTED, PROGRESS_RECOVERED, STALL_RECOVERY_ESCALATED,
+           FORCED_REEVALUATION_REQUESTED, AGGRESSIVE_CURRICULUM_REQUESTED
     """
     try:
         from app.coordination.progress_watchdog_daemon import get_progress_watchdog

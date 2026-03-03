@@ -1,4 +1,4 @@
-"""Progress Watchdog Daemon for 48-Hour Autonomous Operation.
+"""Progress Watchdog Daemon for 14-Day Autonomous Operation.
 
 This daemon monitors Elo velocity across all 12 configurations and detects
 training stalls. When progress stalls (Elo velocity goes negative or near-zero),
@@ -9,8 +9,10 @@ Key features:
 - Detects stalls (6+ hours without positive velocity)
 - Triggers recovery via PROGRESS_STALL_DETECTED event
 - Configurable thresholds and recovery actions
+- 7-tier escalation from standard boost (6h) to critical alert (14d+)
 
-December 2025: Created for 48-hour autonomous operation enablement.
+December 2025: Created for autonomous operation enablement (originally 48h, now 7-day).
+March 2026: Extended escalation tiers to 14+ days for extended autonomous operation.
 """
 
 from __future__ import annotations
@@ -53,6 +55,18 @@ class ProgressWatchdogConfig:
     January 2026: Added tiered escalation for enhanced stall recovery.
     Longer stalls get progressively more aggressive interventions.
 
+    March 2026: Extended escalation beyond 7 days for 14-day autonomous operation.
+    Added circuit breaker reset, forced re-evaluation, and aggressive curriculum tiers.
+
+    Escalation tiers:
+        Tier 1 (6h):    Standard - 2x selfplay boost
+        Tier 2 (48h):   Extended - 4x selfplay boost
+        Tier 3 (96h):   Prolonged - 4x boost + curriculum reset
+        Tier 4 (168h):  Severe - 4x boost + curriculum reset + architecture exploration
+        Tier 5 (240h):  Critical CB reset - reset all circuit breakers + force re-evaluation
+        Tier 6 (336h):  Aggressive curriculum - equal priority all configs, max exploration
+        Tier 7 (336h+): Critical alert - log alert, no destructive action
+
     Attributes:
         check_interval_seconds: How often to check Elo velocity (default: 1 hour)
         min_elo_velocity: Minimum Elo gain per hour to consider progress (default: 0.5)
@@ -66,6 +80,10 @@ class ProgressWatchdogConfig:
         prolonged_stall_hours: Stall duration for 4x + curriculum reset (default: 96)
         severe_stall_hours: Stall duration for architecture exploration (default: 168)
         extended_boost_multiplier: Boost multiplier for extended stalls (default: 4.0)
+
+        # March 2026: Extended escalation thresholds (7-14+ days)
+        cb_reset_stall_hours: Stall duration for circuit breaker reset + forced re-eval (default: 240)
+        aggressive_curriculum_stall_hours: Stall duration for aggressive curriculum (default: 336)
     """
 
     check_interval_seconds: int = 3600  # 1 hour
@@ -80,6 +98,10 @@ class ProgressWatchdogConfig:
     prolonged_stall_hours: float = 96.0  # 4 days: 4x + curriculum reset
     severe_stall_hours: float = 168.0  # 7 days: architecture exploration
     extended_boost_multiplier: float = 4.0  # Boost for extended/prolonged stalls
+
+    # March 2026: Extended escalation for 14-day autonomous operation
+    cb_reset_stall_hours: float = 240.0  # 10 days: circuit breaker reset + forced re-eval
+    aggressive_curriculum_stall_hours: float = 336.0  # 14 days: aggressive curriculum
 
     @classmethod
     def from_env(cls) -> "ProgressWatchdogConfig":
@@ -161,14 +183,22 @@ class ProgressWatchdogDaemon(HandlerBase):
     - Uses HandlerBase singleton (get_instance/reset_instance)
     - Uses _stats for metrics tracking
 
+    March 2026: Extended with 7-tier escalation for 14-day autonomous operation.
+
     Workflow:
     1. Periodically fetch Elo velocity for all configs
     2. Track velocity trends and detect stalls
     3. Emit PROGRESS_STALL_DETECTED event for recovery
+    4. Escalate through 7 tiers if stall persists (6h -> 14d+)
 
     Events Emitted:
-    - PROGRESS_STALL_DETECTED: When a config has stalled
+    - PROGRESS_STALL_DETECTED: When a config has stalled (all tiers)
     - PROGRESS_RECOVERED: When a stalled config resumes progress
+    - CURRICULUM_RESET_REQUESTED: At prolonged+ tiers (96h+)
+    - ARCHITECTURE_EXPLORATION_REQUESTED: At severe+ tiers (168h+)
+    - STALL_RECOVERY_ESCALATED: At cb_reset+ tiers (240h+), with action detail
+    - FORCED_REEVALUATION_REQUESTED: At cb_reset+ tiers (240h+)
+    - AGGRESSIVE_CURRICULUM_REQUESTED: At aggressive curriculum tier (336h+)
     """
 
     def __init__(self, config: ProgressWatchdogConfig | None = None):
@@ -299,20 +329,21 @@ class ProgressWatchdogDaemon(HandlerBase):
             def _fetch_ratings() -> list[tuple[float, str]]:
                 """Sync helper to fetch ratings from database."""
                 conn = sqlite3.connect(str(db_path))
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    SELECT rating, timestamp
-                    FROM rating_history
-                    WHERE config_key = ?
-                    AND timestamp > datetime('now', '-6 hours')
-                    ORDER BY timestamp
-                    """,
-                    (config_key,),
-                )
-                rows = cursor.fetchall()
-                conn.close()
-                return rows
+                try:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        """
+                        SELECT rating, timestamp
+                        FROM rating_history
+                        WHERE config_key = ?
+                        AND timestamp > datetime('now', '-6 hours')
+                        ORDER BY timestamp
+                        """,
+                        (config_key,),
+                    )
+                    return cursor.fetchall()
+                finally:
+                    conn.close()
 
             rows = await asyncio.to_thread(_fetch_ratings)
 
@@ -353,14 +384,16 @@ class ProgressWatchdogDaemon(HandlerBase):
             def _fetch_elo() -> float | None:
                 """Sync helper to fetch Elo from database."""
                 conn = sqlite3.connect(str(db_path))
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT rating FROM ratings WHERE config_key = ?",
-                    (config_key,),
-                )
-                row = cursor.fetchone()
-                conn.close()
-                return row[0] if row else None
+                try:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "SELECT rating FROM ratings WHERE config_key = ?",
+                        (config_key,),
+                    )
+                    row = cursor.fetchone()
+                    return row[0] if row else None
+                finally:
+                    conn.close()
 
             return await asyncio.to_thread(_fetch_elo)
         except (sqlite3.Error, OSError):
@@ -381,6 +414,11 @@ class ProgressWatchdogDaemon(HandlerBase):
         - 48-96h: 4x boost (extended stall)
         - 96-168h: 4x boost + curriculum reset (prolonged stall)
         - 168h+: 4x boost + architecture exploration (severe stall)
+
+        March 2026: Extended escalation for 14-day autonomous operation:
+        - 240h+ (10d): Reset all circuit breakers + force re-evaluation of all models
+        - 336h+ (14d): Aggressive curriculum (equal priority, max exploration)
+        - 336h+: Critical alert logged but no destructive action taken
         """
         # Check if we can trigger recovery
         if progress.recovery_attempts >= self.config.max_recovery_attempts:
@@ -391,14 +429,48 @@ class ProgressWatchdogDaemon(HandlerBase):
 
         stall_hours = progress.stall_duration_hours
 
-        # January 2026: Determine escalation tier and actions
+        # Determine escalation tier and actions (check highest tier first)
         boost_multiplier = self.config.boost_multiplier  # Default 2x
         trigger_curriculum_reset = False
         trigger_architecture_exploration = False
+        trigger_cb_reset = False
+        trigger_forced_reevaluation = False
+        trigger_aggressive_curriculum = False
+        trigger_critical_alert = False
         escalation_tier = "standard"
 
-        if stall_hours >= self.config.severe_stall_hours:
-            # Severe stall (168h+): Maximum intervention
+        if stall_hours >= self.config.aggressive_curriculum_stall_hours:
+            # March 2026 Tier 6+7 (336h+/14d+): Aggressive curriculum + critical alert
+            # All previous interventions apply, plus aggressive curriculum.
+            # Critical alert is logged but no destructive action is taken.
+            boost_multiplier = self.config.extended_boost_multiplier
+            trigger_curriculum_reset = True
+            trigger_architecture_exploration = True
+            trigger_cb_reset = True
+            trigger_forced_reevaluation = True
+            trigger_aggressive_curriculum = True
+            trigger_critical_alert = True
+            escalation_tier = "critical_aggressive"
+            logger.critical(
+                f"CRITICAL STALL (14d+): {config_key} stalled {stall_hours:.0f}h - "
+                f"triggering aggressive curriculum + all prior interventions. "
+                f"Manual investigation recommended."
+            )
+        elif stall_hours >= self.config.cb_reset_stall_hours:
+            # March 2026 Tier 5 (240h+/10d): CB reset + forced re-evaluation
+            # All previous interventions apply, plus circuit breaker reset.
+            boost_multiplier = self.config.extended_boost_multiplier
+            trigger_curriculum_reset = True
+            trigger_architecture_exploration = True
+            trigger_cb_reset = True
+            trigger_forced_reevaluation = True
+            escalation_tier = "cb_reset"
+            logger.warning(
+                f"CB RESET STALL (10d+): {config_key} stalled {stall_hours:.0f}h - "
+                f"triggering circuit breaker reset + forced re-evaluation + all prior interventions"
+            )
+        elif stall_hours >= self.config.severe_stall_hours:
+            # Severe stall (168h+/7d): Maximum original intervention
             boost_multiplier = self.config.extended_boost_multiplier
             trigger_curriculum_reset = True
             trigger_architecture_exploration = True
@@ -452,7 +524,7 @@ class ProgressWatchdogDaemon(HandlerBase):
             context="ProgressWatchdog",
         )
 
-        # January 2026: Emit additional events for escalated interventions
+        # Emit additional events for escalated interventions
         if trigger_curriculum_reset:
             safe_emit_event(
                 "curriculum_reset_requested",
@@ -477,6 +549,91 @@ class ProgressWatchdogDaemon(HandlerBase):
                 context="ProgressWatchdog",
             )
 
+        # March 2026: Extended escalation events
+        if trigger_cb_reset:
+            safe_emit_event(
+                "STALL_RECOVERY_ESCALATED",
+                {
+                    "config_key": config_key,
+                    "escalation_tier": escalation_tier,
+                    "action": "circuit_breaker_reset",
+                    "stall_duration_hours": stall_hours,
+                    "reason": f"stall_recovery_{escalation_tier}",
+                    "source": "ProgressWatchdogDaemon",
+                },
+                context="ProgressWatchdog",
+            )
+            self._reset_all_circuit_breakers(config_key, stall_hours)
+
+        if trigger_forced_reevaluation:
+            safe_emit_event(
+                "STALL_RECOVERY_ESCALATED",
+                {
+                    "config_key": config_key,
+                    "escalation_tier": escalation_tier,
+                    "action": "forced_reevaluation",
+                    "stall_duration_hours": stall_hours,
+                    "reason": f"stall_recovery_{escalation_tier}",
+                    "source": "ProgressWatchdogDaemon",
+                },
+                context="ProgressWatchdog",
+            )
+            safe_emit_event(
+                "FORCED_REEVALUATION_REQUESTED",
+                {
+                    "config_key": config_key,
+                    "reason": f"stall_recovery_{escalation_tier}",
+                    "stall_duration_hours": stall_hours,
+                    "source": "ProgressWatchdogDaemon",
+                },
+                context="ProgressWatchdog",
+            )
+
+        if trigger_aggressive_curriculum:
+            safe_emit_event(
+                "STALL_RECOVERY_ESCALATED",
+                {
+                    "config_key": config_key,
+                    "escalation_tier": escalation_tier,
+                    "action": "aggressive_curriculum",
+                    "stall_duration_hours": stall_hours,
+                    "equal_priority": True,
+                    "max_exploration": True,
+                    "reason": f"stall_recovery_{escalation_tier}",
+                    "source": "ProgressWatchdogDaemon",
+                },
+                context="ProgressWatchdog",
+            )
+            safe_emit_event(
+                "AGGRESSIVE_CURRICULUM_REQUESTED",
+                {
+                    "config_key": config_key,
+                    "reason": f"stall_recovery_{escalation_tier}",
+                    "stall_duration_hours": stall_hours,
+                    "equal_priority": True,
+                    "max_exploration": True,
+                    "source": "ProgressWatchdogDaemon",
+                },
+                context="ProgressWatchdog",
+            )
+
+        if trigger_critical_alert:
+            safe_emit_event(
+                "STALL_RECOVERY_ESCALATED",
+                {
+                    "config_key": config_key,
+                    "escalation_tier": "critical_alert",
+                    "action": "critical_alert",
+                    "stall_duration_hours": stall_hours,
+                    "message": (
+                        f"Config {config_key} stalled for {stall_hours:.0f}h ({stall_hours / 24:.1f} days). "
+                        f"All automated recovery tiers exhausted. Manual investigation recommended."
+                    ),
+                    "source": "ProgressWatchdogDaemon",
+                },
+                context="ProgressWatchdog",
+            )
+
     async def _emit_recovery_event(
         self, config_key: str, progress: ConfigProgress
     ) -> None:
@@ -490,6 +647,58 @@ class ProgressWatchdogDaemon(HandlerBase):
                 "source": "ProgressWatchdogDaemon",
             },
             context="ProgressWatchdog",
+        )
+
+    def _reset_all_circuit_breakers(self, config_key: str, stall_hours: float) -> None:
+        """Reset all circuit breakers cluster-wide as a severe stall recovery action.
+
+        March 2026: When stalls exceed 10 days, circuit breakers may be permanently
+        excluding healthy nodes. Reset them all to give the cluster a fresh start.
+        """
+        reset_count = 0
+        try:
+            from app.coordination.circuit_breaker_base import CircuitBreakerBase
+
+            # Reset all registered CircuitBreakerBase instances
+            for cb_cls in CircuitBreakerBase.__subclasses__():
+                try:
+                    instance = cb_cls.get_instance() if hasattr(cb_cls, "get_instance") else None
+                    if instance and hasattr(instance, "reset_all"):
+                        instance.reset_all()
+                        reset_count += 1
+                except Exception as e:
+                    logger.debug(f"Could not reset {cb_cls.__name__}: {e}")
+        except ImportError:
+            logger.debug("CircuitBreakerBase not available for reset")
+
+        try:
+            from app.coordination.node_circuit_breaker import NodeCircuitBreaker
+
+            ncb = NodeCircuitBreaker.get_instance() if hasattr(NodeCircuitBreaker, "get_instance") else None
+            if ncb and hasattr(ncb, "reset_all"):
+                ncb.reset_all()
+                reset_count += 1
+        except (ImportError, Exception) as e:
+            logger.debug(f"Could not reset NodeCircuitBreaker: {e}")
+
+        try:
+            from app.coordination.transport_circuit_breaker import TransportCircuitBreaker
+
+            tcb = TransportCircuitBreaker.get_instance() if hasattr(TransportCircuitBreaker, "get_instance") else None
+            if tcb and hasattr(tcb, "reset_all_transports"):
+                # Reset transports for all known nodes
+                for node_progress in self._progress:
+                    try:
+                        tcb.reset_all_transports(node_progress, reason="stall_recovery_cb_reset")
+                    except Exception:
+                        pass
+                reset_count += 1
+        except (ImportError, Exception) as e:
+            logger.debug(f"Could not reset TransportCircuitBreaker: {e}")
+
+        logger.warning(
+            f"[ProgressWatchdog] Reset {reset_count} circuit breaker group(s) "
+            f"for {config_key} stall recovery ({stall_hours:.0f}h stall)"
         )
 
     # =========================================================================

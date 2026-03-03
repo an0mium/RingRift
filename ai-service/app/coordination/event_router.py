@@ -368,7 +368,8 @@ class UnifiedEventRouter:
         self,
         enable_cross_process_polling: bool = True,
         poll_interval: float = 1.0,
-        max_seen_events: int = 10000,
+        max_seen_events: int = 2000,
+        dedup_ttl_seconds: float = 30.0,
     ):
         self._subscribers: dict[str, list[EventCallback]] = {}
         self._global_subscribers: list[EventCallback] = []
@@ -386,11 +387,17 @@ class UnifiedEventRouter:
         self._seen_events: set[str] = set()  # event_id based
         self._seen_content_hashes: set[str] = set()  # content-based (Dec 2025)
         # Use deque for O(1) popleft instead of O(n) list.pop(0) - Dec 2025 perf fix
-        self._seen_events_order: deque[str] = deque()  # For LRU eviction (event_id)
-        self._seen_hashes_order: deque[str] = deque()  # For LRU eviction (content hash)
+        # Mar 2026: Entries are now (key, timestamp) tuples for TTL-based eviction
+        self._seen_events_order: deque[tuple[str, float]] = deque()  # For TTL + LRU eviction (event_id)
+        self._seen_hashes_order: deque[tuple[str, float]] = deque()  # For TTL + LRU eviction (content hash)
         # Dec 30, 2025: Counter for O(1) hash occurrence tracking (replaces O(n) deque search)
         self._hash_counts: Counter[str] = Counter()
         self._max_seen_events = max_seen_events
+        # Mar 2026: TTL-based eviction - events older than this are purged automatically.
+        # With 132 active daemons, the old 10K size-only cache filled in ~20s and used
+        # O(n) eviction per dispatch. TTL eviction keeps the cache small (entries expire
+        # after 30s) while the reduced size cap (2K) acts as a safety bound.
+        self._dedup_ttl_seconds = dedup_ttl_seconds
         self._duplicates_prevented = 0
         self._content_duplicates_prevented = 0  # Content-hash based duplicates
         self._handler_timeouts = 0  # Phase 5.1 (Dec 29, 2025): Track handler timeouts
@@ -770,6 +777,33 @@ class UnifiedEventRouter:
     emit = publish
     emit_sync = publish_sync
 
+    def _evict_expired_dedup_entries(self) -> None:
+        """Evict dedup cache entries older than _dedup_ttl_seconds.
+
+        Mar 2026: TTL-based eviction for 7-day autonomous operation.
+        With 132 active daemons generating ~500 events/sec, the old 10K
+        size-only cache filled in ~20 seconds and every dispatch triggered
+        O(n) FIFO eviction. TTL eviction purges stale entries in O(k)
+        where k = number of expired entries (amortized O(1) per dispatch
+        since entries are time-ordered in the deque).
+
+        Must be called while holding self._lock or self._sync_lock.
+        """
+        cutoff = time.time() - self._dedup_ttl_seconds
+
+        # Evict expired event IDs
+        while self._seen_events_order and self._seen_events_order[0][1] < cutoff:
+            expired_id, _ = self._seen_events_order.popleft()
+            self._seen_events.discard(expired_id)
+
+        # Evict expired content hashes
+        while self._seen_hashes_order and self._seen_hashes_order[0][1] < cutoff:
+            expired_hash, _ = self._seen_hashes_order.popleft()
+            self._hash_counts[expired_hash] -= 1
+            if self._hash_counts[expired_hash] <= 0:
+                self._seen_content_hashes.discard(expired_hash)
+                del self._hash_counts[expired_hash]
+
     async def _dispatch(
         self,
         event: RouterEvent,
@@ -777,27 +811,34 @@ class UnifiedEventRouter:
     ) -> None:
         """Dispatch event to router subscribers with deduplication.
 
-        Core event routing algorithm (December 2025):
+        Core event routing algorithm (December 2025, updated March 2026):
 
-        1. **Event-ID Deduplication**: Each RouterEvent has a unique UUID. Events
+        1. **TTL Eviction** (Mar 2026): Purge dedup entries older than
+           _dedup_ttl_seconds (default 30s). Events can't be duplicated after
+           routing completes (~ms), so 30s provides ample safety margin.
+           This keeps the cache small for 7-day autonomous operation.
+
+        2. **Event-ID Deduplication**: Each RouterEvent has a unique UUID. Events
            already in _seen_events set are skipped to prevent duplicate processing.
 
-        2. **Content-Hash Deduplication**: Events forwarded through multiple buses
+        3. **Content-Hash Deduplication**: Events forwarded through multiple buses
            (stage, cross-process) may arrive as different RouterEvent objects with
            identical payloads. The content_hash (SHA256 of type+payload) catches
            these. Exception: Router-originated events can repeat same content.
 
-        3. **LRU Eviction**: Both seen event IDs and content hashes are bounded
-           by _max_seen_events (default 10000) using deque-based FIFO eviction.
+        4. **Size Cap**: Both seen event IDs and content hashes are bounded
+           by _max_seen_events (default 2000) as a safety bound. TTL handles
+           normal eviction; the size cap prevents unbounded growth if TTL
+           is misconfigured or events arrive in bursts.
 
-        4. **Subscriber Invocation**: Callbacks from _global_subscribers (all events)
+        5. **Subscriber Invocation**: Callbacks from _global_subscribers (all events)
            and _subscribers[event_type] (type-specific) are called in registration
            order with timeout protection (DEFAULT_HANDLER_TIMEOUT_SECONDS).
 
-        5. **Error Handling**: Failed handlers log errors and push to dead-letter
+        6. **Error Handling**: Failed handlers log errors and push to dead-letter
            queue (DLQ) for later analysis. SystemExit/KeyboardInterrupt propagate.
 
-        6. **Metrics**: Tracks events_routed by type and events_by_source for
+        7. **Metrics**: Tracks events_routed by type and events_by_source for
            debugging and monitoring.
 
         Args:
@@ -810,6 +851,9 @@ class UnifiedEventRouter:
         """
         _ = exclude_origin  # Kept for API compatibility
         async with self._lock:
+            # Mar 2026: TTL-based eviction before dedup check - purge stale entries
+            self._evict_expired_dedup_entries()
+
             # Deduplication: skip if we've already seen this event by ID
             if event.event_id in self._seen_events:
                 self._duplicates_prevented += 1
@@ -836,22 +880,22 @@ class UnifiedEventRouter:
                 )
                 return
 
-            # Mark as seen with LRU eviction (both event_id and content_hash)
+            # Mark as seen with TTL eviction + size cap (both event_id and content_hash)
+            now = time.time()
             self._seen_events.add(event.event_id)
-            self._seen_events_order.append(event.event_id)
+            self._seen_events_order.append((event.event_id, now))
             while len(self._seen_events) > self._max_seen_events:
-                oldest = self._seen_events_order.popleft()  # O(1) with deque
-                self._seen_events.discard(oldest)
+                oldest_id, _ = self._seen_events_order.popleft()  # O(1) with deque
+                self._seen_events.discard(oldest_id)
 
             if not content_seen:
                 self._seen_content_hashes.add(content_hash)
-            self._seen_hashes_order.append(content_hash)
+            self._seen_hashes_order.append((content_hash, now))
             self._hash_counts[content_hash] += 1  # O(1) increment
 
-            # Bound the LRU deque even if we allow repeated router-origin events
-            # with identical content hashes.
+            # Size cap as safety bound (TTL handles normal eviction)
             while len(self._seen_hashes_order) > self._max_seen_events:
-                oldest_hash = self._seen_hashes_order.popleft()  # O(1) with deque
+                oldest_hash, _ = self._seen_hashes_order.popleft()  # O(1) with deque
                 self._hash_counts[oldest_hash] -= 1  # O(1) decrement
                 if self._hash_counts[oldest_hash] <= 0:  # O(1) check
                     self._seen_content_hashes.discard(oldest_hash)
@@ -993,6 +1037,9 @@ class UnifiedEventRouter:
         """
         _ = exclude_origin  # Kept for API compatibility
         with self._sync_lock:
+            # Mar 2026: TTL-based eviction before dedup check - purge stale entries
+            self._evict_expired_dedup_entries()
+
             # Deduplication: skip if we've already seen this event by ID
             if event.event_id in self._seen_events:
                 self._duplicates_prevented += 1
@@ -1016,20 +1063,22 @@ class UnifiedEventRouter:
                 )
                 return
 
-            # Mark as seen with LRU eviction (both event_id and content_hash)
+            # Mark as seen with TTL eviction + size cap (both event_id and content_hash)
+            now = time.time()
             self._seen_events.add(event.event_id)
-            self._seen_events_order.append(event.event_id)
+            self._seen_events_order.append((event.event_id, now))
             while len(self._seen_events) > self._max_seen_events:
-                oldest = self._seen_events_order.popleft()  # O(1) with deque
-                self._seen_events.discard(oldest)
+                oldest_id, _ = self._seen_events_order.popleft()  # O(1) with deque
+                self._seen_events.discard(oldest_id)
 
             if not content_seen:
                 self._seen_content_hashes.add(content_hash)
-            self._seen_hashes_order.append(content_hash)
+            self._seen_hashes_order.append((content_hash, now))
             self._hash_counts[content_hash] += 1  # O(1) increment
 
+            # Size cap as safety bound (TTL handles normal eviction)
             while len(self._seen_hashes_order) > self._max_seen_events:
-                oldest_hash = self._seen_hashes_order.popleft()  # O(1) with deque
+                oldest_hash, _ = self._seen_hashes_order.popleft()  # O(1) with deque
                 self._hash_counts[oldest_hash] -= 1  # O(1) decrement
                 if self._hash_counts[oldest_hash] <= 0:  # O(1) check
                     self._seen_content_hashes.discard(oldest_hash)
@@ -1579,6 +1628,7 @@ class UnifiedEventRouter:
             "seen_events_count": len(self._seen_events),
             "seen_content_hashes_count": len(self._seen_content_hashes),
             "max_seen_events": self._max_seen_events,
+            "dedup_ttl_seconds": self._dedup_ttl_seconds,  # Mar 2026: TTL-based eviction
             # Handler timeout metrics (Phase 5.1 - Dec 29, 2025)
             "handler_timeouts": self._handler_timeouts,
             # Cross-process degradation metrics (Dec 29, 2025)

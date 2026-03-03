@@ -1,6 +1,6 @@
 """Training Stale Data Fallback Controller.
 
-December 2025: Part of 48-hour autonomous operation plan.
+December 2025: Part of autonomous operation plan (originally 48h, now 7-day).
 When sync failures block training indefinitely, allow training to proceed
 with stale data after N failures or timeout.
 
@@ -133,7 +133,7 @@ class TrainingFallbackController:
     3. Not enough games available (< MIN_GAMES_FOR_FALLBACK)
     4. Within FALLBACK_COOLDOWN of last fallback for this config
 
-    December 2025: Part of 48-hour autonomous operation plan.
+    December 2025: Part of autonomous operation plan (originally 48h, now 7-day).
 
     Jan 21, 2026: Phase 5 - Added tiered warnings before fallback.
     - Tier 0: No issues

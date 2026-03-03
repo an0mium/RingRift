@@ -679,6 +679,9 @@ class HeartbeatManager:
                         )
 
             self._peers[peer_info.node_id] = peer_info
+            # Publish lock-free snapshot while still holding the lock
+            if self._orchestrator and hasattr(self._orchestrator, "_publish_peers_snapshot"):
+                self._orchestrator._publish_peers_snapshot()
 
         # Emit HOST_ONLINE for first-contact peers
         if is_first_contact:
@@ -692,9 +695,6 @@ class HeartbeatManager:
             if hasattr(self._orchestrator, "_emit_host_online"):
                 await self._orchestrator._emit_host_online(peer_info.node_id, capabilities)
             logger.info(f"First-contact peer registered: {peer_info.node_id} (caps: {capabilities})")
-
-        # Sync to lock-free snapshot after peer update
-        self._sync_peer_snapshot()
 
         # Return our info
         await self._update_self_info_async()
@@ -718,12 +718,14 @@ class HeartbeatManager:
 
         Jan 27, 2026: Migrated from p2p_orchestrator.py (Phase 14).
         """
-        # Check peers first
-        if self._peers_lock:
-            with self._peers_lock:
-                for peer in self._peers.values():
-                    if peer.host == host or getattr(peer, "tailscale_ip", None) == host:
-                        return peer.node_id
+        # Check peers first (lock-free read via snapshot)
+        if self._orchestrator and hasattr(self._orchestrator, "get_peers_ro"):
+            peers_snap = self._orchestrator.get_peers_ro()
+        else:
+            peers_snap = self._peers
+        for peer in peers_snap.values():
+            if peer.host == host or getattr(peer, "tailscale_ip", None) == host:
+                return peer.node_id
 
         # Check cluster_hosts.yaml
         try:
@@ -759,12 +761,11 @@ class HeartbeatManager:
         known_seed_peers: list[str] = [p for p in known_peers if p]
         discovered_seed_peers: list[str] = []
 
-        # Get snapshot of current peers
-        if self._peers_lock:
-            with self._peers_lock:
-                peers_snapshot = [p for p in self._peers.values() if p.node_id != self._node_id]
+        # Get snapshot of current peers (lock-free read via snapshot)
+        if self._orchestrator and hasattr(self._orchestrator, "get_peers_list_ro"):
+            peers_snapshot = [p for p in self._orchestrator.get_peers_list_ro() if p.node_id != self._node_id]
         else:
-            peers_snapshot = []
+            peers_snapshot = [p for p in self._peers.values() if p.node_id != self._node_id]
         peers_snapshot.sort(key=lambda p: str(getattr(p, "node_id", "") or ""))
 
         for peer in peers_snapshot:
@@ -884,8 +885,10 @@ class HeartbeatManager:
 
                                 self._peers[info.node_id] = info
                             after = len(self._peers)
+                            # Publish lock-free snapshot while still holding the lock
+                            if self._orchestrator and hasattr(self._orchestrator, "_publish_peers_snapshot"):
+                                self._orchestrator._publish_peers_snapshot()
 
-                        self._sync_peer_snapshot()
                         new = max(0, after - before)
                         if new:
                             imported_any = True
@@ -929,14 +932,16 @@ class HeartbeatManager:
             try:
                 await asyncio.sleep(ISOLATED_BOOTSTRAP_INTERVAL)
 
-                # Count alive peers
+                # Count alive peers (lock-free read via snapshot)
                 peers_alive = 0
-                if self._peers_lock:
-                    with self._peers_lock:
-                        peers_alive = sum(
-                            1 for p in self._peers.values()
-                            if p.node_id != self._node_id and p.is_alive()
-                        )
+                if self._orchestrator and hasattr(self._orchestrator, "get_peers_ro"):
+                    peers_snap = self._orchestrator.get_peers_ro()
+                else:
+                    peers_snap = self._peers
+                peers_alive = sum(
+                    1 for p in peers_snap.values()
+                    if p.node_id != self._node_id and p.is_alive()
+                )
 
                 is_isolated = peers_alive < MIN_CONNECTED_PEERS
                 no_leader = self._leader_id is None or (
@@ -1100,6 +1105,9 @@ class HeartbeatManager:
                                         peer_info.consecutive_failures = int(getattr(existing, "consecutive_failures", 0) or 0)
                                         peer_info.last_failure_time = float(getattr(existing, "last_failure_time", 0.0) or 0.0)
                                     self._peers[node_id] = peer_info
+                            # Publish lock-free snapshot while still holding the lock
+                            if self._orchestrator and hasattr(self._orchestrator, "_publish_peers_snapshot"):
+                                self._orchestrator._publish_peers_snapshot()
 
                     # Execute any queued commands addressed to us
                     commands = data.get("commands") or []
@@ -1178,6 +1186,9 @@ class HeartbeatManager:
                         info.last_heartbeat = time.time()
                         info.consecutive_failures = 0
                         self._peers[info.node_id] = info
+                        # Publish lock-free snapshot while still holding the lock
+                        if self._orchestrator and hasattr(self._orchestrator, "_publish_peers_snapshot"):
+                            self._orchestrator._publish_peers_snapshot()
 
                 # Update leader if this voter claims leadership
                 leader_lease_duration = getattr(self._orchestrator, "LEADER_LEASE_DURATION", 300)

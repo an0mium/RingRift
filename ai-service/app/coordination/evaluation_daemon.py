@@ -346,7 +346,9 @@ class EvaluationDaemon(HandlerBase):
         self._below_threshold_since: float = 0.0  # When queue dropped below release threshold
         # December 29, 2025: Retry queue for failed evaluations
         # Tuple: (model_path, board_type, num_players, attempts, next_retry_time)
-        self._retry_queue: deque[tuple[str, str, int, int, float]] = deque()
+        # March 2026: Added maxlen=200 to prevent unbounded growth during 7-day autonomous operation.
+        # At max_attempts=3, this supports ~66 unique failed evaluations before oldest are evicted.
+        self._retry_queue: deque[tuple[str, str, int, int, float]] = deque(maxlen=200)
         # December 30, 2025: Use centralized RetryConfig for consistent retry behavior
         self._retry_config = RetryConfig(
             max_attempts=3,

@@ -42,6 +42,7 @@ import os
 import sqlite3
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from enum import Enum
 from pathlib import Path
@@ -931,11 +932,20 @@ class ResourceOptimizer:
                 VALUES (1, 1000, 100, 5000, 0, 'init');
             """)
 
-    def _get_connection(self) -> sqlite3.Connection:
-        """Get a database connection."""
+    @contextmanager
+    def _get_connection(self):
+        """Get a database connection (context manager).
+
+        Ensures connection is always closed, even if an exception occurs.
+        March 2026: Changed from bare return to context manager to prevent
+        connection leaks during 7-day autonomous operation.
+        """
         conn = sqlite3.connect(str(self._db_path), timeout=30)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            yield conn
+        finally:
+            conn.close()
 
     # =========================================================================
     # Resource State Reporting

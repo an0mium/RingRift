@@ -408,7 +408,7 @@ This order is enforced in `daemon_lifecycle.py:_reorder_for_critical_startup()`.
 
 1. **Content-hash deduplication**: Router uses SHA256 hash of stable payload fields
 2. **Check event_id**: Each event has unique ID for deduplication
-3. **Increase max_seen_events**: Default is 10000, increase if needed
+3. **TTL-based eviction**: Default 30s TTL auto-purges stale entries; size cap is 2000 (safety bound)
 
 ### Event Handler Timeout
 

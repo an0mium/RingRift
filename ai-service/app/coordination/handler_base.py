@@ -1093,12 +1093,18 @@ class HandlerBase(SafeEventEmitterMixin, ABC):
 
         now = time.time()
 
-        # Prune old entries
+        # Prune old entries (TTL-based, then hard cap as safety bound)
         if len(self._seen_events) > self.DEDUP_MAX_SIZE:
             cutoff = now - self.DEDUP_TTL_SECONDS
             self._seen_events = {
                 h: t for h, t in self._seen_events.items() if t > cutoff
             }
+            # March 2026: Hard cap after TTL pruning to prevent unbounded growth
+            # during 7-day autonomous operation with high event rates. If all entries
+            # are within the TTL window, keep only the newest DEDUP_MAX_SIZE entries.
+            if len(self._seen_events) > self.DEDUP_MAX_SIZE:
+                sorted_entries = sorted(self._seen_events.items(), key=lambda x: x[1])
+                self._seen_events = dict(sorted_entries[-self.DEDUP_MAX_SIZE:])
 
         # Check for duplicate
         if event_hash in self._seen_events:

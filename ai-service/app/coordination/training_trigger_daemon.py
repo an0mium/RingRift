@@ -3490,22 +3490,24 @@ class TrainingTriggerDaemon(HandlerBase):
             updated = 0
             try:
                 conn = sqlite3.connect(str(db_path))
-                conn.row_factory = sqlite3.Row
-                # Filter out heuristic/random/mcts engines to get actual NN Elo.
-                # Without this filter, heuristic engines inflate reported Elo
-                # (e.g. square8_2p heuristic=1910 vs NN=1695), causing the
-                # system to incorrectly believe training is complete.
-                rows = conn.execute(
-                    "SELECT board_type || '_' || num_players || 'p' as config_key, "
-                    "MAX(rating) as best_rating "
-                    "FROM elo_ratings "
-                    "WHERE participant_id NOT LIKE '%heuristic%' "
-                    "AND participant_id NOT LIKE '%random%' "
-                    "AND participant_id NOT LIKE '%mcts_medium%' "
-                    "AND participant_id NOT LIKE 'none:%' "
-                    "GROUP BY board_type, num_players"
-                ).fetchall()
-                conn.close()
+                try:
+                    conn.row_factory = sqlite3.Row
+                    # Filter out heuristic/random/mcts engines to get actual NN Elo.
+                    # Without this filter, heuristic engines inflate reported Elo
+                    # (e.g. square8_2p heuristic=1910 vs NN=1695), causing the
+                    # system to incorrectly believe training is complete.
+                    rows = conn.execute(
+                        "SELECT board_type || '_' || num_players || 'p' as config_key, "
+                        "MAX(rating) as best_rating "
+                        "FROM elo_ratings "
+                        "WHERE participant_id NOT LIKE '%heuristic%' "
+                        "AND participant_id NOT LIKE '%random%' "
+                        "AND participant_id NOT LIKE '%mcts_medium%' "
+                        "AND participant_id NOT LIKE 'none:%' "
+                        "GROUP BY board_type, num_players"
+                    ).fetchall()
+                finally:
+                    conn.close()
 
                 for row in rows:
                     config_key = row["config_key"]

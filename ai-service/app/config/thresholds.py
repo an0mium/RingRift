@@ -152,10 +152,16 @@ _LARGE_BOARD_TYPES = {"square19", "hexagonal"}
 # switch broke all 3 hexagonal configs — NPZ data was still 40ch (v2),
 # training started from random instead of canonical, and no candidates
 # were ever produced. hexagonal_2p regressed from 1660 to 1483 Elo.
+# Mar 2026: ALL board types use v2 until v5-heavy models are bootstrapped.
+# v5-heavy was causing from-random training for square8/square19 because
+# canonical models are v2 — training_executor skips init_weights on
+# architecture mismatch, producing garbage candidates every time.
+# To migrate to v5-heavy: first train a v5-heavy model manually from v2,
+# then promote it as canonical, THEN change the preferred architecture.
 PREFERRED_ARCHITECTURE: dict[str, str] = {
     "hex8": "v2",
-    "square8": "v5-heavy",
-    "square19": "v5-heavy",
+    "square8": "v2",
+    "square19": "v2",
     "hexagonal": "v2",
 }
 
@@ -1748,7 +1754,8 @@ DATA_STALENESS_WARNING_HOURS = 4.0
 
 # Critical staleness - data older than this blocks training
 # December 29, 2025: Increased from 24h to 48h per user request for autonomous operation
-DATA_STALENESS_CRITICAL_HOURS = 48.0
+# March 2, 2026: Increased from 48h to 168h for 7-day autonomous operation
+DATA_STALENESS_CRITICAL_HOURS = 168.0
 
 
 def check_training_data_quality(

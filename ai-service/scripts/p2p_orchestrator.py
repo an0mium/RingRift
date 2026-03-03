@@ -1737,6 +1737,7 @@ class P2POrchestrator(
         self.local_jobs: dict[str, ClusterJob] = {}
         self.active_jobs: dict[str, dict[str, Any]] = {}
         self._http_session: aiohttp.ClientSession | None = None
+        self._http_session_created_at: float = 0.0
         self._tailscale_discovery_loop: Any = None
 
         # Distributed job state tracking (leader-only)
@@ -1937,7 +1938,12 @@ class P2POrchestrator(
 
         self._peer_query = PeerQueryBuilder(self.peers, self.peers_lock, self.node_id)
 
-        # Cached peers snapshot for LeaderOps (avoids blocking event loop on peers_lock)
+        # Copy-on-write peers snapshot — updated after every peers dict mutation.
+        # Readers use get_peers_ro() (dict) or get_peers_list_ro() (list) without locking.
+        # CPython dict/list assignment is atomic (GIL), so concurrent reads are safe.
+        self._peers_ro: dict = {}
+        self._peers_list_ro: list = []
+        # Legacy cached snapshot (kept for backward compatibility with external callers)
         self._peers_snapshot_cache: list | None = None
         self._peers_snapshot_cache_time: float = 0.0
 
@@ -2114,6 +2120,43 @@ class P2POrchestrator(
         self._peers_snapshot_cache = snapshot
         self._peers_snapshot_cache_time = now
         return snapshot
+
+    def _publish_peers_snapshot(self) -> None:
+        """Publish an immutable snapshot of peers after a mutation.
+
+        MUST be called while holding peers_lock (or immediately after release).
+        CPython dict/list assignment is atomic under GIL, so readers that call
+        get_peers_ro() / get_peers_list_ro() never see a partially-updated state.
+
+        Also syncs the PeerSnapshot object for consumers using get_snapshot().
+        """
+        self._peers_ro = dict(self.peers)
+        self._peers_list_ro = list(self.peers.values())
+        # Refresh the legacy cache used by _get_peers_snapshot_nonblocking
+        self._peers_snapshot_cache = self._peers_list_ro
+        self._peers_snapshot_cache_time = time.time()
+        # Sync the PeerSnapshot object (used by status, elections, etc.)
+        try:
+            with self._peer_snapshot.bulk_update():
+                self._peer_snapshot.clear()
+                for node_id, info in self.peers.items():
+                    self._peer_snapshot.update_peer(node_id, info)
+        except Exception:  # noqa: BLE001
+            pass  # PeerSnapshot sync is best-effort
+
+    def get_peers_ro(self) -> dict:
+        """Lock-free read-only snapshot of the peers dict.
+
+        Returns a plain dict (not the live dict). Safe to iterate, read keys/values,
+        and pass to functions without holding peers_lock. Values may be up to one
+        mutation behind the live dict — this is acceptable for leader ops, health
+        checks, status endpoints, and all read-only consumers.
+        """
+        return self._peers_ro
+
+    def get_peers_list_ro(self) -> list:
+        """Lock-free read-only snapshot of peers as a list of PeerInfo."""
+        return self._peers_list_ro
 
     def _init_managers(self) -> None:
         """Phase 5: All 14 managers + 6 sub-orchestrators + state loading."""
@@ -3428,8 +3471,7 @@ class P2POrchestrator(
     async def _send_cmaes_to_worker(self, worker_id: str, endpoint: str, payload: dict) -> bool:
         """Send CMA-ES request to a worker. Used by CMAESCoordinator callback."""
         try:
-            with self.peers_lock:
-                worker = self.peers.get(worker_id)
+            worker = self.get_peers_ro().get(worker_id)
             if not worker:
                 return False
             timeout = ClientTimeout(total=300)
@@ -3446,8 +3488,7 @@ class P2POrchestrator(
         try:
             if not self.leader_id:
                 return False
-            with self.peers_lock:
-                leader = self.peers.get(self.leader_id)
+            leader = self.get_peers_ro().get(self.leader_id)
             if not leader:
                 return False
             timeout = ClientTimeout(total=30)
@@ -3760,6 +3801,7 @@ class P2POrchestrator(
             logger.debug(f"[P2P] Pre-populated voter {voter_id} at {host}:{DEFAULT_PORT}")
 
         if prepopulated:
+            self._publish_peers_snapshot()
             logger.info(f"[P2P] Pre-populated {prepopulated} voter peers for gossip reachability")
 
     def _load_cluster_config_raw(self) -> dict[str, Any]:
@@ -4118,12 +4160,50 @@ class P2POrchestrator(
         Lazily created and re-created if closed.
         """
         if not hasattr(self, "_http_session") or self._http_session is None or self._http_session.closed:
+            import time as _time
+
             timeout = aiohttp.ClientTimeout(total=30)
             self._http_session = aiohttp.ClientSession(
                 timeout=timeout,
                 headers=self._auth_headers(),
             )
+            self._http_session_created_at = _time.time()
         return self._http_session
+
+    @property
+    def http_session_created_at(self) -> float:
+        """Timestamp when the current HTTP session was created."""
+        return getattr(self, "_http_session_created_at", 0.0)
+
+    async def recreate_http_session(self) -> None:
+        """Close the existing HTTP session and create a fresh one.
+
+        March 2026: Called by HttpPoolMonitorLoop to prevent TIME_WAIT socket
+        exhaustion during 7-day autonomous operation. After closing the old
+        session, the next access to self.http_session will lazily create a new
+        one via the property getter.
+        """
+        import time as _time
+
+        old_session = getattr(self, "_http_session", None)
+        if old_session is not None and not old_session.closed:
+            try:
+                await old_session.close()
+                # Allow FIN/ACK handshake to complete
+                await asyncio.sleep(0.25)
+            except Exception as e:
+                logger.debug(f"[P2P] Error closing old HTTP session: {e}")
+
+        # Reset so the property creates a fresh session on next access
+        self._http_session = None
+        self._http_session_created_at = 0.0
+
+        # Eagerly create the new session so callers don't hit a race
+        _ = self.http_session
+
+        logger.info(
+            f"[P2P] HTTP session recreated at {_time.time():.0f}"
+        )
 
     def _get_leader_peer(self) -> NodeInfo | None:
         if self.leadership.check_is_leader():
@@ -4265,6 +4345,7 @@ class P2POrchestrator(
                     logger.error(f"Failed to load peer {node_id}: {e}")
             # C2 fix: Sync peer snapshot after loading persisted peers
             self._sync_peer_snapshot()
+            self._publish_peers_snapshot()
 
             # Apply loaded jobs
             for job_dict in state.jobs:
@@ -4915,6 +4996,7 @@ class P2POrchestrator(
                     )
                     # C2 fix: Sync peer snapshot after adding new peer
                     self._sync_peer_snapshot()
+                    self._publish_peers_snapshot()
                     logger.info(f"Reconnected peer via network health: {actual_node_id} ({host}:{port})")
                     await self._emit_host_online(actual_node_id)
                     return True
@@ -6739,8 +6821,7 @@ class P2POrchestrator(
             # Find GPU worker for training
             gpu_worker = None
             candidates: list[NodeInfo] = []
-            with self.peers_lock:
-                candidates.extend([p for p in self.peers.values() if p.is_gpu_node() and p.is_healthy()])
+            candidates.extend([p for p in self.get_peers_list_ro() if p.is_gpu_node() and p.is_healthy()])
             if self.self_info.is_gpu_node() and self.self_info.is_healthy():
                 candidates.append(self.self_info)
             if candidates:
@@ -6789,8 +6870,7 @@ class P2POrchestrator(
             if job.worker_node == self.node_id:
                 worker_node = self.self_info
             else:
-                with self.peers_lock:
-                    worker_node = self.peers.get(job.worker_node)
+                worker_node = self.get_peers_ro().get(job.worker_node)
 
             if not worker_node:
                 logger.info(f"ImprovementCycle {cycle_id}: Worker {job.worker_node} not found")
@@ -7518,11 +7598,11 @@ class P2POrchestrator(
 
         try:
             # Get current worker count
-            with self.peers_lock:
-                total_nodes = len(self.peers) + 1
-                gpu_nodes = len([p for p in self.peers.values() if getattr(p, "has_gpu", False)])
-                if self.self_info.has_gpu:
-                    gpu_nodes += 1
+            peers_ro = self.get_peers_ro()
+            total_nodes = len(peers_ro) + 1
+            gpu_nodes = len([p for p in peers_ro.values() if getattr(p, "has_gpu", False)])
+            if self.self_info.has_gpu:
+                gpu_nodes += 1
 
             with self.jobs_lock:
                 active_selfplay = len([j for j in self.local_jobs.values()
@@ -8513,6 +8593,7 @@ print(json.dumps({{
                                         )
                                     except (ValueError, KeyError, IndexError, AttributeError):
                                         continue
+                            self._publish_peers_snapshot()
 
                         # Jan 12, 2026: Sync to lock-free snapshot after relay peer import
                         self._sync_peer_snapshot()
@@ -8892,6 +8973,7 @@ print(json.dumps({{
                         is_first_contact = info.node_id not in self.peers
                         info.last_heartbeat = time.time()
                         self.peers[info.node_id] = info
+                        self._publish_peers_snapshot()
                     if is_first_contact:
                         logger.info(f"[P2P] Startup announcement discovered peer: {info.node_id}")
                     success_count += 1
@@ -9135,6 +9217,7 @@ print(json.dumps({{
                             is_first_contact = info.node_id not in self.peers
                             info.last_heartbeat = time.time()
                             self.peers[info.node_id] = info
+                            self._publish_peers_snapshot()
                         # Dec 2025: Emit HOST_ONLINE for newly discovered peers
                         if is_first_contact:
                             capabilities = []
@@ -9146,8 +9229,7 @@ print(json.dumps({{
                             await self._emit_host_online(info.node_id, capabilities)
                             logger.info(f"First-contact peer via heartbeat loop: {info.node_id}")
                         if info.role == NodeRole.LEADER and info.node_id != self.node_id:
-                            async with NonBlockingAsyncLockWrapper(self.peers_lock, "peers_lock", timeout=5.0):
-                                peers_snapshot = list(self.peers.values())
+                            peers_snapshot = self.get_peers_list_ro()
                             conflict_keys = self._endpoint_conflict_keys([self.self_info, *peers_snapshot])
                             if not self._is_leader_eligible(info, conflict_keys, require_alive=False):
                                 continue
@@ -9243,6 +9325,7 @@ print(json.dumps({{
                             async with NonBlockingAsyncLockWrapper(self.peers_lock, "peers_lock", timeout=5.0):
                                 info.last_heartbeat = time.time()
                                 self.peers[info.node_id] = info
+                                self._publish_peers_snapshot()
                             if info.role == NodeRole.LEADER and self.role != NodeRole.LEADER:
                                 if not self._is_leader_eligible(info, conflict_keys, require_alive=False):
                                     continue
@@ -9494,6 +9577,7 @@ print(json.dumps({{
                     info.last_heartbeat = time.time()
                     info.consecutive_failures = 0
                     self.peers[info.node_id] = info
+                    self._publish_peers_snapshot()
                 return True
 
         # Try 2: Reported host/port
@@ -9507,6 +9591,7 @@ print(json.dumps({{
                     info.last_heartbeat = time.time()
                     info.consecutive_failures = 0
                     self.peers[info.node_id] = info
+                    self._publish_peers_snapshot()
                 return True
 
         return False
@@ -9529,6 +9614,7 @@ print(json.dumps({{
                             peer_info = NodeInfo.from_dict(peers_data[voter_id])
                             with self.peers_lock:
                                 self.peers[voter_id] = peer_info
+                                self._publish_peers_snapshot()
                             logger.info(f"Discovered voter {voter_id} from {host}")
                             return
             except (aiohttp.ClientError, asyncio.TimeoutError, AttributeError, ImportError):
@@ -9999,8 +10085,7 @@ print(json.dumps({{
         self.last_lease_renewal = time.time()
 
         # Announce to all peers with lease information
-        with self.peers_lock:
-            peers = list(self.peers.values())
+        peers = self.get_peers_list_ro()
 
         timeout = ClientTimeout(total=5)
         async with get_client_session(timeout) as session:
@@ -10126,8 +10211,7 @@ print(json.dumps({{
         logger.info(f"Provisional leadership claimed: lease={provisional_lease_id}")
 
         # Announce provisional claim to all peers
-        async with NonBlockingAsyncLockWrapper(self.peers_lock, "peers_lock", timeout=5.0):
-            peers = [p for p in self.peers.values() if p.node_id != self.node_id and p.is_alive()]
+        peers = [p for p in self.get_peers_list_ro() if p.node_id != self.node_id and p.is_alive()]
 
         if not peers:
             # No peers to acknowledge, promote immediately
@@ -10271,8 +10355,7 @@ print(json.dumps({{
         asyncio.create_task(self._emit_leader_elected(self.node_id, getattr(self, "cluster_epoch", 0)))
 
         # Announce to all peers
-        async with NonBlockingAsyncLockWrapper(self.peers_lock, "peers_lock", timeout=5.0):
-            peers = list(self.peers.values())
+        peers = self.get_peers_list_ro()
 
         timeout = aiohttp.ClientTimeout(total=5)
         async with get_client_session(timeout) as session:
@@ -10379,16 +10462,15 @@ print(json.dumps({{
 
         # Use consistent hashing to determine which node should be emergency coordinator
         # This prevents multiple nodes from declaring themselves coordinator
-        with self.peers_lock:
-            candidates = [self.node_id]
-            for peer in self.peers.values():
-                if not peer.is_alive():
-                    continue
-                if not getattr(peer, "has_gpu", False):
-                    continue
-                if getattr(peer, "nat_blocked", False):
-                    continue
-                candidates.append(peer.node_id)
+        candidates = [self.node_id]
+        for peer in self.get_peers_list_ro():
+            if not peer.is_alive():
+                continue
+            if not getattr(peer, "has_gpu", False):
+                continue
+            if getattr(peer, "nat_blocked", False):
+                continue
+            candidates.append(peer.node_id)
 
         if not candidates:
             return
@@ -10416,8 +10498,7 @@ print(json.dumps({{
         self.last_lease_renewal = now
 
         # Announce emergency leadership
-        with self.peers_lock:
-            peers = list(self.peers.values())
+        peers = self.get_peers_list_ro()
 
         timeout = ClientTimeout(total=5)
         async with get_client_session(timeout) as session:
@@ -11269,12 +11350,11 @@ print(json.dumps({{
 
         try:
             # Update peer list for Prometheus config
-            with self.peers_lock:
-                peer_list = [
-                    {"node_id": p.node_id, "host": p.host, "port": getattr(p, "metrics_port", 9091)}
-                    for p in self.peers.values()
-                    if p.node_id != self.node_id and p.is_healthy()
-                ]
+            peer_list = [
+                {"node_id": p.node_id, "host": p.host, "port": getattr(p, "metrics_port", 9091)}
+                for p in self.get_peers_list_ro()
+                if p.node_id != self.node_id and p.is_healthy()
+            ]
             self.monitoring_manager.update_peers(peer_list)
 
             # Start monitoring services
@@ -11445,8 +11525,7 @@ print(json.dumps({{
                 logger.debug(f"[LeaseRenewal] Failed to renew self-leadership: {e}")
 
         # Broadcast lease renewal to all peers
-        with self.peers_lock:
-            peers = list(self.peers.values())
+        peers = self.get_peers_list_ro()
 
         timeout = ClientTimeout(total=3)
         try:
@@ -12331,8 +12410,7 @@ print(json.dumps({{
 
         relay_node_id = str(getattr(peer, "relay_via", "") or "").strip()
         if relay_node_id and relay_node_id != self.node_id:
-            with self.peers_lock:
-                relay_peer = self.peers.get(relay_node_id)
+            relay_peer = self.get_peers_ro().get(relay_node_id)
             if relay_peer:
                 timeout = ClientTimeout(total=10)
                 async with get_client_session(timeout) as session:
@@ -12373,9 +12451,9 @@ print(json.dumps({{
                             with self.peers_lock:
                                 if peer_id in self.peers:
                                     self.peers[peer_id].relay_via = new_relay
+                                    self._publish_peers_snapshot()
                             # Try enqueue on new relay
-                            with self.peers_lock:
-                                new_relay_peer = self.peers.get(new_relay)
+                            new_relay_peer = self.get_peers_ro().get(new_relay)
                             if new_relay_peer:
                                 for url in self._urls_for_peer(new_relay_peer, "/relay/enqueue"):
                                     try:
@@ -12973,15 +13051,13 @@ print(json.dumps({{
         # couldn't join the mesh because continuous_bootstrap_loop has a 30s delay.
         if not self.known_peers:
             logger.info("[Bootstrap] No --peers provided, running immediate Tailscale discovery...")
-            with self.peers_lock:
-                peers_before = len(self.peers)
+            peers_before = len(self.get_peers_ro())
 
             # Try direct Tailscale peer discovery first
             with contextlib.suppress(Exception):
                 await self._discover_tailscale_peers()
 
-            with self.peers_lock:
-                peers_after = len(self.peers)
+            peers_after = len(self.get_peers_ro())
 
             if peers_after > peers_before:
                 logger.info(f"[Bootstrap] Tailscale discovery found {peers_after - peers_before} new peer(s)")

@@ -141,6 +141,8 @@ def register_all_loops(
         loops_registered += _register_evaluation_worker(orchestrator, manager, loops_failed)
         loops_registered += _register_tournament_data_pipeline(orchestrator, manager, loops_failed)
         loops_registered += _register_circuit_breaker_decay(orchestrator, manager, loops_failed)
+        loops_registered += _register_wal_cleanup(orchestrator, manager, loops_failed)
+        loops_registered += _register_http_pool_monitor(orchestrator, manager, loops_failed)
         loops_registered += _register_voter_config_sync(orchestrator, manager, loops_failed)
         loops_registered += _register_stability_controller(orchestrator, manager, loops_failed)
         loops_registered += _register_peer_recovery(orchestrator, manager, loops_failed)
@@ -1956,6 +1958,85 @@ def _register_circuit_breaker_decay(
     except (ImportError, TypeError, AttributeError) as e:
         logger.debug(f"CircuitBreakerDecayLoop: not available: {e}")
         failed.append("CircuitBreakerDecayLoop")
+        return 0
+
+
+def _register_wal_cleanup(
+    orchestrator: "P2POrchestrator",
+    manager: "LoopManager",
+    failed: list[str],
+) -> int:
+    """Register WalCleanupLoop for periodic SQLite WAL checkpointing.
+
+    March 2026: Prevents WAL file accumulation during 7-day autonomous operation.
+    WAL files grow 1-2GB each, causing false disk pressure alerts after 3-4 days.
+    """
+    try:
+        from scripts.p2p.loops.maintenance_loops import (
+            WalCleanupLoop,
+            WalCleanupConfig,
+        )
+
+        wal_config = WalCleanupConfig(
+            enabled=os.environ.get("RINGRIFT_WAL_CLEANUP_ENABLED", "1").lower()
+            in ("1", "true", "yes"),
+            check_interval_seconds=float(
+                os.environ.get("RINGRIFT_WAL_CLEANUP_INTERVAL", "21600")
+            ),
+        )
+
+        wal_cleanup_loop = WalCleanupLoop(config=wal_config)
+        manager.register(wal_cleanup_loop)
+        orchestrator._wal_cleanup_loop = wal_cleanup_loop
+        logger.info("[LoopRegistry] WalCleanupLoop registered")
+        return 1
+    except (ImportError, TypeError, AttributeError) as e:
+        logger.debug(f"WalCleanupLoop: not available: {e}")
+        failed.append("WalCleanupLoop")
+        return 0
+
+
+def _register_http_pool_monitor(
+    orchestrator: "P2POrchestrator",
+    manager: "LoopManager",
+    failed: list[str],
+) -> int:
+    """Register HttpPoolMonitorLoop for HTTP connection pool recycling.
+
+    March 2026: Prevents TIME_WAIT socket exhaustion during 7-day autonomous
+    operation. After 72+ hours, the shared aiohttp session can accumulate
+    stale connections that exhaust the TCPConnector pool.
+    """
+    try:
+        from scripts.p2p.loops.maintenance_loops import (
+            HttpPoolMonitorLoop,
+            HttpPoolMonitorConfig,
+        )
+
+        pool_config = HttpPoolMonitorConfig(
+            enabled=os.environ.get("RINGRIFT_HTTP_POOL_MONITOR_ENABLED", "1").lower()
+            in ("1", "true", "yes"),
+            check_interval_seconds=float(
+                os.environ.get("RINGRIFT_HTTP_POOL_MONITOR_INTERVAL", "14400")
+            ),
+            max_session_age_seconds=float(
+                os.environ.get("RINGRIFT_HTTP_POOL_MAX_SESSION_AGE", "86400")
+            ),
+        )
+
+        pool_monitor = HttpPoolMonitorLoop(
+            get_http_session=lambda: orchestrator.http_session,
+            get_session_created_at=lambda: orchestrator.http_session_created_at,
+            recreate_http_session=orchestrator.recreate_http_session,
+            config=pool_config,
+        )
+        manager.register(pool_monitor)
+        orchestrator._http_pool_monitor_loop = pool_monitor
+        logger.info("[LoopRegistry] HttpPoolMonitorLoop registered")
+        return 1
+    except (ImportError, TypeError, AttributeError) as e:
+        logger.debug(f"HttpPoolMonitorLoop: not available: {e}")
+        failed.append("HttpPoolMonitorLoop")
         return 0
 
 

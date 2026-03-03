@@ -29,9 +29,8 @@ import asyncio
 import logging
 import os
 import socket
-import subprocess
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -42,8 +41,8 @@ from app.config.cluster_config import (
     ClusterNode,
 )
 from app.config.coordination_defaults import build_ssh_options
+from app.coordination.handler_base import HandlerBase
 from app.coordination.protocols import HealthCheckResult, CoordinatorStatus
-from app.coordination.singleton_mixin import SingletonMixin
 
 logger = logging.getLogger(__name__)
 
@@ -95,10 +94,10 @@ class ExternalDriveSyncConfig:
 # =============================================================================
 
 
-class ExternalDriveSyncDaemon(SingletonMixin):
+class ExternalDriveSyncDaemon(HandlerBase):
     """Daemon that pulls data from cluster nodes and S3 to external storage.
 
-    January 2026: Migrated to use SingletonMixin for consistency.
+    March 2026: Migrated from SingletonMixin to HandlerBase.
 
     This daemon:
     1. Discovers cluster nodes with game data
@@ -120,20 +119,17 @@ class ExternalDriveSyncDaemon(SingletonMixin):
             config: Daemon configuration
             storage_config: External storage configuration (from distributed_hosts.yaml)
         """
+        super().__init__(name="external_drive_sync", cycle_interval=60.0)
         self.config = config or ExternalDriveSyncConfig()
         self._storage_config = storage_config
 
-        # State tracking
-        self._running = False
-        self._start_time = 0.0
+        # State tracking (sub-interval timers for games/npz/models)
         self._last_games_sync = 0.0
         self._last_npz_sync = 0.0
         self._last_models_sync = 0.0
-        self._cycles_completed = 0
-        self._errors_count = 0
 
         # Sync stats
-        self._stats = {
+        self._sync_stats = {
             "games_synced": 0,
             "npz_synced": 0,
             "models_synced": 0,
@@ -184,13 +180,6 @@ class ExternalDriveSyncDaemon(SingletonMixin):
             return None
 
     @property
-    def uptime_seconds(self) -> float:
-        """Get daemon uptime."""
-        if self._start_time > 0:
-            return time.time() - self._start_time
-        return 0.0
-
-    @property
     def is_enabled(self) -> bool:
         """Check if daemon should run on this host."""
         if self._storage_config is None:
@@ -207,76 +196,49 @@ class ExternalDriveSyncDaemon(SingletonMixin):
         return True
 
     async def start(self) -> None:
-        """Start the daemon."""
+        """Start the daemon (with is_enabled guard)."""
         if not self.is_enabled:
             logger.info(
                 "[ExternalDriveSync] Daemon disabled - no external storage configured "
                 "or storage path not mounted"
             )
             return
-
-        self._running = True
-        self._start_time = time.time()
-
         logger.info(
             f"[ExternalDriveSync] Starting daemon - syncing to "
             f"{self._storage_config.path}"
         )
+        await super().start()
 
-        try:
-            await self._run_loop()
-        finally:
-            self._running = False
+    async def _run_cycle(self) -> None:
+        """Single cycle: check if any sync type is due and run it."""
+        now = time.time()
 
-    async def stop(self) -> None:
-        """Stop the daemon."""
-        self._running = False
-        logger.info("[ExternalDriveSync] Stopping daemon")
+        # Check if games sync is due
+        if (
+            self.config.sync_games
+            and self._storage_config.receive_games
+            and now - self._last_games_sync >= self.config.games_sync_interval
+        ):
+            await self._sync_games_from_cluster()
+            self._last_games_sync = now
 
-    async def _run_loop(self) -> None:
-        """Main daemon loop."""
-        while self._running:
-            try:
-                now = time.time()
+        # Check if NPZ sync is due
+        if (
+            self.config.sync_npz
+            and self._storage_config.receive_npz
+            and now - self._last_npz_sync >= self.config.npz_sync_interval
+        ):
+            await self._sync_npz_from_s3()
+            self._last_npz_sync = now
 
-                # Check if games sync is due
-                if (
-                    self.config.sync_games
-                    and self._storage_config.receive_games
-                    and now - self._last_games_sync >= self.config.games_sync_interval
-                ):
-                    await self._sync_games_from_cluster()
-                    self._last_games_sync = now
-
-                # Check if NPZ sync is due
-                if (
-                    self.config.sync_npz
-                    and self._storage_config.receive_npz
-                    and now - self._last_npz_sync >= self.config.npz_sync_interval
-                ):
-                    await self._sync_npz_from_s3()
-                    self._last_npz_sync = now
-
-                # Check if models sync is due
-                if (
-                    self.config.sync_models
-                    and self._storage_config.receive_models
-                    and now - self._last_models_sync >= self.config.models_sync_interval
-                ):
-                    await self._sync_models_from_s3()
-                    self._last_models_sync = now
-
-                self._cycles_completed += 1
-
-                # Sleep before next check
-                await asyncio.sleep(60)  # Check every minute
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self._errors_count += 1
-                logger.error(f"[ExternalDriveSync] Error in sync loop: {e}")
-                await asyncio.sleep(60)
+        # Check if models sync is due
+        if (
+            self.config.sync_models
+            and self._storage_config.receive_models
+            and now - self._last_models_sync >= self.config.models_sync_interval
+        ):
+            await self._sync_models_from_s3()
+            self._last_models_sync = now
 
     # =========================================================================
     # Games Sync (from cluster nodes)
@@ -308,7 +270,7 @@ class ExternalDriveSyncDaemon(SingletonMixin):
 
         logger.info(
             f"[ExternalDriveSync] Games sync complete - "
-            f"{self._stats['nodes_synced']} nodes processed"
+            f"{self._sync_stats['nodes_synced']} nodes processed"
         )
 
         # December 2025: Emit backup completion event
@@ -369,12 +331,12 @@ class ExternalDriveSyncDaemon(SingletonMixin):
             stdout, stderr = await proc.communicate()
 
             if proc.returncode == 0:
-                self._stats["nodes_synced"] += 1
-                self._stats["games_synced"] += 1
+                self._sync_stats["nodes_synced"] += 1
+                self._sync_stats["games_synced"] += 1
                 logger.info(f"[ExternalDriveSync] Synced games from {node.name}")
                 return True
             else:
-                self._stats["sync_errors"] += 1
+                self._sync_stats["sync_errors"] += 1
                 logger.warning(
                     f"[ExternalDriveSync] Failed to sync games from {node.name}: "
                     f"{stderr.decode()[:200]}"
@@ -382,7 +344,7 @@ class ExternalDriveSyncDaemon(SingletonMixin):
                 return False
 
         except Exception as e:
-            self._stats["sync_errors"] += 1
+            self._sync_stats["sync_errors"] += 1
             logger.error(f"[ExternalDriveSync] Error syncing games from {node.name}: {e}")
             return False
 
@@ -481,18 +443,18 @@ class ExternalDriveSyncDaemon(SingletonMixin):
             stdout, stderr = await proc.communicate()
 
             if proc.returncode == 0:
-                self._stats["npz_synced"] += 1
+                self._sync_stats["npz_synced"] += 1
                 logger.info(f"[ExternalDriveSync] Synced NPZ from S3 to {dest_path}")
                 await self._emit_backup_completed("npz", 1)
             else:
-                self._stats["sync_errors"] += 1
+                self._sync_stats["sync_errors"] += 1
                 logger.warning(
                     f"[ExternalDriveSync] Failed to sync NPZ from S3: "
                     f"{stderr.decode()[:200]}"
                 )
 
         except Exception as e:
-            self._stats["sync_errors"] += 1
+            self._sync_stats["sync_errors"] += 1
             logger.error(f"[ExternalDriveSync] Error syncing NPZ from S3: {e}")
 
     async def _sync_models_from_s3(self) -> None:
@@ -523,18 +485,18 @@ class ExternalDriveSyncDaemon(SingletonMixin):
             stdout, stderr = await proc.communicate()
 
             if proc.returncode == 0:
-                self._stats["models_synced"] += 1
+                self._sync_stats["models_synced"] += 1
                 logger.info(f"[ExternalDriveSync] Synced models from S3 to {dest_path}")
                 await self._emit_backup_completed("models", 1)
             else:
-                self._stats["sync_errors"] += 1
+                self._sync_stats["sync_errors"] += 1
                 logger.warning(
                     f"[ExternalDriveSync] Failed to sync models from S3: "
                     f"{stderr.decode()[:200]}"
                 )
 
         except Exception as e:
-            self._stats["sync_errors"] += 1
+            self._sync_stats["sync_errors"] += 1
             logger.error(f"[ExternalDriveSync] Error syncing models from S3: {e}")
 
     # =========================================================================
@@ -561,7 +523,7 @@ class ExternalDriveSyncDaemon(SingletonMixin):
                     "data_type": data_type,
                     "items_count": items_count,
                     "storage_path": self._storage_config.path if self._storage_config else None,
-                    "stats": self._stats.copy(),
+                    "stats": self._sync_stats.copy(),
                 },
                 source="external_drive_sync_daemon",
             )
@@ -582,10 +544,10 @@ class ExternalDriveSyncDaemon(SingletonMixin):
             "running": self._running,
             "enabled": self.is_enabled,
             "uptime_seconds": self.uptime_seconds,
-            "cycles_completed": self._cycles_completed,
-            "errors_count": self._errors_count,
+            "cycles_completed": self._stats.cycles_completed,
+            "errors_count": self._stats.errors_count,
             "storage_path": self._storage_config.path if self._storage_config else None,
-            "stats": self._stats.copy(),
+            "stats": self._sync_stats.copy(),
             "last_games_sync": self._last_games_sync,
             "last_npz_sync": self._last_npz_sync,
             "last_models_sync": self._last_models_sync,
@@ -609,12 +571,12 @@ class ExternalDriveSyncDaemon(SingletonMixin):
 
         # Check for high error rate
         total_ops = sum([
-            self._stats["games_synced"],
-            self._stats["npz_synced"],
-            self._stats["models_synced"],
+            self._sync_stats["games_synced"],
+            self._sync_stats["npz_synced"],
+            self._sync_stats["models_synced"],
         ])
         if total_ops > 0:
-            error_rate = self._stats["sync_errors"] / (total_ops + self._stats["sync_errors"])
+            error_rate = self._sync_stats["sync_errors"] / (total_ops + self._sync_stats["sync_errors"])
             if error_rate > 0.5:
                 return HealthCheckResult(
                     healthy=False,
@@ -626,7 +588,7 @@ class ExternalDriveSyncDaemon(SingletonMixin):
         return HealthCheckResult(
             healthy=True,
             status=CoordinatorStatus.RUNNING,
-            message=f"External drive sync running - {self._stats['nodes_synced']} nodes synced",
+            message=f"External drive sync running - {self._sync_stats['nodes_synced']} nodes synced",
             details=details,
         )
 
@@ -664,7 +626,7 @@ class ExternalDriveSyncDaemon(SingletonMixin):
 def get_external_drive_sync_daemon() -> ExternalDriveSyncDaemon:
     """Get the singleton ExternalDriveSyncDaemon instance.
 
-    January 2026: Now uses SingletonMixin.get_instance() (thread-safe, sync).
+    March 2026: Now uses HandlerBase.get_instance() (thread-safe, sync).
     """
     return ExternalDriveSyncDaemon.get_instance()
 

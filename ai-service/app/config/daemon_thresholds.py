@@ -245,10 +245,11 @@ class DataThresholds:
     # Dec 29: Relaxed freshness gates for better training throughput
     # Fresh data: 2h (was 1h) - triggers priority sync if older
     # Stale warning: 8h (was 4h) - logs warning but continues
-    # Stale critical: 48h (was 24h) - blocks training
+    # Stale critical: 168h (was 48h) - blocks training
+    # March 2, 2026: Increased from 48h to 168h for 7-day autonomous operation
     FRESH_DATA_MAX_AGE: Final[float] = 2.0
     STALE_DATA_WARNING: Final[float] = 8.0
-    STALE_DATA_CRITICAL: Final[float] = 48.0
+    STALE_DATA_CRITICAL: Final[float] = 168.0
 
     # Curriculum weights stale (seconds)
     CURRICULUM_WEIGHTS_STALE: Final[float] = 7200.0  # 2 hours

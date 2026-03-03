@@ -9,6 +9,9 @@
  * - withTransaction(): throws when not connected, executes callback successfully
  */
 
+// Set DATABASE_URL before imports (Prisma 7 requires it for pg adapter)
+process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
+
 // Mock dependencies before imports
 const mockLogger = {
   info: jest.fn(),
@@ -29,6 +32,19 @@ jest.mock('../../../src/server/config', () => ({
       return mockIsDevelopment;
     },
   },
+}));
+
+// Mock pg Pool (Prisma 7 driver adapter)
+const mockPool = {};
+jest.mock('pg', () => ({
+  __esModule: true,
+  default: { Pool: jest.fn(() => mockPool) },
+}));
+
+// Mock PrismaPg adapter
+const mockAdapter = {};
+jest.mock('@prisma/adapter-pg', () => ({
+  PrismaPg: jest.fn(() => mockAdapter),
 }));
 
 // Create mock PrismaClient instance
@@ -86,6 +102,7 @@ describe('database/connection', () => {
 
       expect(mockPrismaClientConstructor).toHaveBeenCalledTimes(1);
       expect(mockPrismaClientConstructor).toHaveBeenCalledWith({
+        adapter: mockAdapter,
         log: [
           { emit: 'event', level: 'query' },
           { emit: 'event', level: 'error' },

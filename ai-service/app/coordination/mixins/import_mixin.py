@@ -496,32 +496,33 @@ class ImportDaemonMixin:
 
         try:
             conn = sqlite3.connect(str(file_path))
-            cursor = conn.cursor()
+            try:
+                cursor = conn.cursor()
 
-            # Run integrity check
-            cursor.execute("PRAGMA integrity_check")
-            result = cursor.fetchone()
+                # Run integrity check
+                cursor.execute("PRAGMA integrity_check")
+                result = cursor.fetchone()
 
-            if result and result[0] == "ok":
-                # Get table count
-                cursor.execute(
-                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table'"
-                )
-                table_count = cursor.fetchone()[0]
+                if result and result[0] == "ok":
+                    # Get table count
+                    cursor.execute(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type='table'"
+                    )
+                    table_count = cursor.fetchone()[0]
+
+                    return ImportValidationResult(
+                        valid=True,
+                        file_type="db",
+                        details={"table_count": table_count},
+                    )
+                else:
+                    return ImportValidationResult(
+                        valid=False,
+                        file_type="db",
+                        error=f"Integrity check failed: {result}",
+                    )
+            finally:
                 conn.close()
-
-                return ImportValidationResult(
-                    valid=True,
-                    file_type="db",
-                    details={"table_count": table_count},
-                )
-            else:
-                conn.close()
-                return ImportValidationResult(
-                    valid=False,
-                    file_type="db",
-                    error=f"Integrity check failed: {result}",
-                )
 
         except sqlite3.Error as e:
             return ImportValidationResult(
