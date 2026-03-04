@@ -500,6 +500,28 @@ class DataConsolidationDaemon(HandlerBase):
             stats.success = True
             stats.end_time = time.time()
 
+            # Clean up fully-consolidated owc_imports source files to prevent disk fill.
+            # Only delete owc_imports files where ALL games were either merged or already
+            # existed in canonical (i.e., no new unique games remain only in the source).
+            if stats.games_merged > 0 or stats.games_duplicate > 0:
+                owc_dir = self.config.data_dir / "owc_imports"
+                for source_db in source_dbs:
+                    try:
+                        if owc_dir.resolve() in source_db.resolve().parents:
+                            source_db.unlink(missing_ok=True)
+                            # Clean up WAL/SHM files
+                            for ext in ["-wal", "-shm"]:
+                                wal = source_db.with_name(source_db.name + ext)
+                                wal.unlink(missing_ok=True)
+                            logger.info(
+                                f"[DataConsolidationDaemon] Cleaned up consolidated "
+                                f"owc_imports source: {source_db.name}"
+                            )
+                    except Exception as e:
+                        logger.debug(
+                            f"[DataConsolidationDaemon] Could not clean up {source_db.name}: {e}"
+                        )
+
             # Emit completion event
             await self._emit_consolidation_complete(
                 config_key=config_key,
@@ -542,8 +564,11 @@ class DataConsolidationDaemon(HandlerBase):
 
             # Find all .db files
             for db_path in search_dir.glob("**/*.db"):
-                # Skip canonical databases (we don't want to merge canonical into itself)
-                if "canonical" in db_path.name.lower():
+                # Skip actual canonical databases (we don't want to merge canonical into itself)
+                # Only skip files that ARE canonical DBs (canonical_<board>_<n>p.db in the
+                # canonical directory), not imported files that happen to have "canonical"
+                # in their name (e.g., owc_imports/selfplay_repository_node_canonical_hex8_2p.db)
+                if db_path.name.startswith("canonical_") and db_path.parent == self.config.canonical_dir:
                     continue
 
                 # Resolve to absolute path for deduplication

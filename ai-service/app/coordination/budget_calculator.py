@@ -108,7 +108,7 @@ LARGE_BOARD_BUDGET_CAPS: dict[str, dict[str, int]] = {
     # play on a 361-cell board. This caused square19_4p to regress from training
     # on garbage data. New caps give 260 effective sims at 4p bootstrap, 520 mature.
     "square19": {"bootstrap": 400, "mature": 800},   # 361 cells (raised from 200/500)
-    "hexagonal": {"bootstrap": 200, "mature": 400},   # 469 cells (raised: 64/200 was near-random)
+    "hexagonal": {"bootstrap": 400, "mature": 800},   # 469 cells — match square19 caps (was 200/400)
 }
 
 # Player count scaling for budget caps.

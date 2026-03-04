@@ -41,6 +41,7 @@ async def execute_gauntlet_work(
     from app.config.env import env
     if not env.gauntlet_enabled:
         logger.warning(f"Rejecting gauntlet work {work_id}: gauntlet_enabled=false for this node")
+        work_item["error"] = f"gauntlet_disabled:{node_id}"
         return False  # Return False so work can be reassigned to a GPU node
 
     board_type = config.get("board_type", "square8")
@@ -50,6 +51,7 @@ async def execute_gauntlet_work(
 
     if not model_path:
         logger.warning(f"Gauntlet work {work_id}: No model_path specified")
+        work_item["error"] = f"no_model_path:{work_id}"
         return False
 
     # Check model exists locally, with S3 fallback
@@ -187,12 +189,15 @@ async def execute_gauntlet_work(
         # Feb 2026: Return False when 0 games completed so work item is
         # marked as failed and can be retried on another node.
         if total_games == 0:
+            work_item["error"] = f"zero_games:{config_key}:{getattr(gauntlet_result, 'failure_reason', 'unknown')}"
             return False
         return True
 
     except ImportError as e:
         logger.error(f"Gauntlet modules not available: {e}")
+        work_item["error"] = f"import_error:{e}"
         return False
     except Exception as e:
         logger.exception(f"Gauntlet execution error for {model_path}: {e}")
+        work_item["error"] = f"gauntlet_exception:{config_key}:{type(e).__name__}:{str(e)[:200]}"
         return False

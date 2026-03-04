@@ -262,12 +262,17 @@ class DiskSpaceConfig:
             "logs",  # 1. Old logs first
             "cache",  # 2. Pip/torch cache
             "empty_dbs",  # 3. Empty databases
-            "s3_backed_data",  # 4. Files verified in S3 (non-coordinator only)
-            "synced_games",  # 5. Games with verified N+ copies (NEW - Dec 2025)
-            "old_checkpoints",  # 6. Old checkpoints (keep N newest)
-            "quarantine",  # 7. Quarantined databases
+            "owc_imports",  # 4. Old owc_imports staging files (Mar 2026)
+            "s3_backed_data",  # 5. Files verified in S3 (non-coordinator only)
+            "synced_games",  # 6. Games with verified N+ copies (NEW - Dec 2025)
+            "old_checkpoints",  # 7. Old checkpoints (keep N newest)
+            "quarantine",  # 8. Quarantined databases
         ]
     )
+
+    # owc_imports retention (days) - files older than this are safe to remove
+    # since they should have been consolidated by DataConsolidationDaemon
+    owc_imports_retention_days: int = 7
 
     # Enable actual cleanup (set False for dry-run)
     enable_cleanup: bool = True
@@ -513,6 +518,8 @@ class DiskSpaceManagerDaemon(HandlerBase):
                 bytes_freed += await asyncio.to_thread(self._cleanup_cache)
             elif priority == "empty_dbs":
                 bytes_freed += await asyncio.to_thread(self._cleanup_empty_databases)
+            elif priority == "owc_imports":
+                bytes_freed += await asyncio.to_thread(self._cleanup_old_owc_imports)
             elif priority == "s3_backed_data":
                 # Phase 6 Step 10: Clean up files verified in S3 (non-coordinator only)
                 bytes_freed += await asyncio.to_thread(self._cleanup_s3_backed_files)
@@ -681,6 +688,78 @@ class DiskSpaceManagerDaemon(HandlerBase):
                 except (OSError, PermissionError) as e:
                     logger.debug(f"Failed to clear cache {cache_dir}: {e}")
 
+        return bytes_freed
+
+    def _cleanup_old_owc_imports(self) -> int:
+        """Remove old owc_imports staging files.
+
+        March 2026: owc_imports files are staging copies from OWC external drive
+        or cluster nodes. After DataConsolidationDaemon merges them into canonical
+        databases, the source files should be cleaned up. This catches any files
+        that weren't cleaned up by consolidation (e.g., files with no matching
+        config, or files that failed consolidation).
+
+        Safety: Only deletes files older than owc_imports_retention_days (default 7).
+        Zero-byte files and WAL/SHM stubs are always deleted.
+        """
+        bytes_freed = 0
+        owc_path = self._root_path / self.config.games_dir / "owc_imports"
+        if not owc_path.exists():
+            return 0
+
+        cutoff = time.time() - (self.config.owc_imports_retention_days * 86400)
+
+        for db_file in owc_path.glob("*.db"):
+            try:
+                stat = db_file.stat()
+
+                # Always delete zero-byte files
+                if stat.st_size == 0:
+                    db_file.unlink()
+                    # Also clean WAL/SHM
+                    for ext in ["-wal", "-shm"]:
+                        sidecar = db_file.with_name(db_file.name + ext)
+                        if sidecar.exists():
+                            bytes_freed += sidecar.stat().st_size
+                            sidecar.unlink()
+                    logger.debug(f"Removed zero-byte owc_import: {db_file.name}")
+                    continue
+
+                # Delete files older than retention period
+                if stat.st_mtime < cutoff:
+                    size = stat.st_size
+                    db_file.unlink()
+                    bytes_freed += size
+                    # Clean WAL/SHM
+                    for ext in ["-wal", "-shm"]:
+                        sidecar = db_file.with_name(db_file.name + ext)
+                        if sidecar.exists():
+                            bytes_freed += sidecar.stat().st_size
+                            sidecar.unlink()
+                    logger.info(
+                        f"[{self.name}] Removed old owc_import: {db_file.name} "
+                        f"({size / (1024**3):.1f}GB, "
+                        f"{(time.time() - stat.st_mtime) / 86400:.0f} days old)"
+                    )
+            except (OSError, PermissionError) as e:
+                logger.debug(f"Failed to clean owc_import {db_file.name}: {e}")
+
+        # Also clean orphaned WAL/SHM files (where .db no longer exists)
+        for sidecar in list(owc_path.glob("*.db-wal")) + list(owc_path.glob("*.db-shm")):
+            db_name = sidecar.name.rsplit("-", 1)[0]  # Remove -wal or -shm suffix
+            if not (owc_path / db_name).exists():
+                try:
+                    bytes_freed += sidecar.stat().st_size
+                    sidecar.unlink()
+                    logger.debug(f"Removed orphaned sidecar: {sidecar.name}")
+                except (OSError, PermissionError):
+                    pass
+
+        if bytes_freed > 0:
+            logger.info(
+                f"[{self.name}] owc_imports cleanup freed "
+                f"{bytes_freed / (1024**3):.1f}GB"
+            )
         return bytes_freed
 
     def _cleanup_empty_databases(self) -> int:

@@ -451,7 +451,8 @@ async def execute_training_work(
     from scripts.p2p.managers.work_discovery_manager import _is_training_enabled_for_node
     if not _is_training_enabled_for_node():
         logger.info(f"Skipping training work {work_id}: training_enabled=false for this node")
-        return True  # "handled" (just skipped)
+        work_item["error"] = f"training_disabled:{node_id}"
+        return False  # Return False so work item gets reassigned to a GPU node
 
     board_type = config.get("board_type", "square8")
     num_players = config.get("num_players", 2)

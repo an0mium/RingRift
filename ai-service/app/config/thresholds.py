@@ -129,9 +129,9 @@ def get_gauntlet_games_per_opponent(num_players: int = 2) -> int:
 # Feb 22, 2026: Raised from 200/400/600 to 400/600/800. Selfplay uses 800 sims,
 # so gauntlet at 200 caused models to play much weaker during evaluation than
 # training, producing false negatives and blocking good model promotions.
-GAUNTLET_SIMULATIONS_2P = 400   # 2-player baseline (was 200)
-GAUNTLET_SIMULATIONS_3P = 600   # 3-player (was 400)
-GAUNTLET_SIMULATIONS_4P = 800   # 4-player (was 600)
+GAUNTLET_SIMULATIONS_2P = 800   # 2-player baseline — must match GUMBEL_BUDGET_STANDARD (was 400)
+GAUNTLET_SIMULATIONS_3P = 800   # 3-player — must match selfplay budget (was 600)
+GAUNTLET_SIMULATIONS_4P = 800   # 4-player (already matched)
 
 # Feb 23, 2026: Board-size-aware gauntlet budgets. Large boards (square19: 361
 # cells, hexagonal: 469 cells) need proportionally more simulations to maintain
@@ -180,9 +180,9 @@ def get_preferred_architecture(board_type: str) -> str:
 #   {config}.npz (v2, 40ch) and {config}_v5heavy.npz (v5-heavy, 56ch)
 V5_HEAVY_EXPORT_CONFIGS: list[str] = []
 
-GAUNTLET_SIMULATIONS_LARGE_2P = 1600  # Large board 2p (4x base, ~4.4% coverage on sq19)
-GAUNTLET_SIMULATIONS_LARGE_3P = 1600  # Large board 3p
-GAUNTLET_SIMULATIONS_LARGE_4P = 1600  # Large board 4p
+GAUNTLET_SIMULATIONS_LARGE_2P = 800  # Large board 2p — match selfplay cap (was 1600)
+GAUNTLET_SIMULATIONS_LARGE_3P = 800  # Large board 3p — match selfplay cap (was 1600)
+GAUNTLET_SIMULATIONS_LARGE_4P = 800  # Large board 4p — match selfplay cap (was 1600)
 
 
 def get_gauntlet_simulations(num_players: int = 2, board_type: str = "") -> int:
@@ -867,10 +867,10 @@ MEMORY_CRITICAL_PERCENT = 80
 #   distribution targeting. Sync/push operations check this before sending
 #   data to remote nodes.
 #
-# Tier 2 (85%): "Pause data production" - training, selfplay, and export
+# Tier 2 (93%): "Pause data production" - training, selfplay, and export
 #   checks use this to halt generating new data when disk is getting full.
 #
-# Tier 3 (90%): "Critical alarm, block all writes" - emergency halt level.
+# Tier 3 (96%): "Critical alarm, block all writes" - emergency halt level.
 #   All write operations are blocked and aggressive cleanup is triggered.
 
 DISK_SYNC_TARGET_PERCENT = 70       # Max disk for sync/distribution targeting
