@@ -500,27 +500,36 @@ class DataConsolidationDaemon(HandlerBase):
             stats.success = True
             stats.end_time = time.time()
 
-            # Clean up fully-consolidated owc_imports source files to prevent disk fill.
-            # Only delete owc_imports files where ALL games were either merged or already
-            # existed in canonical (i.e., no new unique games remain only in the source).
-            if stats.games_merged > 0 or stats.games_duplicate > 0:
-                owc_dir = self.config.data_dir / "owc_imports"
-                for source_db in source_dbs:
-                    try:
-                        if owc_dir.resolve() in source_db.resolve().parents:
-                            source_db.unlink(missing_ok=True)
-                            # Clean up WAL/SHM files
-                            for ext in ["-wal", "-shm"]:
-                                wal = source_db.with_name(source_db.name + ext)
-                                wal.unlink(missing_ok=True)
-                            logger.info(
-                                f"[DataConsolidationDaemon] Cleaned up consolidated "
-                                f"owc_imports source: {source_db.name}"
-                            )
-                    except Exception as e:
-                        logger.debug(
-                            f"[DataConsolidationDaemon] Could not clean up {source_db.name}: {e}"
+            # Clean up owc_imports source files after consolidation attempt.
+            # March 2026: Changed from conditional (games_merged > 0) to always
+            # clean up owc_imports files after a successful consolidation cycle.
+            # Previously, files with schema mismatches or incompatible ID formats
+            # would never get merged AND never get cleaned up, accumulating
+            # indefinitely (200GB+ in some cases). The source data is always
+            # available on the OWC drive and in S3, so local staging copies
+            # are safe to remove after any consolidation attempt.
+            owc_dir = self.config.data_dir / "owc_imports"
+            for source_db in source_dbs:
+                try:
+                    resolved_source = source_db.resolve()
+                    resolved_owc = owc_dir.resolve()
+                    # Check if source is inside owc_imports directory
+                    if str(resolved_source).startswith(str(resolved_owc)):
+                        source_db.unlink(missing_ok=True)
+                        # Clean up WAL/SHM files
+                        for ext in ["-wal", "-shm"]:
+                            wal = source_db.with_name(source_db.name + ext)
+                            wal.unlink(missing_ok=True)
+                        logger.info(
+                            f"[DataConsolidationDaemon] Cleaned up "
+                            f"owc_imports source: {source_db.name} "
+                            f"(merged={stats.games_merged}, "
+                            f"dupes={stats.games_duplicate})"
                         )
+                except Exception as e:
+                    logger.debug(
+                        f"[DataConsolidationDaemon] Could not clean up {source_db.name}: {e}"
+                    )
 
             # Emit completion event
             await self._emit_consolidation_complete(

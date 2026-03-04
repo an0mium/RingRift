@@ -34,6 +34,7 @@ import asyncio
 import logging
 import os
 import shlex
+import shutil
 import socket
 import subprocess
 import time
@@ -144,6 +145,12 @@ class OWCImportConfig:
     # Timeout for OWC operations
     ssh_timeout: int = 60
     rsync_timeout: int = 600
+
+    # March 2026: Disk space safety limits to prevent disk from filling up.
+    # OWC imports will be skipped if free disk space drops below this threshold.
+    min_free_disk_gb: int = int(os.getenv("RINGRIFT_OWC_MIN_FREE_DISK_GB", "100"))
+    # Maximum total size (GB) of files in the staging directory before imports pause.
+    max_staging_size_gb: int = int(os.getenv("RINGRIFT_OWC_MAX_STAGING_GB", "50"))
 
     @classmethod
     def from_env(cls) -> "OWCImportConfig":
@@ -463,6 +470,54 @@ class OWCImportDaemon(HandlerBase, ImportDaemonMixin):
             return None
 
     # =========================================================================
+    # Disk Space Safety (March 2026)
+    # =========================================================================
+
+    def _check_disk_space_for_import(self) -> bool:
+        """Check if there is sufficient disk space for importing.
+
+        March 2026: Added to prevent disk from filling up with owc_imports.
+        Checks both overall free disk space and total staging directory size.
+
+        Returns:
+            True if import can proceed, False if disk is too full.
+        """
+        # Check overall free disk space
+        try:
+            usage = shutil.disk_usage(str(self.config.staging_dir.parent))
+            free_gb = usage.free / (1024**3)
+            if free_gb < self.config.min_free_disk_gb:
+                logger.warning(
+                    f"[OWCImport] Skipping import: only {free_gb:.1f}GB free "
+                    f"(minimum: {self.config.min_free_disk_gb}GB). "
+                    f"Clean up owc_imports or increase disk space."
+                )
+                return False
+        except OSError as e:
+            logger.warning(f"[OWCImport] Cannot check disk space: {e}")
+            return False
+
+        # Check staging directory size
+        staging_dir = self.config.staging_dir
+        if staging_dir.exists():
+            try:
+                total_staging_bytes = sum(
+                    f.stat().st_size for f in staging_dir.glob("*.db") if f.is_file()
+                )
+                total_staging_gb = total_staging_bytes / (1024**3)
+                if total_staging_gb > self.config.max_staging_size_gb:
+                    logger.warning(
+                        f"[OWCImport] Skipping import: staging dir is {total_staging_gb:.1f}GB "
+                        f"(max: {self.config.max_staging_size_gb}GB). "
+                        f"Consolidation may be lagging or files not being cleaned up."
+                    )
+                    return False
+            except OSError as e:
+                logger.debug(f"[OWCImport] Cannot check staging size: {e}")
+
+        return True
+
+    # =========================================================================
     # Local Operations
     # =========================================================================
 
@@ -547,6 +602,12 @@ class OWCImportDaemon(HandlerBase, ImportDaemonMixin):
         if not coordinator_resource_gate("OWC_IMPORT"):
             return
 
+        # March 2026: Check disk space and staging size BEFORE importing.
+        # This prevents the disk from filling up with owc_imports when
+        # consolidation is lagging or files aren't being cleaned up.
+        if not await asyncio.to_thread(self._check_disk_space_for_import):
+            return
+
         stats = ImportStats(cycle_start=time.time())
 
         # Check OWC availability
@@ -593,6 +654,15 @@ class OWCImportDaemon(HandlerBase, ImportDaemonMixin):
         # Sync relevant databases
         synced_paths: list[Path] = []
         for db_info in databases_to_sync:
+            # March 2026: Re-check disk space before each sync to avoid
+            # filling disk when syncing multiple large databases in one cycle.
+            if not await asyncio.to_thread(self._check_disk_space_for_import):
+                logger.warning(
+                    f"[OWCImport] Stopping sync early: disk space limit reached "
+                    f"after syncing {len(synced_paths)} databases"
+                )
+                break
+
             local_path = await self._sync_database(db_info.path)
             if local_path:
                 synced_paths.append(local_path)

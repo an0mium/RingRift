@@ -232,7 +232,9 @@ class DiskSpaceConfig:
     target_disk_usage: int = 50  # Clean down to 50%
 
     # Minimum free space (GB)
-    min_free_gb: int = 50
+    # March 2026: Increased from 50 to 100GB. A single OWC import can be 30GB+,
+    # so 50GB left only 1-2 imports of headroom before critical.
+    min_free_gb: int = 100
 
     # Data paths to manage (relative to ai-service root)
     logs_dir: str = "logs"
@@ -271,8 +273,12 @@ class DiskSpaceConfig:
     )
 
     # owc_imports retention (days) - files older than this are safe to remove
-    # since they should have been consolidated by DataConsolidationDaemon
-    owc_imports_retention_days: int = 7
+    # since they should have been consolidated by DataConsolidationDaemon.
+    # March 2026: Reduced from 7 to 3 days. Consolidation normally completes
+    # within hours; files stuck for 3+ days are likely unconsolidatable
+    # (schema mismatch, ID format differences, etc.) and should be cleaned up
+    # to prevent disk from filling. Source data remains on OWC drive and S3.
+    owc_imports_retention_days: int = 3
 
     # Enable actual cleanup (set False for dry-run)
     enable_cleanup: bool = True
@@ -466,7 +472,23 @@ class DiskSpaceManagerDaemon(HandlerBase):
         if self.config.emit_events:
             await self._emit_status_events(self._current_status)
 
-        # Cleanup if needed
+        # March 2026: ALWAYS run lightweight retention-based cleanups every cycle,
+        # regardless of disk usage percentage. This prevents owc_imports and old
+        # logs from accumulating on large disks where percentage thresholds are
+        # never reached (e.g., 926GB disk at 43% usage = 400GB used, but 70%
+        # threshold = 648GB — cleanup would never trigger).
+        if self.config.enable_cleanup:
+            retention_freed = self._cleanup_old_owc_imports()
+            retention_freed += self._cleanup_old_logs()
+            retention_freed += self._cleanup_empty_databases()
+            if retention_freed > 0:
+                self._bytes_cleaned += retention_freed
+                logger.info(
+                    f"[{self.name}] Retention cleanup freed "
+                    f"{retention_freed / (1024**3):.1f}GB"
+                )
+
+        # Full cleanup if disk usage exceeds threshold
         if self._current_status.needs_cleanup and self.config.enable_cleanup:
             await self._perform_cleanup(self._current_status)
 
@@ -699,8 +721,12 @@ class DiskSpaceManagerDaemon(HandlerBase):
         that weren't cleaned up by consolidation (e.g., files with no matching
         config, or files that failed consolidation).
 
-        Safety: Only deletes files older than owc_imports_retention_days (default 7).
+        Safety: Deletes files older than owc_imports_retention_days (default 3).
         Zero-byte files and WAL/SHM stubs are always deleted.
+
+        March 2026: Also enforces a maximum staging directory size (50GB default).
+        If the staging dir exceeds this, oldest files are removed first regardless
+        of retention age. This prevents unbounded growth when consolidation lags.
         """
         bytes_freed = 0
         owc_path = self._root_path / self.config.games_dir / "owc_imports"
@@ -708,6 +734,10 @@ class DiskSpaceManagerDaemon(HandlerBase):
             return 0
 
         cutoff = time.time() - (self.config.owc_imports_retention_days * 86400)
+        max_staging_bytes = 50 * (1024**3)  # 50GB max staging size
+
+        # Collect all .db files with stats for size-based cleanup
+        db_files_with_stats: list[tuple[Path, os.stat_result]] = []
 
         for db_file in owc_path.glob("*.db"):
             try:
@@ -741,8 +771,39 @@ class DiskSpaceManagerDaemon(HandlerBase):
                         f"({size / (1024**3):.1f}GB, "
                         f"{(time.time() - stat.st_mtime) / 86400:.0f} days old)"
                     )
+                    continue
+
+                # Track remaining files for size-based cleanup
+                db_files_with_stats.append((db_file, stat))
+
             except (OSError, PermissionError) as e:
                 logger.debug(f"Failed to clean owc_import {db_file.name}: {e}")
+
+        # March 2026: Enforce max staging directory size.
+        # If remaining files exceed the cap, remove oldest first.
+        total_remaining = sum(s.st_size for _, s in db_files_with_stats)
+        if total_remaining > max_staging_bytes:
+            # Sort by mtime ascending (oldest first)
+            db_files_with_stats.sort(key=lambda x: x[1].st_mtime)
+            for db_file, stat in db_files_with_stats:
+                if total_remaining <= max_staging_bytes:
+                    break
+                try:
+                    size = stat.st_size
+                    db_file.unlink()
+                    bytes_freed += size
+                    total_remaining -= size
+                    for ext in ["-wal", "-shm"]:
+                        sidecar = db_file.with_name(db_file.name + ext)
+                        if sidecar.exists():
+                            bytes_freed += sidecar.stat().st_size
+                            sidecar.unlink()
+                    logger.info(
+                        f"[{self.name}] Removed owc_import (staging cap): "
+                        f"{db_file.name} ({size / (1024**3):.1f}GB)"
+                    )
+                except (OSError, PermissionError) as e:
+                    logger.debug(f"Failed to remove {db_file.name}: {e}")
 
         # Also clean orphaned WAL/SHM files (where .db no longer exists)
         for sidecar in list(owc_path.glob("*.db-wal")) + list(owc_path.glob("*.db-shm")):
