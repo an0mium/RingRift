@@ -142,15 +142,12 @@ python scripts/check_ts_python_replay_parity.py --db data/games/my_games.db
 
 ## Cluster Infrastructure
 
-RingRift uses a P2P mesh network for distributed training across ~41 configured nodes, ~1.5TB GPU memory.
+RingRift uses a P2P mesh network for distributed training across ~15 active nodes.
 
 | Provider     | Nodes | GPUs                        | Status |
 | ------------ | ----- | --------------------------- | ------ |
-| Lambda GH200 | 11    | GH200 96GB x 11             | Active |
-| Vast.ai      | 14    | RTX 5090/4090/3090, A40     | Mixed  |
-| RunPod       | 6     | H100, A100x5, L40S          | Active |
-| Nebius       | 3     | H100 80GBx2, L40S           | Active |
-| Vultr        | 2     | A100 20GB vGPU              | Active |
+| Lambda GH200 | 9     | GH200 96GB x 9              | Active |
+| Nebius       | 3     | H100 80GB x 2, L40S         | Active |
 | Hetzner      | 3     | CPU only (P2P voters)       | Active |
 | Local        | 2     | Mac Studio M3 (coordinator) | Active |
 

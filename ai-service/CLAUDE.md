@@ -2,7 +2,7 @@
 
 AI assistant context for the Python AI training service. Complements `AGENTS.md` with operational knowledge.
 
-**Last Updated**: January 9, 2026 (Phase 2 Modularization Complete)
+**Last Updated**: March 5, 2026
 
 ## Infrastructure Health Status (Verified Jan 9, 2026)
 
@@ -19,7 +19,7 @@ AI assistant context for the Python AI training service. Complements `AGENTS.md`
 - 132 daemon types (116 active, 16 deprecated)
 - 292 event types in DataEventType enum
 - 22 P2P loops with health_check() for DaemonManager integration
-- 11 Lambda GH200 nodes + 30 other cluster nodes
+- ~15 active cluster nodes (9 Lambda GH200, 3 Nebius, 3 Hetzner CPU)
 
 ## Project Overview
 
@@ -160,17 +160,14 @@ The dashboard shows:
 
 ## Cluster Infrastructure
 
-~41 nodes, ~1.5TB GPU memory across providers:
+~15 active nodes across providers:
 
-| Provider     | Nodes | GPUs                          |
-| ------------ | ----- | ----------------------------- |
-| Lambda GH200 | 11    | GH200 96GB x 11 (mixed roles) |
-| Vast.ai      | 14    | RTX 5090/4090/3090, A40       |
-| RunPod       | 6     | H100, A100x5, L40S            |
-| Nebius       | 3     | H100 80GBx2, L40S             |
-| Vultr        | 2     | A100 20GB vGPU                |
-| Hetzner      | 3     | CPU only (P2P voters)         |
-| Local        | 2     | Mac Studio M3 (coordinator)   |
+| Provider     | Nodes | GPUs                        |
+| ------------ | ----- | --------------------------- |
+| Lambda GH200 | 9     | GH200 96GB x 9              |
+| Nebius       | 3     | H100 80GB x 2, L40S         |
+| Hetzner      | 3     | CPU only (P2P voters)       |
+| Local        | 2     | Mac Studio M3 (coordinator) |
 
 ## Key Modules
 
