@@ -704,6 +704,11 @@ class QuorumSafeUpdateCoordinator:
     ) -> bool:
         """Wait for updated nodes to rejoin mesh and gossip to converge.
 
+        Mar 2026: Tolerates transient LOST quorum during P2P restarts.
+        After a restart, the local P2P endpoint may be briefly unavailable,
+        causing _get_cluster_health to return LOST. We allow a grace period
+        for P2P to come back instead of failing immediately.
+
         Args:
             batch: Batch that was just updated
             timeout: Override convergence timeout
@@ -714,16 +719,33 @@ class QuorumSafeUpdateCoordinator:
         timeout = timeout or self.convergence_timeout
         deadline = time.time() + timeout
         node_names = set(batch.node_names)
+        consecutive_lost = 0
+        # Allow up to 6 consecutive LOST checks (30s) before giving up —
+        # enough time for P2P to restart after a code update
+        max_consecutive_lost = 6
 
         logger.info(f"Waiting up to {timeout}s for convergence of {node_names}")
 
         while time.time() < deadline:
             health = await self._get_cluster_health()
 
-            # Check quorum is not lost
             if health.quorum_level == QuorumHealthLevel.LOST:
-                logger.error(f"Quorum lost during convergence wait")
-                return False
+                consecutive_lost += 1
+                if consecutive_lost >= max_consecutive_lost:
+                    logger.error(
+                        f"Quorum lost for {consecutive_lost} consecutive checks "
+                        f"({consecutive_lost * 5}s) during convergence wait"
+                    )
+                    return False
+                logger.debug(
+                    f"Quorum temporarily LOST ({consecutive_lost}/{max_consecutive_lost}), "
+                    f"waiting for P2P restart..."
+                )
+                await asyncio.sleep(5)
+                continue
+
+            # Quorum not lost — reset counter
+            consecutive_lost = 0
 
             # Check if leader is stable
             if health.leader_id:

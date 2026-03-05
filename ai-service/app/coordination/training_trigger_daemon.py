@@ -239,6 +239,11 @@ class TrainingTriggerDaemon(HandlerBase):
         # default 1500 Elo, causing incorrect simulation budgets and training intensity.
         self._last_elo_db_sync: float = 0.0
         self._elo_db_sync_interval: float = 300.0  # Sync every 5 minutes
+        # Mar 2026: Track last failure time per config for auto-recovery.
+        # When consecutive_failures causes "paused"/"reduced" intensity, this allows
+        # automatic recovery after a cooldown period without requiring manual restart.
+        self._last_failure_time: dict[str, float] = {}
+        self._failure_recovery_cooldown: float = 1800.0  # 30 min before auto-recovery
 
     def _init_state_db(self) -> None:
         """Initialize the SQLite state database (Phase 3 - December 2025).
@@ -335,6 +340,11 @@ class TrainingTriggerDaemon(HandlerBase):
                             consecutive_failures=row["consecutive_failures"],
                         )
                         self._training_states[config_key] = state
+                        # Mar 2026: Seed _last_failure_time for configs with failures
+                        # so auto-recovery works correctly after daemon restart
+                        if state.consecutive_failures > 0:
+                            updated_at = row["updated_at"] if "updated_at" in row.keys() else time.time()
+                            self._last_failure_time[config_key] = updated_at or time.time()
                 logger.info(
                     f"[TrainingTriggerDaemon] Loaded {len(self._training_states)} "
                     f"config states from persisted storage"
@@ -1102,6 +1112,7 @@ class TrainingTriggerDaemon(HandlerBase):
             # Check for Elo plateau (no improvement over multiple evaluations)
             if elo_delta <= 5 and old_elo > 0:
                 state.consecutive_failures += 1
+                self._last_failure_time[config_key] = time.time()
                 if state.consecutive_failures >= 3:
                     logger.warning(
                         f"[TrainingTriggerDaemon] {config_key} Elo plateau detected "
@@ -1112,6 +1123,7 @@ class TrainingTriggerDaemon(HandlerBase):
             else:
                 # Elo improved - reset failure counter
                 state.consecutive_failures = 0
+                self._last_failure_time.pop(config_key, None)
 
             # Record to FeedbackAccelerator for Elo momentum tracking
             await self._record_to_feedback_accelerator(config_key, elo, elo_delta)
@@ -1412,6 +1424,7 @@ class TrainingTriggerDaemon(HandlerBase):
             # Clear training_in_progress flag
             state.training_in_progress = False
             state.consecutive_failures += 1
+            self._last_failure_time[config_key] = time.time()
 
             # Determine if error is retryable
             error_lower = error.lower()
@@ -1520,6 +1533,7 @@ class TrainingTriggerDaemon(HandlerBase):
 
                 # Track regression event
                 state.consecutive_failures += 1
+                self._last_failure_time[config_key] = time.time()
                 # January 2026 Sprint 17.4: Wrap blocking SQLite I/O with asyncio.to_thread()
                 await asyncio.to_thread(self._save_state)
             else:
@@ -2985,6 +2999,7 @@ class TrainingTriggerDaemon(HandlerBase):
                     process.kill()
                     logger.error(f"[TrainingTriggerDaemon] Training timed out for {config_key}")
                     state.consecutive_failures += 1
+                    self._last_failure_time[config_key] = time.time()
                     return False
 
                 duration = time.time() - start_time
@@ -2993,6 +3008,7 @@ class TrainingTriggerDaemon(HandlerBase):
                     # Success
                     state.last_training_time = time.time()
                     state.consecutive_failures = 0
+                    self._last_failure_time.pop(config_key, None)
 
                     logger.info(
                         f"[TrainingTriggerDaemon] Training complete for {config_key}: "
@@ -3006,6 +3022,7 @@ class TrainingTriggerDaemon(HandlerBase):
                 else:
                     # Failure
                     state.consecutive_failures += 1
+                    self._last_failure_time[config_key] = time.time()
 
                     # Adjust training intensity on consecutive failures (December 2025)
                     # This prevents wasting compute on configs that repeatedly fail
@@ -3035,6 +3052,7 @@ class TrainingTriggerDaemon(HandlerBase):
 
             except Exception as e:
                 state.consecutive_failures += 1
+                self._last_failure_time[config_key] = time.time()
 
                 # Also adjust intensity on exceptions (December 2025)
                 if state.consecutive_failures >= 2:
@@ -3142,6 +3160,54 @@ class TrainingTriggerDaemon(HandlerBase):
         except Exception as e:
             logger.warning(f"[TrainingTriggerDaemon] Failed to emit training event: {e}")
 
+    async def _check_failure_recovery(self) -> None:
+        """Auto-recover configs stuck in paused/reduced intensity from past failures.
+
+        Mar 2026: Without this, consecutive_failures and training_intensity never
+        auto-reset after the root cause is resolved. The circuit breaker has its own
+        TTL decay (1h), but the daemon's consecutive_failures counter is independent.
+        This creates a deadlock: training is "paused" so it can never succeed, and
+        success is the only way to clear consecutive_failures.
+
+        Recovery logic: If no new failures have occurred within the recovery cooldown
+        period (30 min), reset consecutive_failures and restore training_intensity
+        to "normal", allowing training to retry.
+        """
+        now = time.time()
+        for config_key, state in self._training_states.items():
+            if state.consecutive_failures == 0:
+                continue
+            if state.training_in_progress:
+                continue
+
+            last_fail = self._last_failure_time.get(config_key, 0.0)
+            if last_fail <= 0:
+                # No tracked failure time — use a conservative estimate
+                # (treat it as recent to avoid premature recovery)
+                continue
+
+            time_since_failure = now - last_fail
+            if time_since_failure < self._failure_recovery_cooldown:
+                continue
+
+            old_failures = state.consecutive_failures
+            old_intensity = state.training_intensity
+            state.consecutive_failures = 0
+
+            # Only restore intensity if it was degraded by failures
+            if old_intensity in ("paused", "reduced"):
+                state.training_intensity = "normal"
+
+            logger.info(
+                f"[TrainingTriggerDaemon] Auto-recovered {config_key}: "
+                f"consecutive_failures {old_failures} -> 0, "
+                f"intensity {old_intensity} -> {state.training_intensity} "
+                f"(no failures for {time_since_failure / 60:.0f}min)"
+            )
+
+            # Clear the tracked failure time
+            self._last_failure_time.pop(config_key, None)
+
     async def _check_training_timeouts(self) -> None:
         """Check for and kill training jobs that exceed the timeout.
 
@@ -3186,6 +3252,7 @@ class TrainingTriggerDaemon(HandlerBase):
             state.training_pid = None
             state.training_start_time = 0.0
             state.consecutive_failures += 1
+            self._last_failure_time[config_key] = time.time()
 
             # Cancel the asyncio task if it exists
             if config_key in self._active_training_tasks:
@@ -3438,6 +3505,9 @@ class TrainingTriggerDaemon(HandlerBase):
                 logger.info(
                     "[TrainingTriggerDaemon] Cluster recovered, switching to normal mode"
                 )
+
+        # Mar 2026: Auto-recover from consecutive failure pauses
+        await self._check_failure_recovery()
 
         # December 29, 2025 (Phase 2): Check for timed-out training jobs
         await self._check_training_timeouts()
