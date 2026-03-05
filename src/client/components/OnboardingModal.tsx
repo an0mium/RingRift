@@ -43,7 +43,7 @@ function StepIndicator({ currentStep, totalSteps }: { currentStep: number; total
         <div
           key={i}
           className={`w-2 h-2 rounded-full transition-colors duration-300 ${
-            i === currentStep ? 'bg-blue-500' : 'bg-slate-600'
+            i === currentStep ? 'bg-emerald-500' : 'bg-slate-600'
           }`}
         />
       ))}
@@ -145,7 +145,7 @@ function VictoryStep({ onVictoryConceptClick }: StepProps) {
             key={concept.id}
             type="button"
             onClick={() => onVictoryConceptClick?.(concept.id)}
-            className="w-full flex items-center gap-3 bg-slate-800/50 rounded-lg p-3 text-left hover:bg-slate-800/80 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+            className="w-full flex items-center gap-3 bg-slate-800/50 rounded-lg p-3 text-left hover:bg-slate-800/80 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-900"
           >
             {getConceptIcon(concept.id)}
             <div>
@@ -171,11 +171,11 @@ function ReadyStep(_: StepProps) {
       <h2 className="text-2xl font-bold text-slate-100">Ready to Play!</h2>
       <p className="text-slate-300 max-w-md mx-auto">
         We recommend starting with{' '}
-        <span className="text-blue-400 font-semibold">"Learn the Basics"</span> — a quick game
+        <span className="text-emerald-400 font-semibold">"Learn the Basics"</span> — a quick game
         against a beginner-friendly AI on a compact board.
       </p>
-      <div className="bg-blue-900/30 border border-blue-700/50 rounded-lg p-4 mt-4">
-        <p className="text-sm text-blue-200">
+      <div className="bg-emerald-900/30 border border-emerald-700/50 rounded-lg p-4 mt-4">
+        <p className="text-sm text-emerald-200">
           <strong>Tip:</strong> Press{' '}
           <kbd className="px-1.5 py-0.5 bg-slate-700 rounded text-xs">?</kbd> anytime during the
           game to see keyboard shortcuts and controls.
@@ -381,7 +381,7 @@ export function OnboardingModal({ isOpen, onClose, onStartTutorial }: Onboarding
           <button
             ref={primaryButtonRef}
             onClick={onStartTutorial}
-            className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+            className="px-6 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-900"
           >
             Start Playing
           </button>
@@ -389,7 +389,7 @@ export function OnboardingModal({ isOpen, onClose, onStartTutorial }: Onboarding
           <button
             ref={primaryButtonRef}
             onClick={() => setCurrentStep((s) => Math.min(s + 1, STEPS.length - 1))}
-            className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+            className="px-6 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-900"
           >
             Next
           </button>

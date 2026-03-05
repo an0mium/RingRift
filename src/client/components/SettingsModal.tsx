@@ -56,7 +56,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         <hr className="border-slate-700" />
         <SoundSettingsPanel />
         <hr className="border-slate-700" />
-        <AccessibilitySettingsPanel onSettingsChange={() => {}} />
+        <AccessibilitySettingsPanel />
       </div>
     </Dialog>
   );

@@ -58,6 +58,8 @@ function formatBoardType(boardType: string): string {
       return 'Square 8×8';
     case 'square19':
       return 'Square 19×19';
+    case 'hex8':
+      return 'Hex 8';
     case 'hexagonal':
       return 'Hexagonal';
     default:

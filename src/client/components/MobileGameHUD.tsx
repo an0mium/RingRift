@@ -227,7 +227,9 @@ function MobileVictoryProgress({
       <div className="flex items-center gap-3">
         {showRings && ringLeader && (
           <div className="flex items-center gap-1.5 flex-1 p-1.5 rounded-lg bg-rose-950/30 border border-rose-900/30">
-            <span className="text-rose-400">⚔</span>
+            <span className="text-rose-400" aria-hidden="true">
+              ⚔
+            </span>
             <div className="flex-1 h-1.5 bg-slate-700/80 rounded-full overflow-hidden">
               <div
                 className="h-full bg-gradient-to-r from-rose-500 to-rose-400 transition-all duration-300"
@@ -242,7 +244,9 @@ function MobileVictoryProgress({
         )}
         {showTerritory && territoryLeader && (
           <div className="flex items-center gap-1.5 flex-1 p-1.5 rounded-lg bg-emerald-950/30 border border-emerald-900/30">
-            <span className="text-emerald-400">🏰</span>
+            <span className="text-emerald-400" aria-hidden="true">
+              🏰
+            </span>
             <div className="flex-1 h-1.5 bg-slate-700/80 rounded-full overflow-hidden">
               <div
                 className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-300"
@@ -342,13 +346,17 @@ function MobilePlayerRow({ player, isExpanded }: { player: PlayerViewModel; isEx
       {/* Quick stats */}
       <div className="flex items-center gap-2 text-[10px]">
         <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-rose-950/40 border border-rose-800/30">
-          <span className="text-rose-400">⚔</span>
+          <span className="text-rose-400" aria-hidden="true">
+            ⚔
+          </span>
           <span className="font-mono font-medium text-rose-200">
             {ringStats.eliminated}/{ringStats.total}
           </span>
         </span>
         <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-950/40 border border-emerald-800/30">
-          <span className="text-emerald-400">🏰</span>
+          <span className="text-emerald-400" aria-hidden="true">
+            🏰
+          </span>
           <span className="font-mono font-medium text-emerald-200">{territorySpaces}</span>
         </span>
       </div>
