@@ -1432,7 +1432,16 @@ class EvaluationDaemon(HandlerBase):
                     f"[EvaluationDaemon] Dispatched gauntlet to cluster (MCTS): {model_path}"
                 )
                 return
-            # Cluster dispatch failed — fall back to lightweight local
+            # Cluster dispatch failed.
+            # Mar 4, 2026: For large boards (hexagonal, square19), don't fall
+            # back to local — they're too slow on CPU. Re-queue for later
+            # cluster dispatch when the gauntlet queue has capacity.
+            if board_type in ("hexagonal", "square19"):
+                logger.info(
+                    f"[EvaluationDaemon] Cluster dispatch full, deferring large board: {model_path}"
+                )
+                return  # Will be re-queued on next startup scan
+            # Small boards: fall back to lightweight local
             logger.info(
                 f"[EvaluationDaemon] Cluster dispatch failed, running local gauntlet (policy-only): {model_path}"
             )
