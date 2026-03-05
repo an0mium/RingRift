@@ -595,20 +595,41 @@ async def update_node(
         # Update git repository
         logger.info(f"[{node_name}] Updating git repository...")
 
+        # Find git root (ringrift_path may be a subdirectory like ai-service/)
+        git_root_cmd = f"cd {node_path} && git rev-parse --show-toplevel"
+        git_root_result = await client.run_async(git_root_cmd, timeout=10)
+        if git_root_result.returncode == 0:
+            git_root = git_root_result.stdout.strip()
+        else:
+            # No git repo found — try cloning fresh
+            parent_dir = str(Path(node_path).parent)
+            repo_name = str(Path(node_path).parent.name) if node_path.endswith("/ai-service") else "ringrift"
+            logger.warning(f"[{node_name}] No git repo found at {node_path}, cloning fresh...")
+            clone_parent = str(Path(node_path).parent.parent)
+            clone_cmd = (
+                f"mkdir -p {clone_parent} && cd {clone_parent} && "
+                f"git clone --depth 1 https://github.com/an0mium/RingRift.git {repo_name}"
+            )
+            clone_result = await client.run_async(clone_cmd, timeout=120)
+            if clone_result.returncode != 0:
+                return (node_name, False, f"Git clone failed: {clone_result.stderr}")
+            git_root = parent_dir
+            logger.info(f"[{node_name}] Cloned repo to {git_root}")
+
         # Stash any local changes
-        stash_cmd = f"cd {node_path} && git stash"
+        stash_cmd = f"cd {git_root} && git stash"
         stash_result = await client.run_async(stash_cmd, timeout=30)
         if stash_result.returncode != 0:
             logger.warning(f"[{node_name}] Git stash failed (may be nothing to stash): {stash_result.stderr}")
 
         # Pull latest code
-        pull_cmd = f"cd {node_path} && git pull origin main"
+        pull_cmd = f"cd {git_root} && git pull origin main"
         pull_result = await client.run_async(pull_cmd, timeout=60)
         if pull_result.returncode != 0:
             return (node_name, False, f"Git pull failed: {pull_result.stderr}")
 
         # Verify commit
-        verify_cmd = f"cd {node_path} && git rev-parse --short HEAD"
+        verify_cmd = f"cd {git_root} && git rev-parse --short HEAD"
         verify_result = await client.run_async(verify_cmd, timeout=10)
         current_commit = verify_result.stdout.strip() if verify_result.returncode == 0 else "unknown"
 

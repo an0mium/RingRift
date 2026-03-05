@@ -128,6 +128,60 @@ def _is_selfplay_enabled_for_node() -> bool:
         return True
 
 
+# Mar 2026: Cache for per-node selfplay_enabled lookups (leader dispatching to remote nodes)
+_node_selfplay_cache: dict[str, bool] = {}
+
+
+def _is_selfplay_enabled_for_node_id(node_id: str) -> bool:
+    """Check if selfplay is enabled for a specific node_id via YAML config.
+
+    Mar 2026: Used by leader's manage_cluster_jobs() to skip dispatching
+    selfplay to nodes with selfplay_enabled=false (e.g. coordinator).
+    Unlike _is_selfplay_enabled_for_node() which checks the LOCAL node,
+    this checks any node by its config name.
+    """
+    if node_id in _node_selfplay_cache:
+        return _node_selfplay_cache[node_id]
+
+    try:
+        config_paths = [
+            Path(__file__).parent.parent.parent / "config" / "distributed_hosts.yaml",
+            Path.cwd() / "config" / "distributed_hosts.yaml",
+        ]
+
+        for config_path in config_paths:
+            if config_path.exists():
+                try:
+                    with open(config_path) as f:
+                        cluster_config = yaml.safe_load(f)
+                    break
+                except (OSError, yaml.YAMLError):
+                    continue
+        else:
+            _node_selfplay_cache[node_id] = True
+            return True
+
+        hosts = cluster_config.get("hosts", {})
+        node_id_lower = node_id.lower().replace("-", "").replace("_", "")
+        for config_name, cfg in hosts.items():
+            if not isinstance(cfg, dict):
+                continue
+            config_name_lower = config_name.lower().replace("-", "").replace("_", "")
+            if node_id_lower == config_name_lower or node_id_lower in config_name_lower or config_name_lower in node_id_lower:
+                result = cfg.get("selfplay_enabled", True)
+                _node_selfplay_cache[node_id] = result
+                if not result:
+                    logger.info(f"[WorkDiscovery] Node {node_id} has selfplay_enabled=false")
+                return result
+
+        _node_selfplay_cache[node_id] = True
+        return True
+    except Exception as e:
+        logger.debug(f"[WorkDiscovery] Error checking selfplay_enabled for {node_id}: {e}")
+        _node_selfplay_cache[node_id] = True
+        return True
+
+
 def set_selfplay_disabled_override(disabled: bool = True) -> None:
     """Set a runtime override to disable selfplay for this node.
 

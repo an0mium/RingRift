@@ -462,6 +462,11 @@ class ProcessSpawnerOrchestrator(BaseOrchestrator):
         engine_mode: str,
     ) -> Any | None:
         """Start a CPU-only selfplay job."""
+        # Mar 2026: Defense-in-depth — never spawn selfplay on coordinator
+        if os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() in ("true", "1", "yes"):
+            self._log_info(f"Skipping cpu_selfplay {job_id}: coordinator node")
+            return None
+
         # CPU-friendly engine modes
         cpu_engine_modes = {
             "descent-only", "minimax-only", "mcts-only", "heuristic-only",
@@ -1295,6 +1300,14 @@ class ProcessSpawnerOrchestrator(BaseOrchestrator):
             )
             self._log_info(f"Load balancing: {load_summary}")
 
+        # Mar 2026: Filter out nodes with selfplay_enabled=false (e.g. coordinator).
+        # Without this, the leader dispatches selfplay to itself, starving P2P of CPU.
+        try:
+            from scripts.p2p.managers.work_discovery_manager import _is_selfplay_enabled_for_node_id
+            healthy_nodes = [n for n in healthy_nodes if _is_selfplay_enabled_for_node_id(n.node_id)]
+        except ImportError:
+            pass  # Fallback: no filtering if helper unavailable
+
         for node in healthy_nodes:
             load_score = node.get_load_score()
             if load_score >= LOAD_MAX_FOR_NEW_JOBS:
@@ -1500,6 +1513,10 @@ class ProcessSpawnerOrchestrator(BaseOrchestrator):
         Returns:
             Number of jobs started/stopped
         """
+        # Mar 2026: Never spawn selfplay on coordinator via decentralized path
+        if os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() in ("true", "1", "yes"):
+            return 0
+
         import random
 
         # Import constants lazily to avoid circular imports

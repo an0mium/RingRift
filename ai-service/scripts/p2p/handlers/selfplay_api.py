@@ -165,6 +165,17 @@ class SelfplayHandlersMixin:
         is enabled. Selfplay doesn't require cluster consensus - it's local GPU work.
         """
         try:
+            # Mar 2026: Reject selfplay on nodes with selfplay_enabled=false
+            try:
+                from scripts.p2p.managers.work_discovery_manager import _is_selfplay_enabled_for_node
+                if not _is_selfplay_enabled_for_node():
+                    return web.json_response({
+                        "success": False,
+                        "error": "selfplay_enabled=false for this node",
+                    }, status=403)
+            except ImportError:
+                pass
+
             # Phase 2.4 (Dec 29, 2025): Block dispatch if in partition readonly mode
             # Jan 2026: Allow bypass for selfplay (doesn't require consensus)
             if self.is_partition_readonly():
