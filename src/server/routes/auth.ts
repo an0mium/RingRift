@@ -353,27 +353,42 @@ router.post(
     const verificationToken = crypto.randomBytes(32).toString('hex');
     const verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
-    // Create user
-    const user = await prisma.user.create({
-      data: {
-        email,
-        username,
-        // Persist hashed password into the schema's passwordHash field
-        passwordHash: hashedPassword,
-        role: 'USER',
-        isActive: true,
-        emailVerified: false,
-        verificationToken,
-        verificationTokenExpires,
-      },
-      select: {
-        id: true,
-        email: true,
-        username: true,
-        role: true,
-        createdAt: true,
-      },
-    });
+    // Create user — catch unique constraint violations (e.g. soft-deleted user
+    // with same email/username that passes the findFirst check above).
+    let user;
+    try {
+      user = await prisma.user.create({
+        data: {
+          email,
+          username,
+          // Persist hashed password into the schema's passwordHash field
+          passwordHash: hashedPassword,
+          role: 'USER',
+          isActive: true,
+          emailVerified: false,
+          verificationToken,
+          verificationTokenExpires,
+        },
+        select: {
+          id: true,
+          email: true,
+          username: true,
+          role: true,
+          createdAt: true,
+        },
+      });
+    } catch (err: unknown) {
+      // Prisma P2002 = unique constraint violation
+      if (
+        err &&
+        typeof err === 'object' &&
+        'code' in err &&
+        (err as { code: string }).code === 'P2002'
+      ) {
+        throw createError('Email or username already registered', 409, 'EMAIL_EXISTS');
+      }
+      throw err;
+    }
 
     // Send verification email
     try {
