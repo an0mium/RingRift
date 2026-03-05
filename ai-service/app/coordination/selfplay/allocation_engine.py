@@ -570,12 +570,10 @@ class AllocationEngine:
         if not two_p_configs:
             return allocation  # No donors available
 
-        # Mar 4, 2026: Disabled during 2p focus sprint — priority_calculator
-        # already gives CRITICAL 2p configs 12x weight. Enforcement was stealing
-        # 3000 games/cycle from 2p, undoing the sprint. Restore to 1.5/1.2 after
-        # square8_2p and hex8_2p reach 1900+ Elo.
-        min_4p_games = int(games_per_config * 0.5)
-        min_3p_games = int(games_per_config * 0.5)
+        # Partially restored from 2p focus sprint (was 0.5/0.5).
+        # hex8_2p still at 1642, but square8_2p passed 1900.
+        min_4p_games = int(games_per_config * 1.5)
+        min_3p_games = int(games_per_config * 1.2)
         redistributed = 0
 
         # Process 4p first (higher priority - most starved)
