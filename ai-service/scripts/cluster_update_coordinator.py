@@ -246,7 +246,12 @@ class QuorumSafeUpdateCoordinator:
 
         # Detect self-node to defer P2P restart (avoids killing our own health endpoint)
         import socket
-        self._self_node_id = os.environ.get("RINGRIFT_NODE_ID", socket.gethostname())
+        raw_hostname = os.environ.get("RINGRIFT_NODE_ID", "")
+        if not raw_hostname:
+            raw_hostname = socket.gethostname()
+            # Normalize: "Mac-Studio.local" -> "mac-studio"
+            raw_hostname = raw_hostname.split(".")[0].lower().replace(" ", "-")
+        self._self_node_id = raw_hostname
         self._deferred_p2p_restart_node: NodeConfig | None = None
 
     def _find_config_path(self) -> Path:
