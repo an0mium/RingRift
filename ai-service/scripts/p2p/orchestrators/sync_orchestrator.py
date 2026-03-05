@@ -433,7 +433,7 @@ class SyncOrchestrator(BaseOrchestrator):
                         "games": row[2],
                     })
 
-        except (KeyError, IndexError, AttributeError, ImportError, sqlite3.OperationalError):
+        except (KeyError, IndexError, AttributeError, ImportError, sqlite3.OperationalError, sqlite3.ProgrammingError):
             # Silently fail - ELO summary is optional
             pass
 

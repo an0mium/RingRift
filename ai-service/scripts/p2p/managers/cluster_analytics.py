@@ -255,6 +255,7 @@ class ClusterAnalytics:
             AttributeError,
             ImportError,
             sqlite3.OperationalError,
+            sqlite3.ProgrammingError,
         ):
             # Silently fail - ELO summary is optional
             pass

@@ -180,7 +180,20 @@ class EloDatabase:
 
         Uses WAL mode for better concurrent read/write performance and
         configures appropriate timeouts for multi-process access.
+
+        Mar 2026: Added SELECT 1 validation to detect stale/closed connections
+        (fixes "Cannot operate on a closed database" on long-running processes).
         """
+        if hasattr(self._local, "conn") and self._local.conn is not None:
+            try:
+                self._local.conn.execute("SELECT 1")
+            except (sqlite3.ProgrammingError, sqlite3.OperationalError):
+                try:
+                    self._local.conn.close()
+                except Exception:
+                    pass
+                self._local.conn = None
+
         if not hasattr(self._local, "conn") or self._local.conn is None:
             self._local.conn = sqlite3.connect(str(self.db_path), timeout=float(SQLITE_TIMEOUT))
             self._local.conn.row_factory = sqlite3.Row
