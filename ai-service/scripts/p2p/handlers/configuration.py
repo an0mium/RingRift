@@ -200,7 +200,7 @@ class ConfigurationHandlersMixin:
         if not peer:
             return web.json_response({
                 "error": f"Node {node_id} not found in peers",
-                "known_peers": list(self.peers.keys()),
+                "known_peers": list(self.get_peers_ro().keys()),
             }, status=404)
 
         if not HAS_HYBRID_TRANSPORT or not self.hybrid_transport:

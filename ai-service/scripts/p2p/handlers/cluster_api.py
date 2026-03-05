@@ -234,7 +234,7 @@ class ClusterApiHandlersMixin:
                 "self": self_payload,
                 "uptime_seconds": time.time() - self.start_time,
                 "peers": peers_info,
-                "peer_count": len(self.peers),
+                "peer_count": len(peers_snapshot),
                 "jobs": jobs_info,
                 "job_count": len(jobs_info),
                 "training_jobs": training_info,

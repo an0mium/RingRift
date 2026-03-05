@@ -14,6 +14,7 @@ February 2026: Decomposed into mixin modules in selfplay/ subpackage:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import threading
@@ -534,7 +535,6 @@ class SelfplayScheduler(
                         return False
 
             async with get_client_session(timeout) as session:
-                import asyncio
                 tasks = [send_selfplay_request(session, cfg) for cfg in job_configs]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
                 started = 0
