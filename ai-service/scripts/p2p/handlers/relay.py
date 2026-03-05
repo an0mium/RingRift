@@ -235,8 +235,9 @@ class RelayHandlersMixin(BaseP2PHandler):
                 peers_snapshot = self._peer_snapshot.get_snapshot()
                 peers = {k: v.to_dict() for k, v in peers_snapshot.items()}
             else:
-                async with NonBlockingAsyncLockWrapper(self.peers_lock, "peers_lock", timeout=5.0):
-                    peers = {k: v.to_dict() for k, v in self.peers.items()}
+                # Mar 2026: Use lock-free snapshot instead of peers_lock
+                _ro = self.get_peers_ro()
+                peers = {k: v.to_dict() for k, v in _ro.items()}
 
             effective_leader = self._get_leader_peer()
             effective_leader_id = effective_leader.node_id if effective_leader else None
@@ -457,12 +458,13 @@ class RelayHandlersMixin(BaseP2PHandler):
                     if getattr(p, "nat_blocked", False)
                 ]
             else:
-                with self.peers_lock:
-                    nat_blocked_nodes = [
-                        nid
-                        for nid, p in self.peers.items()
-                        if getattr(p, "nat_blocked", False)
-                    ]
+                # Mar 2026: Use lock-free snapshot instead of peers_lock
+                _ro = self.get_peers_ro()
+                nat_blocked_nodes = [
+                    nid
+                    for nid, p in _ro.items()
+                    if getattr(p, "nat_blocked", False)
+                ]
 
             return self.json_response(
                 {

@@ -1235,9 +1235,10 @@ class PeerNetworkOrchestrator(BaseOrchestrator):
 
         # If leader is dead, start election
         if p2p.leader_id and p2p.leader_id != p2p.node_id:
-            async with NonBlockingAsyncLockWrapper(p2p.peers_lock, "peers_lock", timeout=5.0):
-                leader = p2p.peers.get(p2p.leader_id)
-                peers_snapshot = [p for p in p2p.peers.values() if p.node_id != p2p.node_id]
+            # Mar 2026: Use lock-free snapshot for read-only leader check
+            _peers_ro = p2p.get_peers_ro()
+            leader = _peers_ro.get(p2p.leader_id)
+            peers_snapshot = [p for p in _peers_ro.values() if p.node_id != p2p.node_id]
             if leader:
                 conflict_keys = p2p._endpoint_conflict_keys([p2p.self_info, *peers_snapshot])
                 if not p2p._is_leader_eligible(leader, conflict_keys):
@@ -1406,12 +1407,13 @@ class PeerNetworkOrchestrator(BaseOrchestrator):
                 return p2p._ip_to_node_map[ip]
 
             # Check peer list for matching IP
-            with p2p.peers_lock:
-                for node_id, peer_info in p2p.peers.items():
-                    peer_host = getattr(peer_info, 'host', '') or ''
-                    peer_tailscale = getattr(peer_info, 'tailscale_ip', '') or ''
-                    if ip in (peer_host, peer_tailscale):
-                        return node_id
+            # Feb 2026: Use lock-free snapshot instead of peers_lock
+            peers_ro = p2p.get_peers_ro()
+            for node_id, peer_info in peers_ro.items():
+                peer_host = getattr(peer_info, 'host', '') or ''
+                peer_tailscale = getattr(peer_info, 'tailscale_ip', '') or ''
+                if ip in (peer_host, peer_tailscale):
+                    return node_id
 
             # Fallback: Check cluster config
             try:
@@ -1583,11 +1585,11 @@ class PeerNetworkOrchestrator(BaseOrchestrator):
             return
 
         # Collect retired peers (excluding self)
-        async with NonBlockingAsyncLockWrapper(p2p.peers_lock, "peers_lock", timeout=5.0):
-            retired = [
-                p for p in p2p.peers.values()
-                if getattr(p, "retired", False) and p.node_id != p2p.node_id
-            ]
+        # Mar 2026: Use lock-free snapshot instead of peers_lock for read-only collection
+        retired = [
+            p for p in p2p.get_peers_list_ro()
+            if getattr(p, "retired", False) and p.node_id != p2p.node_id
+        ]
 
         if not retired:
             return
@@ -1645,23 +1647,24 @@ class PeerNetworkOrchestrator(BaseOrchestrator):
                             await p2p._emit_host_online(peer.node_id, caps)
 
                             # Emit CLUSTER_CAPACITY_CHANGED
-                            async with NonBlockingAsyncLockWrapper(p2p.peers_lock, "peers_lock", timeout=5.0):
-                                alive_count = sum(
-                                    1 for p in p2p.peers.values()
-                                    if p.is_alive() and not getattr(p, "retired", False)
-                                )
-                                gpu_count = sum(
-                                    1 for p in p2p.peers.values()
-                                    if p.is_alive() and not getattr(p, "retired", False)
-                                    and getattr(p, "gpu_type", None)
-                                )
-                                training_count = sum(
-                                    1 for p in p2p.peers.values()
-                                    if p.is_alive() and not getattr(p, "retired", False)
-                                    and getattr(p, "training_enabled", False)
-                                )
+                            # Mar 2026: Use lock-free snapshot for read-only counting
+                            _peers_snap = p2p.get_peers_list_ro()
+                            alive_count = sum(
+                                1 for p in _peers_snap
+                                if p.is_alive() and not getattr(p, "retired", False)
+                            )
+                            gpu_count = sum(
+                                1 for p in _peers_snap
+                                if p.is_alive() and not getattr(p, "retired", False)
+                                and getattr(p, "gpu_type", None)
+                            )
+                            training_count = sum(
+                                1 for p in _peers_snap
+                                if p.is_alive() and not getattr(p, "retired", False)
+                                and getattr(p, "training_enabled", False)
+                            )
                             safe_create_task(p2p._emit_cluster_capacity_changed(
-                                total_nodes=len(p2p.peers),
+                                total_nodes=len(_peers_snap),
                                 alive_nodes=alive_count,
                                 gpu_nodes=gpu_count,
                                 training_nodes=training_count,

@@ -342,25 +342,19 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
         Returns:
             NodeInfo dict or None if not found
         """
-        # Try to access peers dict via orchestrator attributes
-        peers = getattr(self, "peers", None)
-        peers_lock = getattr(self, "peers_lock", None)
-
-        if peers is None:
-            # Try to find via _orchestrator reference
-            orchestrator = getattr(self, "_orchestrator", self)
-            peers = getattr(orchestrator, "peers", None)
-            peers_lock = getattr(orchestrator, "peers_lock", None)
-
-        if peers is None:
-            return None
+        # Mar 2026: Use lock-free snapshot for read-only peer lookup
+        orchestrator = getattr(self, "_orchestrator", self)
+        get_ro = getattr(orchestrator, "get_peers_ro", None)
+        if get_ro:
+            peers_ro = get_ro()
+        else:
+            peers = getattr(orchestrator, "peers", None) or getattr(self, "peers", None)
+            if peers is None:
+                return None
+            peers_ro = dict(peers)
 
         try:
-            if peers_lock:
-                with peers_lock:
-                    peer = peers.get(node_id)
-            else:
-                peer = peers.get(node_id)
+            peer = peers_ro.get(node_id)
 
             if peer is None:
                 return None
@@ -609,19 +603,19 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
             return None
 
         # Get leader info from peers
-        peers = getattr(self, "peers", None)
-        peers_lock = getattr(self, "peers_lock", None)
-
-        if peers is None:
-            logger.warning("[ForwardToLeader] No peers dict available")
-            return None
+        # Mar 2026: Use lock-free snapshot for read-only leader lookup
+        get_ro = getattr(self, "get_peers_ro", None)
+        if get_ro:
+            peers_ro = get_ro()
+        else:
+            peers = getattr(self, "peers", None)
+            if peers is None:
+                logger.warning("[ForwardToLeader] No peers dict available")
+                return None
+            peers_ro = dict(peers)
 
         try:
-            if peers_lock:
-                with peers_lock:
-                    leader_info = peers.get(leader_id)
-            else:
-                leader_info = peers.get(leader_id)
+            leader_info = peers_ro.get(leader_id)
 
             if leader_info is None:
                 logger.warning(f"[ForwardToLeader] Leader {leader_id} not in peers")

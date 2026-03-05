@@ -413,18 +413,20 @@ class RecoveryManager:
         # Check configured relay preferences for this peer
         if for_peer:
             configured_relays = self._get_configured_relays(for_peer)
+            # Mar 2026: Use lock-free snapshot for read-only relay lookup
+            peers_ro = self._orchestrator.get_peers_ro()
             for relay_id in configured_relays:
-                with self._orchestrator.peers_lock:
-                    relay_peer = self._orchestrator.peers.get(relay_id)
+                relay_peer = peers_ro.get(relay_id)
                 if relay_peer and self._is_valid_relay(relay_peer):
                     return relay_id
 
         # Fall back to automatic selection
-        with self._orchestrator.peers_lock:
-            candidates = [
-                p for p in self._orchestrator.peers.values()
-                if self._is_valid_relay(p)
-            ]
+        # Mar 2026: Use lock-free snapshot for read-only candidate listing
+        peers_ro = self._orchestrator.get_peers_ro()
+        candidates = [
+            p for p in peers_ro.values()
+            if self._is_valid_relay(p)
+        ]
 
         if not candidates:
             return ""
@@ -680,8 +682,8 @@ class RecoveryManager:
         if _snapshot_fn is not None:
             _peers_snapshot = _snapshot_fn()
         else:
-            with self._orchestrator.peers_lock:
-                _peers_snapshot = list(self._orchestrator.peers.values())
+            # Mar 2026: Use lock-free snapshot instead of peers_lock
+            _peers_snapshot = self._orchestrator.get_peers_list_ro()
 
         for peer in _peers_snapshot:
             node_id = peer.node_id

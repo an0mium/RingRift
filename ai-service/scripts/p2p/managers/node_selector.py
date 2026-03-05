@@ -204,12 +204,13 @@ class NodeSelector:
             pass  # Event modules not available
 
     def _get_all_nodes(self, include_self: bool = True) -> list["NodeInfo"]:
-        """Get all nodes including self if requested."""
-        if self._peers_lock:
-            with self._peers_lock:
-                nodes = list(self._get_peers().values())
-        else:
-            nodes = list(self._get_peers().values())
+        """Get all nodes including self if requested.
+
+        Mar 2026: Removed peers_lock acquisition. The caller's get_peers() callback
+        should return a lock-free snapshot (get_peers_ro) or the GIL-protected
+        live dict — list() creates a safe snapshot either way.
+        """
+        nodes = list(self._get_peers().values())
 
         if include_self:
             self_info = self._get_self_info()
@@ -661,14 +662,12 @@ class NodeSelector:
     def count_alive_peers(self) -> int:
         """Count alive peers (excluding self).
 
+        Mar 2026: Removed peers_lock acquisition. Uses lock-free snapshot pattern.
+
         Returns:
             Number of alive peers
         """
-        if self._peers_lock:
-            with self._peers_lock:
-                peers = self._get_peers()
-        else:
-            peers = self._get_peers()
+        peers = self._get_peers()
 
         return sum(1 for p in peers.values() if p.is_alive())
 

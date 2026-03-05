@@ -41,20 +41,20 @@ def get_peer_info(
 ) -> dict[str, Any] | None:
     """Get peer info with optional lock handling.
 
+    Mar 2026: peers_lock parameter is retained for API compatibility but
+    no longer acquired. Callers should pass a lock-free snapshot (get_peers_ro())
+    or rely on CPython GIL for dict.get() atomicity.
+
     Args:
-        peers: Dict mapping peer_id to NodeInfo
+        peers: Dict mapping peer_id to NodeInfo (or lock-free snapshot)
         peer_id: ID of peer to look up
-        peers_lock: Optional lock for thread-safe access
+        peers_lock: Deprecated — retained for backward compatibility, not used
 
     Returns:
         Peer info dict or None if not found
     """
     try:
-        if peers_lock:
-            with peers_lock:
-                peer = peers.get(peer_id)
-        else:
-            peer = peers.get(peer_id)
+        peer = peers.get(peer_id)
 
         if peer is None:
             return None
@@ -79,9 +79,13 @@ def get_alive_peers(
 ) -> list[str]:
     """Get list of alive peer IDs.
 
+    Mar 2026: peers_lock parameter is retained for API compatibility but
+    no longer acquired. Callers should pass a lock-free snapshot (get_peers_ro())
+    or rely on CPython GIL for list(dict.items()) atomicity.
+
     Args:
-        peers: Dict mapping peer_id to NodeInfo
-        peers_lock: Optional lock for thread-safe access
+        peers: Dict mapping peer_id to NodeInfo (or lock-free snapshot)
+        peers_lock: Deprecated — retained for backward compatibility, not used
         exclude: Peer IDs to exclude from result
 
     Returns:
@@ -91,11 +95,7 @@ def get_alive_peers(
     result = []
 
     try:
-        if peers_lock:
-            with peers_lock:
-                items = list(peers.items())
-        else:
-            items = list(peers.items())
+        items = list(peers.items())
 
         for peer_id, peer in items:
             if peer_id in exclude_set:

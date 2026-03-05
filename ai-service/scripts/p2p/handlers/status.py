@@ -234,8 +234,8 @@ class StatusHandlersMixin:
         }
 
         # Get all known peers
-        with self.peers_lock:
-            peer_ids = list(self.peers.keys())
+        # Mar 2026: Use lock-free snapshot for read-only peer key listing
+        peer_ids = list(self.get_peers_ro().keys())
 
         for peer_id in peer_ids:
             health_score = self._peer_health_scores.get(peer_id)
@@ -296,8 +296,8 @@ class StatusHandlersMixin:
         # Feb 2026: Use to_thread to avoid blocking event loop (subprocess.run in count_local_jobs)
         await asyncio.to_thread(self._update_self_info)
 
-        async with NonBlockingAsyncLockWrapper(self.peers_lock, "peers_lock", timeout=5.0):
-            peers_snapshot = list(self.peers.values())
+        # Mar 2026: Use lock-free snapshot for read-only peer listing
+        peers_snapshot = self.get_peers_list_ro()
 
         # Collect external work info
         nodes_with_external = []
@@ -946,8 +946,8 @@ class StatusHandlersMixin:
         # 1. Connectivity - Peer status breakdown
         # =================================================================
         try:
-            with self.peers_lock:
-                peers_snapshot = dict(self.peers)
+            # Mar 2026: Use lock-free snapshot for read-only connectivity check
+            peers_snapshot = self.get_peers_ro()
 
             alive_peers = []
             dead_peers = []
@@ -990,34 +990,35 @@ class StatusHandlersMixin:
         try:
             provider_stats: dict[str, dict[str, int]] = {}
 
-            with self.peers_lock:
-                for peer_id, peer_info in self.peers.items():
-                    # Try to determine provider from peer_id or info
-                    provider = "unknown"
-                    if "lambda" in peer_id.lower() or "gh200" in peer_id.lower():
-                        provider = "lambda"
-                    elif "vast" in peer_id.lower():
-                        provider = "vast"
-                    elif "runpod" in peer_id.lower():
-                        provider = "runpod"
-                    elif "nebius" in peer_id.lower():
-                        provider = "nebius"
-                    elif "hetzner" in peer_id.lower():
-                        provider = "hetzner"
-                    elif "vultr" in peer_id.lower():
-                        provider = "vultr"
-                    elif "mac" in peer_id.lower() or "local" in peer_id.lower():
-                        provider = "local"
+            # Mar 2026: Use lock-free snapshot for read-only provider stats
+            _peers_ro = self.get_peers_ro()
+            for peer_id, peer_info in _peers_ro.items():
+                # Try to determine provider from peer_id or info
+                provider = "unknown"
+                if "lambda" in peer_id.lower() or "gh200" in peer_id.lower():
+                    provider = "lambda"
+                elif "vast" in peer_id.lower():
+                    provider = "vast"
+                elif "runpod" in peer_id.lower():
+                    provider = "runpod"
+                elif "nebius" in peer_id.lower():
+                    provider = "nebius"
+                elif "hetzner" in peer_id.lower():
+                    provider = "hetzner"
+                elif "vultr" in peer_id.lower():
+                    provider = "vultr"
+                elif "mac" in peer_id.lower() or "local" in peer_id.lower():
+                    provider = "local"
 
-                    if provider not in provider_stats:
-                        provider_stats[provider] = {"alive": 0, "dead": 0, "retired": 0}
+                if provider not in provider_stats:
+                    provider_stats[provider] = {"alive": 0, "dead": 0, "retired": 0}
 
-                    if hasattr(peer_info, "is_alive") and peer_info.is_alive():
-                        provider_stats[provider]["alive"] += 1
-                    elif hasattr(peer_info, "state") and "retired" in str(peer_info.state).lower():
-                        provider_stats[provider]["retired"] += 1
-                    else:
-                        provider_stats[provider]["dead"] += 1
+                if hasattr(peer_info, "is_alive") and peer_info.is_alive():
+                    provider_stats[provider]["alive"] += 1
+                elif hasattr(peer_info, "state") and "retired" in str(peer_info.state).lower():
+                    provider_stats[provider]["retired"] += 1
+                else:
+                    provider_stats[provider]["dead"] += 1
 
             response["provider_health"] = provider_stats
         except Exception as e:

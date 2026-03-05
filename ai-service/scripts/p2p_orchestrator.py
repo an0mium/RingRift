@@ -1658,8 +1658,8 @@ class P2POrchestrator(
                 node_id=self.node_id,
                 config_path=config_path if config_path.exists() else None,
             ),
-            get_peers=lambda: self.peers,
-            get_peers_lock=lambda: self.peers_lock,
+            get_peers=self.get_peers_ro,  # Mar 2026: Lock-free snapshot
+            get_peers_lock=None,  # Mar 2026: No lock needed with snapshot
         )
         self.voter_node_ids: list[str] = self.quorum_manager.load_voter_node_ids()
         self.voter_config_source: str = self.quorum_manager.voter_config_source
@@ -2180,9 +2180,9 @@ class P2POrchestrator(
         self.self_info = self._create_self_info()
 
         self.node_selector = NodeSelector(
-            get_peers=lambda: self.peers,
+            get_peers=self.get_peers_ro,
             get_self_info=lambda: self.self_info,
-            peers_lock=self.peers_lock,
+            peers_lock=None,  # Mar 2026: Lock-free via get_peers_ro snapshot
             get_training_jobs=lambda: self.training_jobs,
         )
         self.node_selector.subscribe_to_events()

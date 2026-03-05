@@ -248,20 +248,21 @@ class AdminHandlersMixin(BaseP2PHandler):
             now = time.time()
 
             stale_peers = []
-            async with NonBlockingAsyncLockWrapper(self.peers_lock, "peers_lock", timeout=5.0):
-                for node_id, info in self.peers.items():
-                    if node_id == self.node_id:
-                        continue  # Don't purge self
-                    last_hb = getattr(info, "last_heartbeat", 0.0) or 0.0
-                    age = now - last_hb
-                    if age >= max_age:
-                        stale_peers.append({
-                            "node_id": node_id,
-                            "age_seconds": int(age),
-                            "last_heartbeat": last_hb,
-                            "role": str(getattr(info, "role", "unknown")),
-                            "nat_blocked": getattr(info, "nat_blocked", False),
-                        })
+            # Mar 2026: Use lock-free snapshot for read-only stale peer collection
+            _peers_ro = self.get_peers_ro()
+            for node_id, info in _peers_ro.items():
+                if node_id == self.node_id:
+                    continue  # Don't purge self
+                last_hb = getattr(info, "last_heartbeat", 0.0) or 0.0
+                age = now - last_hb
+                if age >= max_age:
+                    stale_peers.append({
+                        "node_id": node_id,
+                        "age_seconds": int(age),
+                        "last_heartbeat": last_hb,
+                        "role": str(getattr(info, "role", "unknown")),
+                        "nat_blocked": getattr(info, "nat_blocked", False),
+                    })
 
             if not stale_peers:
                 return web.json_response({
@@ -470,8 +471,8 @@ class AdminHandlersMixin(BaseP2PHandler):
                 }, status=400)
 
             # Check if peer already exists
-            async with NonBlockingAsyncLockWrapper(self.peers_lock, "peers_lock", timeout=5.0):
-                already_exists = node_id in self.peers
+            # Mar 2026: Use lock-free snapshot for read-only existence check
+            already_exists = node_id in self.get_peers_ro()
 
             if already_exists:
                 return web.json_response({
@@ -720,14 +721,15 @@ class AdminHandlersMixin(BaseP2PHandler):
                     from collections import defaultdict
                     ip_to_nodes: dict[str, list[tuple[str, float]]] = defaultdict(list)
 
-                    with self.peers_lock:
-                        for node_id, peer in self.peers.items():
-                            if node_id == self.node_id:
-                                continue
-                            dedup_key = getattr(peer, "reported_host", None) or getattr(peer, "effective_host", None) or getattr(peer, "host", None)
-                            if dedup_key and dedup_key not in ("127.0.0.1", ""):
-                                freshness = getattr(peer, "last_heartbeat", 0) or getattr(peer, "last_seen", 0) or 0
-                                ip_to_nodes[dedup_key].append((node_id, freshness))
+                    # Mar 2026: Use lock-free snapshot for read-only deduplication scan
+                    _peers_ro = self.get_peers_ro()
+                    for node_id, peer in _peers_ro.items():
+                        if node_id == self.node_id:
+                            continue
+                        dedup_key = getattr(peer, "reported_host", None) or getattr(peer, "effective_host", None) or getattr(peer, "host", None)
+                        if dedup_key and dedup_key not in ("127.0.0.1", ""):
+                            freshness = getattr(peer, "last_heartbeat", 0) or getattr(peer, "last_seen", 0) or 0
+                            ip_to_nodes[dedup_key].append((node_id, freshness))
 
                     duplicates = []
                     for ip, nodes in ip_to_nodes.items():

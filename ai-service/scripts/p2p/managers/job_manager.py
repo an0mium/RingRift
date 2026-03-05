@@ -623,8 +623,8 @@ class JobManager(EventSubscriptionMixin):
         """
         try:
             # Find peer info for the node
-            with self.peers_lock:
-                peer = self.peers.get(node_id)
+            # Mar 2026: Lock-free read — dict.get() is GIL-atomic
+            peer = self.peers.get(node_id)
 
             if peer is None:
                 return {"success": False, "error": f"Node {node_id} not found in peers"}
@@ -1195,13 +1195,13 @@ class JobManager(EventSubscriptionMixin):
         Sprint 10 (Jan 3, 2026): Uses adaptive timeout based on host history.
         """
         # Check 1: Node in alive peers
-        with self.peers_lock:
-            if node_id not in self.peers:
-                return False, "not_in_peers"
-            peer = self.peers.get(node_id)
-            if peer and hasattr(peer, "status"):
-                if peer.status in ("offline", "dead", "retired", "archived"):
-                    return False, f"peer_status_{peer.status}"
+        # Mar 2026: Lock-free read — dict membership and .get() are GIL-atomic
+        if node_id not in self.peers:
+            return False, "not_in_peers"
+        peer = self.peers.get(node_id)
+        if peer and hasattr(peer, "status"):
+            if peer.status in ("offline", "dead", "retired", "archived"):
+                return False, f"peer_status_{peer.status}"
 
         # Sprint 10 (Jan 3, 2026): Use adaptive timeout based on host performance history
         effective_timeout = timeout if timeout is not None else get_adaptive_timeout(
@@ -1386,8 +1386,8 @@ class JobManager(EventSubscriptionMixin):
         """
         # Check if target node has GPU capability before running nvidia-smi
         # This prevents crashes on macOS coordinators and CPU-only nodes
-        with self.peers_lock:
-            node_info = self.peers.get(node_id)
+        # Mar 2026: Lock-free read — dict.get() is GIL-atomic
+        node_info = self.peers.get(node_id)
 
         if node_info is not None:
             has_gpu = self._worker_has_gpu(node_info)
@@ -3435,12 +3435,12 @@ class JobManager(EventSubscriptionMixin):
         logger.info(f"Running training for job {job_id}, iteration {state.current_iteration}")
 
         # Find GPU worker
+        # Mar 2026: Lock-free read — list() snapshot of dict.values()
         gpu_worker = None
-        with self.peers_lock:
-            for peer in self.peers.values():
-                if hasattr(peer, 'has_gpu') and peer.has_gpu and hasattr(peer, 'is_healthy') and peer.is_healthy():
-                    gpu_worker = peer
-                    break
+        for peer in list(self.peers.values()):
+            if hasattr(peer, 'has_gpu') and peer.has_gpu and hasattr(peer, 'is_healthy') and peer.is_healthy():
+                gpu_worker = peer
+                break
 
         # Model output path
         new_model_path = os.path.join(
@@ -3732,18 +3732,18 @@ class JobManager(EventSubscriptionMixin):
         Returns:
             List of worker node info objects (only non-NAT-blocked)
         """
+        # Mar 2026: Lock-free read — list() snapshot of dict.values()
         workers = []
-        with self.peers_lock:
-            for peer in self.peers.values():
-                if hasattr(peer, "is_healthy") and peer.is_healthy():
-                    # Skip NAT-blocked workers - can't reach them directly
-                    if getattr(peer, "nat_blocked", False):
-                        continue
-                    # Prefer GPU nodes for neural net matches
-                    if hasattr(peer, "has_gpu") and peer.has_gpu:
-                        workers.insert(0, peer)
-                    else:
-                        workers.append(peer)
+        for peer in list(self.peers.values()):
+            if hasattr(peer, "is_healthy") and peer.is_healthy():
+                # Skip NAT-blocked workers - can't reach them directly
+                if getattr(peer, "nat_blocked", False):
+                    continue
+                # Prefer GPU nodes for neural net matches
+                if hasattr(peer, "has_gpu") and peer.has_gpu:
+                    workers.insert(0, peer)
+                else:
+                    workers.append(peer)
         return workers
 
     async def _dispatch_tournament_matches(

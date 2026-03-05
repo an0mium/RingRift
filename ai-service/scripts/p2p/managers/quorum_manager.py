@@ -785,10 +785,12 @@ class QuorumManager:
     # ========================================================================
 
     def _get_peers_safely(self) -> dict[str, Any]:
-        """Get peers dict with optional lock."""
-        if self._get_peers_lock:
-            with self._get_peers_lock():
-                return dict(self._get_peers())
+        """Get peers dict as a snapshot.
+
+        Mar 2026: Removed peers_lock acquisition. The caller's get_peers()
+        callback should return a lock-free snapshot (get_peers_ro). The
+        dict() copy provides a consistent iteration snapshot regardless.
+        """
         return dict(self._get_peers())
 
     def _is_peer_alive_from_info(self, peer_info: Any) -> bool:

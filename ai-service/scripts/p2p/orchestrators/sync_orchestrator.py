@@ -292,14 +292,12 @@ class SyncOrchestrator(BaseOrchestrator):
             return False
 
         # Get peer info from P2P
-        peers_lock = getattr(self._p2p, "peers_lock", None)
-        peers = getattr(self._p2p, "peers", {})
-
-        if peers_lock is None:
+        # Mar 2026: Use lock-free snapshot for read-only peer lookup
+        peers_ro = getattr(self._p2p, "get_peers_ro", None)
+        if peers_ro is None:
             return False
 
-        with peers_lock:
-            node = peers.get(node_id)
+        node = peers_ro().get(node_id)
 
         if not node or not node.is_alive():
             return False
@@ -533,25 +531,25 @@ class SyncOrchestrator(BaseOrchestrator):
                 else:
                     result["cluster_job_distribution"] = {"error": "no peers available"}
             else:
-                # Fallback to lock-based access if snapshot not available
-                peers_lock = getattr(self._p2p, "peers_lock", None)
-                peers = getattr(self._p2p, "peers", {})
-                if peers_lock:
-                    with peers_lock:
-                        job_distribution = {}
-                        for pid, peer in peers.items():
-                            if peer.is_alive():
-                                job_distribution[pid] = {
-                                    "selfplay_jobs": int(getattr(peer, "selfplay_jobs", 0) or 0),
-                                    "training_jobs": int(getattr(peer, "training_jobs", 0) or 0),
-                                    "gpu_percent": float(getattr(peer, "gpu_percent", 0) or 0),
-                                }
-                        if self_info:
-                            job_distribution[node_id] = {
-                                "selfplay_jobs": int(getattr(self_info, "selfplay_jobs", 0) or 0),
-                                "training_jobs": int(getattr(self_info, "training_jobs", 0) or 0),
-                                "gpu_percent": float(getattr(self_info, "gpu_percent", 0) or 0),
+                # Fallback to lock-free snapshot if _peer_snapshot not available
+                # Mar 2026: Use get_peers_ro() instead of peers_lock
+                peers_ro_fn = getattr(self._p2p, "get_peers_ro", None)
+                if peers_ro_fn:
+                    peers_snap = peers_ro_fn()
+                    job_distribution = {}
+                    for pid, peer in peers_snap.items():
+                        if peer.is_alive():
+                            job_distribution[pid] = {
+                                "selfplay_jobs": int(getattr(peer, "selfplay_jobs", 0) or 0),
+                                "training_jobs": int(getattr(peer, "training_jobs", 0) or 0),
+                                "gpu_percent": float(getattr(peer, "gpu_percent", 0) or 0),
                             }
+                    if self_info:
+                        job_distribution[node_id] = {
+                            "selfplay_jobs": int(getattr(self_info, "selfplay_jobs", 0) or 0),
+                            "training_jobs": int(getattr(self_info, "training_jobs", 0) or 0),
+                            "gpu_percent": float(getattr(self_info, "gpu_percent", 0) or 0),
+                        }
                     if job_distribution:
                         all_jobs = [d["selfplay_jobs"] for d in job_distribution.values()]
                         avg_jobs = sum(all_jobs) / len(all_jobs) if all_jobs else 0
@@ -563,7 +561,7 @@ class SyncOrchestrator(BaseOrchestrator):
                     else:
                         result["cluster_job_distribution"] = {"error": "no peers available"}
                 else:
-                    result["cluster_job_distribution"] = {"error": "peers_lock not available"}
+                    result["cluster_job_distribution"] = {"error": "get_peers_ro not available"}
         except Exception as e:  # noqa: BLE001
             result["cluster_job_distribution"] = {"error": str(e)}
 
@@ -804,13 +802,8 @@ class SyncOrchestrator(BaseOrchestrator):
         files_to_request = [f[0] for f in files_with_priority[:10]]
 
         # Check if peer is alive
-        peers_lock = getattr(p2p, "peers_lock", None)
-        peers = getattr(p2p, "peers", {})
-        if peers_lock:
-            with peers_lock:
-                peer = peers.get(best_peer)
-        else:
-            peer = peers.get(best_peer)
+        # Mar 2026: Use lock-free snapshot for read-only peer lookup
+        peer = p2p.get_peers_ro().get(best_peer)
 
         if not peer or not peer.is_alive():
             return
@@ -1195,8 +1188,8 @@ class SyncOrchestrator(BaseOrchestrator):
         dbs_to_sync = [db[0] for db in missing_dbs[best_peer][:3]]
 
         # Check if peer is alive
-        with p2p.peers_lock:
-            peer = p2p.peers.get(best_peer)
+        # Mar 2026: Use lock-free snapshot for read-only peer lookup
+        peer = p2p.get_peers_ro().get(best_peer)
         if not peer or not peer.is_alive():
             return
 
@@ -1298,8 +1291,8 @@ class SyncOrchestrator(BaseOrchestrator):
         best_peer = max(missing_models.keys(), key=lambda pid: p2p._get_peer_health_score(pid))
         models_to_sync = missing_models[best_peer][:5]  # Max 5 models per cycle
 
-        with p2p.peers_lock:
-            peer = p2p.peers.get(best_peer)
+        # Mar 2026: Use lock-free snapshot for read-only peer lookup
+        peer = p2p.get_peers_ro().get(best_peer)
         if not peer or not peer.is_alive():
             return
 

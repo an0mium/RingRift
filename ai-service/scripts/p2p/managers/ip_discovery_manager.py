@@ -381,9 +381,9 @@ class IPDiscoveryManager:
             ts_peers = ts_data.get("Peer", {})
 
             # Get current peer node_ids
-            current_peers = set()
-            with peers_lock:
-                current_peers = {p.node_id for p in peers.values()}
+            # Mar 2026: Use lock-free snapshot for read-only peer iteration
+            _peers_values = list(peers.values())
+            current_peers = {p.node_id for p in _peers_values}
 
             discovered = 0
             for peer_info in ts_peers.values():
@@ -400,12 +400,12 @@ class IPDiscoveryManager:
                 ip = ipv4s[0]
 
                 # Skip if we already know this IP
-                known = False
-                with peers_lock:
-                    for p in peers.values():
-                        if getattr(p, "tailscale_ip", None) == ip or p.host == ip:
-                            known = True
-                            break
+                # Mar 2026: Use lock-free snapshot for read-only IP check
+                _peers_values = list(peers.values())
+                known = any(
+                    getattr(p, "tailscale_ip", None) == ip or p.host == ip
+                    for p in _peers_values
+                )
                 if known:
                     continue
 
@@ -503,12 +503,12 @@ class IPDiscoveryManager:
             }
 
             # Get current P2P peer IDs
+            # Mar 2026: Use lock-free snapshot for read-only peer iteration
             p2p_peer_ids = set()
-            with peers_lock:
-                for peer_id, peer_info in peers.items():
-                    is_alive = getattr(peer_info, "is_alive", lambda: True)
-                    if (callable(is_alive) and is_alive()) or (not callable(is_alive) and is_alive):
-                        p2p_peer_ids.add(peer_id)
+            for peer_id, peer_info in list(peers.items()):
+                is_alive = getattr(peer_info, "is_alive", lambda: True)
+                if (callable(is_alive) and is_alive()) or (not callable(is_alive) and is_alive):
+                    p2p_peer_ids.add(peer_id)
 
             # Find and reconnect missing peers
             reconnected = 0
