@@ -367,7 +367,10 @@ class WorkDistributor:
         # Feb 28, 2026: Rate-limit gauntlet submissions to prevent queue explosion.
         # Without this, ComprehensiveEvaluationLoop + evaluation_daemon create 5000+
         # pending gauntlets that crowd out training and selfplay.
-        MAX_PENDING_GAUNTLETS = 50
+        # Mar 5, 2026: Raised from 50 to 70. At 50, regular gauntlets filled all slots
+        # and blocked candidate evaluations submitted by comprehensive_evaluation_loop
+        # and evaluation_daemon. Extra 20 slots give candidates room to be queued.
+        MAX_PENDING_GAUNTLETS = 70
         if evaluation_type == "gauntlet" and self._queue:
             try:
                 pending = sum(

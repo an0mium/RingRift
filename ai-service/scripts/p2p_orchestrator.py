@@ -7838,6 +7838,14 @@ class P2POrchestrator(
                     work_item, config, self.node_id,
                     ringrift_path=Path(__file__).parent.parent,
                 )
+            elif work_type == "hyperparam_sweep":
+                # Mar 5, 2026: No handler exists for hyperparam_sweep — these items
+                # were enqueued by the queue populator but never claimed because no
+                # node reports this capability. Return True to mark them complete and
+                # drain the 2 stuck items. New items are blocked by setting
+                # max_pending_hyperparam_sweep=0 in unified_queue_populator.py.
+                logger.info(f"[P2P] hyperparam_sweep work {work_id} completed (no-op: feature not implemented)")
+                return True
             else:
                 logger.warning(f"Unknown work type: {work_type}")
                 return False

@@ -127,7 +127,9 @@ class QueuePopulatorConfig:
     max_pending_selfplay: int = 100
     max_pending_training: int = 50
     max_pending_tournament: int = 50
-    max_pending_hyperparam_sweep: int = 20
+    # Mar 5, 2026: Set to 0 — no handler exists in p2p_orchestrator for this work
+    # type, so items are permanently stuck. Stop creating new ones.
+    max_pending_hyperparam_sweep: int = 0
 
     # Target queue depth to aim for (queue will fill to this level)
     # December 29, 2025: Added to reduce queue variance from 2,170% to <50%
