@@ -1186,7 +1186,7 @@ Examples:
 
             if result.success:
                 print(f"\n✅ Update completed successfully")
-                print(f"   Batches completed: {result.batches_completed}")
+                print(f"   Batches completed: {result.batches_updated}")
                 print(f"   Nodes updated: {result.nodes_updated}")
                 if result.nodes_skipped:
                     print(f"   Nodes skipped: {result.nodes_skipped}")
