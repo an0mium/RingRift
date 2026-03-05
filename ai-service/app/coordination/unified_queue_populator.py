@@ -821,9 +821,18 @@ class UnifiedQueuePopulator:
             db_path = getattr(self._work_queue, "db_path", None)
             if db_path:
                 with sqlite3.connect(db_path, timeout=10.0) as conn:
+                    # Mar 2026: Filter out stale items whose max lifetime has expired.
+                    # Items remain as 'pending' in SQLite even after the in-memory Raft
+                    # queue expires them (e.g. after orchestrator restart), causing false
+                    # "over limit" signals that block new work from being created.
+                    # Filter: item must be younger than timeout_seconds * max_attempts.
+                    now = time.time()
                     cursor = conn.execute(
                         "SELECT work_type, COUNT(*) FROM work_items "
-                        "WHERE status = 'pending' GROUP BY work_type"
+                        "WHERE status = 'pending' "
+                        "AND created_at > (? - timeout_seconds * max_attempts) "
+                        "GROUP BY work_type",
+                        (now,),
                     )
                     result = {row[0]: row[1] for row in cursor.fetchall()}
                 return result
@@ -855,13 +864,16 @@ class UnifiedQueuePopulator:
             db_path = getattr(self._work_queue, "db_path", None)
             if db_path:
                 with sqlite3.connect(db_path, timeout=10.0) as conn:
+                    now = time.time()
                     cursor = conn.execute(
                         "SELECT json_extract(config, '$.board_type'), "
                         "json_extract(config, '$.num_players'), COUNT(*) "
                         "FROM work_items "
                         "WHERE status = 'pending' AND work_type = 'tournament' "
+                        "AND created_at > (? - timeout_seconds * max_attempts) "
                         "GROUP BY json_extract(config, '$.board_type'), "
-                        "json_extract(config, '$.num_players')"
+                        "json_extract(config, '$.num_players')",
+                        (now,),
                     )
                     result = {}
                     for row in cursor.fetchall():
@@ -1672,6 +1684,17 @@ class UnifiedQueuePopulator:
             logger.debug(f"Training readiness check failed for {config_key}: {e}")
             return False, 0
 
+    # Mar 2026: Graduated timeouts for training work items.
+    # WorkItem default (3600s) was shorter than actual training time (1-3h+),
+    # causing items to be re-queued before completion and wasting GPU cycles.
+    # Values match p2p_orchestrator._get_training_timeout() logic.
+    _BOARD_TRAINING_TIMEOUTS: dict[str, float] = {
+        "hex8": 7200,       # 2 hours
+        "square8": 7200,    # 2 hours
+        "square19": 14400,  # 4 hours (large board, lots of data)
+        "hexagonal": 18000, # 5 hours (largest board)
+    }
+
     def _create_training_item(
         self, board_type: str, num_players: int
     ) -> "WorkItem":
@@ -1681,10 +1704,16 @@ class UnifiedQueuePopulator:
         work_id = f"training_{board_type}_{num_players}p_{int(time.time() * 1000)}"
         is_hex = board_type.startswith("hex")
 
+        # Mar 2026: Use board-size-based timeout to prevent premature re-queue.
+        base_timeout = self._BOARD_TRAINING_TIMEOUTS.get(board_type, 7200)
+        player_multiplier = {2: 1.0, 3: 1.25, 4: 1.5}.get(num_players, 1.0)
+        timeout = base_timeout * player_multiplier
+
         return WorkItem(
             work_id=work_id,
             work_type=WorkType.TRAINING,
             priority=self.config.training_priority,
+            timeout_seconds=timeout,
             config={
                 "board_type": board_type,
                 "num_players": num_players,
