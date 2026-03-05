@@ -96,6 +96,7 @@ class CircuitConfig:
     jitter_factor: float = 0.1
     emit_events: bool = True
     operation_type: str = "default"
+    backoff_decay_interval: float = 600.0  # Seconds of success before halving consecutive_opens
 
     def __post_init__(self) -> None:
         """Validate configuration values."""
@@ -153,6 +154,7 @@ class CircuitDataBase:
     half_open_calls: int = 0
     consecutive_opens: int = 0  # For exponential backoff tracking
     jitter_offset: float = 0.0  # Per-circuit jitter (set when circuit opens)
+    last_closed_at: float | None = None  # When circuit last transitioned to CLOSED
 
 
 @dataclass
@@ -296,12 +298,30 @@ class CircuitBreakerBase(ABC):
     def _compute_jittered_timeout(self, circuit: CircuitDataBase) -> float:
         """Compute recovery timeout with jitter and exponential backoff.
 
+        Applies TTL decay: for each decay_interval of sustained CLOSED time,
+        consecutive_opens is halved. This prevents permanent exclusion of nodes
+        that have recovered.
+
         Returns:
             Recovery timeout in seconds with jitter applied.
         """
-        # Exponential backoff: base * (multiplier ^ consecutive_opens)
+        effective_opens = circuit.consecutive_opens
+
+        # TTL decay: reduce effective_opens based on time since last close
+        if (
+            circuit.last_closed_at is not None
+            and effective_opens > 0
+            and self.config.backoff_decay_interval > 0
+        ):
+            time_closed = time.time() - circuit.last_closed_at
+            decay_periods = int(time_closed / self.config.backoff_decay_interval)
+            if decay_periods > 0:
+                # Halve effective opens for each decay period
+                effective_opens = max(0, effective_opens >> decay_periods)
+
+        # Exponential backoff: base * (multiplier ^ effective_opens)
         backoff = self.config.recovery_timeout * (
-            self.config.backoff_multiplier ** circuit.consecutive_opens
+            self.config.backoff_multiplier ** effective_opens
         )
         # Cap at max_backoff
         backoff = min(backoff, self.config.max_backoff)
@@ -401,7 +421,10 @@ class CircuitBreakerBase(ABC):
                     circuit.failure_count = 0
                     circuit.opened_at = None
                     circuit.half_open_at = None
-                    circuit.consecutive_opens = 0
+                    circuit.last_closed_at = time.time()
+                    # Don't reset consecutive_opens to 0 immediately — let TTL
+                    # decay handle gradual reduction. This preserves some caution
+                    # after recovery while still preventing permanent exclusion.
                     circuit.jitter_offset = 0.0
                     logger.info(f"[CircuitBreakerBase] Circuit CLOSED for {target}")
             elif circuit.state == CircuitState.CLOSED:
@@ -451,13 +474,26 @@ class CircuitBreakerBase(ABC):
                 )
             elif circuit.state == CircuitState.CLOSED:
                 if circuit.failure_count >= self.config.failure_threshold:
+                    # Apply TTL decay before incrementing — if the circuit was
+                    # closed for a long time, the backoff level should have decayed
+                    if (
+                        circuit.last_closed_at is not None
+                        and circuit.consecutive_opens > 0
+                        and self.config.backoff_decay_interval > 0
+                    ):
+                        time_closed = time.time() - circuit.last_closed_at
+                        decay_periods = int(time_closed / self.config.backoff_decay_interval)
+                        if decay_periods > 0:
+                            circuit.consecutive_opens = max(
+                                0, circuit.consecutive_opens >> decay_periods
+                            )
                     circuit.state = CircuitState.OPEN
                     circuit.opened_at = time.time()
                     circuit.consecutive_opens += 1
                     self._set_jitter_offset(circuit)
                     logger.warning(
                         f"[CircuitBreakerBase] Circuit OPEN for {target} "
-                        f"({circuit.failure_count} failures)"
+                        f"({circuit.failure_count} failures, backoff_level={circuit.consecutive_opens})"
                     )
 
             new_state = circuit.state
