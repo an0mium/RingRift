@@ -11,6 +11,7 @@
 
 import http from 'k6/http';
 import { check } from 'k6';
+import { getBypassHeaders } from '../auth/helpers.js';
 
 // Default configuration
 const DEFAULT_BASE_URL = 'http://localhost:3001';
@@ -23,9 +24,9 @@ const DEFAULT_API_PREFIX = '/api';
  * @returns {Object} Headers object
  */
 export function buildHeaders(token) {
-  const headers = {
+  const headers = getBypassHeaders({
     'Content-Type': 'application/json',
-  };
+  });
 
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
