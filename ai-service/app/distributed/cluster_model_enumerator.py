@@ -491,9 +491,13 @@ class ClusterModelEnumerator:
     async def _discover_local_models(self) -> list[ModelInfo]:
         """Discover models in local models directory.
 
-        Returns:
-            List of ModelInfo from local filesystem
+        Mar 5, 2026: Delegates to sync helper via asyncio.to_thread() to
+        prevent event loop blocking from rglob() and stat() calls.
         """
+        return await asyncio.to_thread(self._discover_local_models_sync)
+
+    def _discover_local_models_sync(self) -> list[ModelInfo]:
+        """Synchronous implementation of local model discovery."""
         models = []
         node_id = os.environ.get("RINGRIFT_NODE_ID", "local")
 
@@ -567,9 +571,16 @@ class ClusterModelEnumerator:
     async def _load_evaluation_status(self, models: list[ModelInfo]) -> None:
         """Load evaluation status from EloService database.
 
+        Mar 5, 2026: Delegates to sync helper via asyncio.to_thread() to
+        prevent event loop blocking from SQLite connect/execute/fetchall calls.
+
         Args:
-            models: List of models to load status for
+            models: List of models to load status for (mutated in-place)
         """
+        await asyncio.to_thread(self._load_evaluation_status_sync, models)
+
+    def _load_evaluation_status_sync(self, models: list[ModelInfo]) -> None:
+        """Synchronous implementation of evaluation status loading."""
         try:
             # Try to load from unified Elo database
             elo_db_path = Path(
