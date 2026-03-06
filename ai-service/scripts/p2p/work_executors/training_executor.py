@@ -731,10 +731,10 @@ async def execute_training_work(
                 try:
                     import numpy as _np
                     _npz_data = _np.load(str(_actual_data_path), mmap_mode='r')
-                    if 'boards' in _npz_data:
-                        _timeout_samples = len(_npz_data['boards'])
-                    elif 'states' in _npz_data:
-                        _timeout_samples = len(_npz_data['states'])
+                    for _key in ('features', 'boards', 'states'):
+                        if _key in _npz_data:
+                            _timeout_samples = len(_npz_data[_key])
+                            break
                     _npz_data.close()
                 except Exception as _e:
                     logger.debug(f"Could not read NPZ for sample count: {_e}")
