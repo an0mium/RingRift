@@ -515,6 +515,7 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         runner_name="create_external_drive_sync",
         depends_on=(DaemonType.EVENT_ROUTER,),
         category="misc",
+        deprecated=True,  # Mar 2026: Replaced by OWC_SYNC_MANAGER
     ),
     DaemonType.VAST_CPU_PIPELINE: DaemonSpec(
         runner_name="create_vast_cpu_pipeline",

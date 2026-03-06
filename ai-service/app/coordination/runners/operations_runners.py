@@ -1141,9 +1141,9 @@ async def create_owc_sync_manager() -> None:
     - UNIFIED_BACKUP
     """
     try:
-        from app.coordination.external_drive_sync import get_external_drive_sync_daemon
+        from app.coordination.owc_sync_manager import get_owc_sync_manager
 
-        daemon = get_external_drive_sync_daemon()
+        daemon = get_owc_sync_manager()
         await daemon.start()
     except ImportError as e:
         logger.warning(f"OWC Sync Manager not available (likely not on coordinator): {e}")
