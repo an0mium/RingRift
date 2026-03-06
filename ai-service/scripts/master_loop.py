@@ -3207,6 +3207,17 @@ async def main() -> None:
 
     logger.info(f"[MasterLoop] Acquired singleton lock (PID {os.getpid()})")
 
+    # Mar 2026: Start ProcessWatchdog on coordinator to kill runaway subprocess trees.
+    # This is a safety net — if governor gates fail or are bypassed, the watchdog
+    # prevents descendant process explosion that caused kernel watchdog panics.
+    if os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() in ("true", "1", "yes"):
+        try:
+            from app.utils.coordinator_governor import ProcessWatchdog
+            _process_watchdog = ProcessWatchdog(max_processes=60)
+            _process_watchdog.start()
+        except Exception as _wd_err:
+            logger.warning(f"[MasterLoop] Failed to start ProcessWatchdog: {_wd_err}")
+
     # Write PID file for backward compatibility with master_loop_guard (Dec 2025)
     try:
         PID_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)

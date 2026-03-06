@@ -333,6 +333,16 @@ def get_parallel_games_default() -> int:
     # they already run P2P + master_loop + daemons + S3 uploads
     is_coordinator = os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() in ("true", "1", "yes")
     if is_coordinator:
+        # Mar 2026: Query governor — if near capacity, use minimal parallelism
+        try:
+            from app.utils.coordinator_governor import get_governor
+            status = get_governor().get_status()
+            active = status.get("active_slots", 0)
+            max_slots = status.get("max_slots", 3)
+            if active >= max_slots - 1:
+                return 2  # Near capacity — minimal parallelism
+        except Exception:
+            pass
         return 4
 
     cpu = os.cpu_count() or 4

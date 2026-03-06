@@ -14211,6 +14211,15 @@ def main():
     _watchdog_thread.start()
     logger.info(f"[Watchdog] Started event loop watchdog (grace={300}s, interval={30}s, max_failures={5})")
 
+    # Mar 2026: Start ProcessWatchdog on coordinator to kill runaway subprocess trees.
+    if os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() in ("true", "1", "yes"):
+        try:
+            from app.utils.coordinator_governor import ProcessWatchdog
+            _proc_watchdog = ProcessWatchdog(max_processes=60)
+            _proc_watchdog.start()
+        except Exception as _wd_err:
+            logger.warning(f"[P2P] Failed to start ProcessWatchdog: {_wd_err}")
+
     # Run with exception logging
     try:
         logger.info(f"Starting P2P orchestrator main loop: {args.node_id}")

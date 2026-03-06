@@ -332,6 +332,19 @@ class MemoryPressureController(HandlerBase):
             "Taking aggressive action"
         )
 
+        # Mar 2026: Log governor status for observability during memory crises
+        try:
+            from app.utils.coordinator_governor import get_governor
+            gov_status = get_governor().get_status()
+            logger.error(
+                f"[MemoryPressure] Governor status: {gov_status.get('active_slots', '?')}/"
+                f"{gov_status.get('max_slots', '?')} slots, "
+                f"est_ram={gov_status.get('estimated_ram_gb', '?')}GB, "
+                f"descendants={gov_status.get('descendant_processes', '?')}"
+            )
+        except Exception:
+            pass
+
         # Ensure selfplay is paused
         await self._pause_selfplay()
 

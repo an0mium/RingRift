@@ -61,6 +61,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -267,6 +268,7 @@ class CoordinatorGovernor:
         2. Total concurrent heavy ops not exceeded
         3. Estimated total RAM within budget
         4. Actual free RAM above minimum threshold
+        5. Descendant process count below hard cap
         """
         if estimated_ram_gb is None:
             estimated_ram_gb = _ESTIMATED_RAM.get(operation, 2.0)
@@ -338,6 +340,21 @@ class CoordinatorGovernor:
                     f"[Governor] DENIED {operation.value}: "
                     f"free RAM {free_ram_gb:.1f}GB "
                     f"< minimum {self.budget.min_free_ram_gb:.0f}GB"
+                )
+                return None
+
+            # Check 5: Descendant process count
+            descendant_count = _count_descendant_processes()
+            max_descendants = (
+                _COORDINATOR_MAX_DESCENDANTS
+                if self.budget.max_training == 0  # coordinator
+                else _WORKER_MAX_DESCENDANTS
+            )
+            if descendant_count is not None and descendant_count >= max_descendants:
+                conn.close()
+                logger.info(
+                    f"[Governor] DENIED {operation.value}: "
+                    f"descendant processes {descendant_count} >= limit {max_descendants}"
                 )
                 return None
 
@@ -457,6 +474,7 @@ class CoordinatorGovernor:
                 "estimated_ram_gb": round(total_ram, 1),
                 "max_ram_gb": self.budget.max_heavy_ram_gb,
                 "free_ram_gb": round(_get_free_ram_gb() or 0, 1),
+                "descendant_processes": _count_descendant_processes(),
                 "by_type": by_type,
                 "active": active,
             }
@@ -497,6 +515,122 @@ def _get_free_ram_gb() -> float | None:
         return mem.available / (1024**3)
     except ImportError:
         return None
+
+
+def _count_descendant_processes() -> int | None:
+    """Count all descendant processes of the current process.
+
+    Returns None if psutil is unavailable.
+    """
+    try:
+        import psutil
+
+        proc = psutil.Process()
+        return len(proc.children(recursive=True))
+    except (ImportError, psutil.Error):
+        return None
+
+
+# Hard limits on descendant process count
+_COORDINATOR_MAX_DESCENDANTS = 60
+_WORKER_MAX_DESCENDANTS = 200
+
+
+class ProcessWatchdog:
+    """Daemon thread that kills excess descendant processes to prevent kernel panics.
+
+    Checks descendant process count every `check_interval` seconds. If count
+    exceeds `max_processes`, kills the newest excess processes via SIGTERM.
+    Does nothing if psutil is unavailable.
+
+    Usage:
+        watchdog = ProcessWatchdog(max_processes=60)
+        watchdog.start()  # Runs as daemon thread, dies with parent
+    """
+
+    def __init__(
+        self,
+        max_processes: int = _COORDINATOR_MAX_DESCENDANTS,
+        check_interval: float = 10.0,
+    ):
+        self.max_processes = max_processes
+        self.check_interval = check_interval
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        """Start the watchdog daemon thread."""
+        import threading
+
+        self._thread = threading.Thread(
+            target=self._run,
+            daemon=True,
+            name="ProcessWatchdog",
+        )
+        self._thread.start()
+        logger.info(
+            f"[ProcessWatchdog] Started (max_processes={self.max_processes}, "
+            f"interval={self.check_interval}s)"
+        )
+
+    def _run(self) -> None:
+        """Main watchdog loop."""
+        try:
+            import psutil
+        except ImportError:
+            logger.warning("[ProcessWatchdog] psutil unavailable, watchdog disabled")
+            return
+
+        while True:
+            try:
+                time.sleep(self.check_interval)
+                self._check_and_kill(psutil)
+            except Exception as e:
+                logger.warning(f"[ProcessWatchdog] Error in check cycle: {e}")
+
+    def _check_and_kill(self, psutil_mod: Any) -> None:
+        """Check descendant count and kill excess processes."""
+        try:
+            proc = psutil_mod.Process()
+            children = proc.children(recursive=True)
+            count = len(children)
+
+            if count <= self.max_processes:
+                return
+
+            excess = count - self.max_processes
+            # Sort by creation time descending (newest first) to kill newest
+            children_with_time = []
+            for child in children:
+                try:
+                    children_with_time.append((child.create_time(), child))
+                except (psutil_mod.NoSuchProcess, psutil_mod.AccessDenied):
+                    continue
+
+            children_with_time.sort(reverse=True)
+
+            killed = 0
+            for _ctime, child in children_with_time[:excess]:
+                try:
+                    child_name = child.name()
+                    child_pid = child.pid
+                    child.terminate()  # SIGTERM
+                    killed += 1
+                    logger.critical(
+                        f"[ProcessWatchdog] KILLED excess process: "
+                        f"pid={child_pid} name={child_name} "
+                        f"(descendants={count}/{self.max_processes})"
+                    )
+                except (psutil_mod.NoSuchProcess, psutil_mod.AccessDenied):
+                    continue
+
+            if killed:
+                logger.critical(
+                    f"[ProcessWatchdog] Killed {killed}/{excess} excess processes "
+                    f"(total descendants: {count} > limit {self.max_processes})"
+                )
+
+        except psutil_mod.NoSuchProcess:
+            pass  # Parent process gone
 
 
 # Singleton

@@ -117,6 +117,23 @@ class TournamentManager:
             logger.warning("TournamentManager: No orchestrator reference")
             return None
 
+        # Governor gate: prevent tournament matches from overloading coordinator
+        _governor_slot = None
+        try:
+            from app.utils.coordinator_governor import get_governor, OperationType
+            _governor_slot = get_governor().try_acquire(
+                OperationType.TOURNAMENT,
+                description=f"tournament:{job_id}",
+            )
+            if _governor_slot is None:
+                logger.info(
+                    f"TournamentManager: Governor denied match {job_id}: "
+                    "system at capacity, skipping"
+                )
+                return None
+        except Exception as _gov_err:
+            logger.debug(f"TournamentManager: Governor unavailable: {_gov_err}")
+
         try:
             import json as json_module
 
@@ -285,6 +302,13 @@ print(json.dumps(result))
             logger.info(f"Tournament match error: {e}")
             self._stats.matches_errored += 1
             return None
+        finally:
+            if _governor_slot is not None:
+                try:
+                    from app.utils.coordinator_governor import get_governor
+                    get_governor().release(_governor_slot)
+                except Exception:
+                    pass
 
     async def _report_match_result(self, job_id: str, result: dict) -> None:
         """Report match result back to coordinator."""
