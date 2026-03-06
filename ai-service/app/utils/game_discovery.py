@@ -903,9 +903,43 @@ def count_games_for_config(
     return GameDiscovery(root_path).get_total_games(board_type, num_players)
 
 
+# Mar 2026: Module-level game count cache with TTL.
+# Game count queries scan multiple SQLite databases and can take 3-120s.
+# Hot-path callers (status endpoint, queue populator, selfplay scheduler)
+# can all read from this cache instead of re-scanning every time.
+import threading as _threading
+
+_game_counts_cache: dict[str, int] = {}
+_game_counts_cache_time: float = 0.0
+_game_counts_cache_lock = _threading.Lock()
+_GAME_COUNTS_CACHE_TTL = 60.0  # seconds
+
+_cluster_counts_cache: dict[str, int] = {}
+_cluster_counts_cache_time: float = 0.0
+_cluster_counts_cache_lock = _threading.Lock()
+_CLUSTER_COUNTS_CACHE_TTL = 60.0  # seconds
+
+
 def get_game_counts_summary(root_path: Path | str | None = None) -> dict[str, int]:
-    """Get a summary of game counts by configuration."""
-    return GameDiscovery(root_path).count_games_by_config().by_config
+    """Get a summary of game counts by configuration.
+
+    Mar 2026: Results are cached for 60s to avoid repeated full DB scans.
+    """
+    global _game_counts_cache, _game_counts_cache_time
+
+    now = time.time()
+    if now - _game_counts_cache_time < _GAME_COUNTS_CACHE_TTL and _game_counts_cache:
+        return dict(_game_counts_cache)
+
+    with _game_counts_cache_lock:
+        # Double-check after acquiring lock
+        if now - _game_counts_cache_time < _GAME_COUNTS_CACHE_TTL and _game_counts_cache:
+            return dict(_game_counts_cache)
+
+        result = GameDiscovery(root_path).count_games_by_config().by_config
+        _game_counts_cache = dict(result)
+        _game_counts_cache_time = time.time()
+        return dict(result)
 
 
 def get_game_counts_cluster_aware(root_path: Path | str | None = None) -> dict[str, int]:
@@ -914,12 +948,33 @@ def get_game_counts_cluster_aware(root_path: Path | str | None = None) -> dict[s
     January 2026: Use this for health checks and status reporting on coordinator
     nodes that don't have local canonical databases.
 
+    Mar 2026: Results are cached for 60s to avoid repeated expensive lookups.
+
     Tries UnifiedDataRegistry first (aggregates cluster + local + OWC + S3),
     falls back to local GameDiscovery if cluster data unavailable.
 
     Returns:
         Dict mapping config_key (e.g., 'hex8_2p') to total game count
     """
+    global _cluster_counts_cache, _cluster_counts_cache_time
+
+    now = time.time()
+    if now - _cluster_counts_cache_time < _CLUSTER_COUNTS_CACHE_TTL and _cluster_counts_cache:
+        return dict(_cluster_counts_cache)
+
+    with _cluster_counts_cache_lock:
+        # Double-check after acquiring lock
+        if now - _cluster_counts_cache_time < _CLUSTER_COUNTS_CACHE_TTL and _cluster_counts_cache:
+            return dict(_cluster_counts_cache)
+
+        result = _compute_cluster_aware_counts(root_path)
+        _cluster_counts_cache = dict(result)
+        _cluster_counts_cache_time = time.time()
+        return dict(result)
+
+
+def _compute_cluster_aware_counts(root_path: Path | str | None = None) -> dict[str, int]:
+    """Internal: compute cluster-aware counts without caching."""
     # Try cluster-wide counts first
     try:
         from app.distributed.data_catalog import get_data_registry

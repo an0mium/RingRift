@@ -548,9 +548,11 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
     def _is_unknown_node(self, node_id: str) -> bool:
         """Check if a node_id is not in distributed_hosts.yaml.
 
-        Mar 2026: Prevents auto-scaled nodes (e.g. lambda-gh200-auto) from
-        claiming work and failing 100%, burning through max_attempts.
-        Only rejects nodes that are BOTH: not in YAML AND not a known peer.
+        Mar 2026: Prevents nodes not configured in YAML from claiming work.
+        Being a P2P peer is NOT sufficient — the node must have an explicit
+        YAML entry with capabilities (training_enabled, selfplay_enabled, etc.)
+        for work dispatch to succeed. Without YAML config, nodes lack NPZ paths,
+        model directories, and other critical settings needed for work execution.
         """
         # Ensure YAML is loaded (lazy-loads on first call)
         self._is_node_disabled_in_yaml(node_id, "_dummy")
@@ -563,16 +565,9 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
         # Allow nodes that are in the YAML config
         if node_id in self.__class__._yaml_known_nodes:
             return False
-        # Allow nodes that are known peers (connected to P2P mesh).
-        # Only check if we have an orchestrator with peer data.
-        orchestrator = getattr(self, "_orchestrator", None)
-        if orchestrator is not None:
-            node_info = self._get_node_info(node_id)
-            if node_info is not None:
-                return False
-        else:
-            # No orchestrator attached (handler not fully wired) — allow
-            return False
+        # Node is not in YAML — reject regardless of P2P connection status.
+        # P2P peers without YAML config lack NPZ paths and capabilities,
+        # causing 100% work failures.
         return True
 
     def _insufficient_capacity_response(self, reason: str) -> web.Response:
