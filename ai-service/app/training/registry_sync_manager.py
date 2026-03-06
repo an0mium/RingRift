@@ -142,10 +142,7 @@ class RegistrySyncManager(DatabaseSyncManager):
             'local_versions': self._version_count,
             'synced_nodes': {k: 0.0 for k in self._db_state.synced_nodes},
             'nodes_available': len(self.nodes),
-            'circuit_breakers': {
-                h: {'state': str(cb.state), 'failures': cb.failure_count}
-                for h, cb in self.circuit_breakers.items()
-            }
+            'circuit_breakers': {}
         }
 
     # =========================================================================

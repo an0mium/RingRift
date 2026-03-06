@@ -222,6 +222,20 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
+def _lazy(name: str) -> bool:
+    """Resolve a lazy attribute from within this module.
+
+    Module-level __getattr__ only fires for external access. Internal code
+    must use this helper instead of bare HAS_SYNC_LOCK etc.
+    """
+    if name not in _feature_cache:
+        if name in _LAZY_ATTRS:
+            _feature_cache[name] = _LAZY_ATTRS[name]()
+        else:
+            return False
+    return _feature_cache[name]
+
+
 # Wrapper functions for backwards compatibility
 def acquire_sync_lock(host: str, timeout: float = 120.0) -> bool:
     return acquire_sync_lock_safe(host, timeout)
@@ -1343,13 +1357,13 @@ class UnifiedDataSyncService:
         host: HostConfig,
     ) -> None:
         """Release bandwidth and sync lock resources."""
-        if bandwidth_allocated and HAS_BANDWIDTH_MANAGER:
+        if bandwidth_allocated and _lazy("HAS_BANDWIDTH_MANAGER"):
             try:
                 release_bandwidth(host.ssh_host)
             except Exception as e:
                 logger.debug(f"{host.name}: bandwidth release error: {e}")
 
-        if sync_lock_acquired and HAS_SYNC_LOCK:
+        if sync_lock_acquired and _lazy("HAS_SYNC_LOCK"):
             try:
                 release_sync_lock(host.name)
             except Exception as e:
@@ -1657,7 +1671,7 @@ class UnifiedDataSyncService:
         sync_lock_acquired = False
         bandwidth_allocated = False
 
-        if HAS_SYNC_LOCK:
+        if _lazy("HAS_SYNC_LOCK"):
             try:
                 sync_lock_acquired = acquire_sync_lock(host.name, timeout=60.0)
                 if not sync_lock_acquired:
@@ -1666,7 +1680,7 @@ class UnifiedDataSyncService:
             except Exception as e:
                 logger.debug(f"{host.name}: sync lock error: {e}")
 
-        if HAS_BANDWIDTH_MANAGER:
+        if _lazy("HAS_BANDWIDTH_MANAGER"):
             try:
                 bandwidth_allocated = request_bandwidth(
                     host.ssh_host, estimated_mb=100, priority=TransferPriority.NORMAL, timeout=30.0
@@ -1756,7 +1770,7 @@ class UnifiedDataSyncService:
                     context="unified_data_sync",
                 )
 
-            if HAS_CROSS_PROCESS_EVENTS and games_synced > 0:
+            if _lazy("HAS_CROSS_PROCESS_EVENTS") and games_synced > 0:
                 publish_cross_process_event(
                     event_type="new_games",
                     payload={"host": host.name, "new_games": games_synced},
@@ -1968,7 +1982,7 @@ class UnifiedDataSyncService:
 
         # Acquire orchestrator role
         has_role = False
-        if HAS_ORCHESTRATOR_REGISTRY:
+        if _lazy("HAS_ORCHESTRATOR_REGISTRY"):
             try:
                 registry = get_registry()
                 node_id = socket.gethostname()
@@ -2034,7 +2048,7 @@ class UnifiedDataSyncService:
                                 logger.warning(f"Replication error: {e}")
 
                     # Heartbeat
-                    if HAS_ORCHESTRATOR_REGISTRY and has_role and (time.time() - last_heartbeat) >= heartbeat_interval:
+                    if _lazy("HAS_ORCHESTRATOR_REGISTRY") and has_role and (time.time() - last_heartbeat) >= heartbeat_interval:
                         try:
                             registry.heartbeat(OrchestratorRole.DATA_SYNC)
                             last_heartbeat = time.time()
@@ -2055,7 +2069,7 @@ class UnifiedDataSyncService:
                     pass
 
         finally:
-            if HAS_ORCHESTRATOR_REGISTRY and has_role:
+            if _lazy("HAS_ORCHESTRATOR_REGISTRY") and has_role:
                 try:
                     registry.release(OrchestratorRole.DATA_SYNC)
                     logger.info("Released DATA_SYNC role")

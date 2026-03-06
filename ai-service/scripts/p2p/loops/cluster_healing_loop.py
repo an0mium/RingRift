@@ -423,18 +423,40 @@ class ClusterHealingLoop(BaseLoop):
     async def _restart_p2p(
         self, host: HostInfo, bootstrap_peers: list[str]
     ) -> bool:
-        """Restart P2P on a remote node with correct bootstrap peers."""
+        """Restart P2P on a remote node with correct bootstrap peers.
+
+        Mar 2026: Detects systemd/supervisor to avoid duplicate processes.
+        """
         peers_arg = ",".join(bootstrap_peers)
 
-        # Build restart command
+        # Detect management mode and build appropriate restart command
         restart_cmd = f"""
-pkill -9 -f p2p_orchestrator || true
-sleep 2
-cd ~/ringrift/ai-service && \\
-nohup python3 scripts/p2p_orchestrator.py --peers "{peers_arg}" \\
-  > logs/p2p_orchestrator.log 2>&1 &
-sleep 3
-echo "P2P restarted"
+SYSTEMD_STATUS=$(systemctl is-enabled ringrift-p2p.service 2>/dev/null || echo disabled)
+HAS_SUPERVISOR=$(pgrep -f p2p_supervisor.py 2>/dev/null && echo yes || echo no)
+
+if [ "$SYSTEMD_STATUS" = "enabled" ] || [ "$SYSTEMD_STATUS" = "static" ]; then
+    sudo systemctl restart ringrift-p2p.service
+    sleep 5
+    echo "P2P restarted (systemd)"
+elif [ "$HAS_SUPERVISOR" = "yes" ]; then
+    pkill -f p2p_supervisor.py 2>/dev/null || true
+    sleep 1
+    pkill -f p2p_orchestrator 2>/dev/null || true
+    sleep 2
+    cd ~/ringrift/ai-service && \\
+    PYTHONPATH=. nohup python3 scripts/p2p_supervisor.py \\
+      </dev/null > /tmp/p2p_supervisor.log 2>&1 &
+    sleep 5
+    echo "P2P restarted (supervisor)"
+else
+    pkill -9 -f p2p_orchestrator || true
+    sleep 2
+    cd ~/ringrift/ai-service && \\
+    PYTHONPATH=. nohup python3 scripts/p2p_orchestrator.py --peers "{peers_arg}" \\
+      > logs/p2p_orchestrator.log 2>&1 &
+    sleep 3
+    echo "P2P restarted (bare)"
+fi
 """
         ssh_cmd = self._build_ssh_command(host, restart_cmd)
 

@@ -465,6 +465,97 @@ class QuorumSafeUpdateCoordinator:
         result = await client.run_async("pgrep -f p2p_orchestrator", timeout=10)
         return result.returncode == 0 and bool(result.stdout.strip())
 
+    async def _detect_p2p_manager(self, client: SSHClient, node_name: str) -> str:
+        """Detect how P2P is managed: 'systemd', 'supervisor', or 'bare'."""
+        systemd_result = await client.run_async(
+            "systemctl is-enabled ringrift-p2p.service 2>/dev/null || echo disabled",
+            timeout=10,
+        )
+        status = systemd_result.stdout.strip() if systemd_result.returncode == 0 else "disabled"
+        if status in ("enabled", "static"):
+            return "systemd"
+
+        sup_result = await client.run_async("pgrep -f p2p_supervisor.py", timeout=10)
+        if sup_result.returncode == 0 and sup_result.stdout.strip():
+            return "supervisor"
+
+        return "bare"
+
+    async def _restart_p2p_process(self, client: SSHClient, node: NodeConfig) -> bool:
+        """Restart P2P process, respecting systemd/supervisor management.
+
+        Mar 2026: Root-cause fix for duplicate P2P processes. Previously,
+        we always killed the orchestrator and started a new one via nohup.
+        But if systemd or p2p_supervisor.py manages the process, they
+        auto-restart on kill, creating duplicate orchestrators.
+
+        Returns True if P2P is running after restart.
+        """
+        manager = await self._detect_p2p_manager(client, node.name)
+
+        if manager == "systemd":
+            result = await client.run_async(
+                "sudo systemctl restart ringrift-p2p.service", timeout=30
+            )
+            if result.returncode != 0:
+                logger.warning(f"[{node.name}] systemctl restart failed: {result.stderr}")
+            await asyncio.sleep(5)
+            return await self._check_p2p_running(client, node.name)
+
+        elif manager == "supervisor":
+            await client.run_async(
+                "pkill -f p2p_supervisor.py 2>/dev/null || true; "
+                "sleep 1; "
+                "pkill -f p2p_orchestrator 2>/dev/null || true",
+                timeout=15,
+            )
+            await asyncio.sleep(2)
+            start_cmd = (
+                f"cd {node.ringrift_path} && {node.venv_activate} && "
+                f"PYTHONPATH=. nohup python scripts/p2p_supervisor.py "
+                f"--node-id {node.name} "
+                f"</dev/null > /tmp/p2p_supervisor.log 2>&1 &"
+            )
+            await client.run_async(start_cmd, timeout=15)
+            await asyncio.sleep(5)
+            return await self._check_p2p_running(client, node.name)
+
+        else:
+            # Bare mode: kill and start orchestrator directly
+            await client.run_async(
+                "pkill -f p2p_orchestrator 2>/dev/null || true; "
+                "screen -X -S p2p quit 2>/dev/null || true; "
+                "screen -wipe 2>/dev/null || true",
+                timeout=15,
+            )
+            await asyncio.sleep(2)
+
+            p2p_args = [
+                f"--node-id {node.name}",
+                "--port 8770",
+                f"--ringrift-path {node.ringrift_path}",
+                "--kill-duplicates",
+            ]
+            if node.tailscale_ip:
+                p2p_args.append(f"--advertise-host {node.tailscale_ip}")
+
+            # Use Tailscale IPs from config for peer addresses
+            from scripts.update_all_nodes import get_p2p_voter_peers
+            known_peers = get_p2p_voter_peers()
+            if known_peers:
+                p2p_args.append(f"--peers {','.join(known_peers)}")
+
+            start_cmd = (
+                f"cd {node.ringrift_path} && {node.venv_activate} && "
+                f"mkdir -p logs && "
+                f"PYTHONPATH=. RINGRIFT_MEMBERSHIP_MODE=http "
+                f"nohup python scripts/p2p_orchestrator.py {' '.join(p2p_args)} "
+                f"> logs/p2p.log 2>&1 &"
+            )
+            await client.run_async(start_cmd, timeout=15)
+            await asyncio.sleep(3)
+            return await self._check_p2p_running(client, node.name)
+
     async def _sync_config_files(
         self,
         client: SSHClient,
@@ -628,52 +719,9 @@ class QuorumSafeUpdateCoordinator:
                     return (node.name, True,
                             f"Updated to {current_commit}{config_sync_msg}, P2P restart deferred (self-node)")
 
-                # Kill existing P2P and clean up screen sessions
-                # Jan 2026: Added screen cleanup to prevent dead session accumulation
-                await client.run_async(
-                    "pkill -f p2p_orchestrator 2>/dev/null || true; "
-                    "screen -X -S p2p quit 2>/dev/null || true; "
-                    "screen -wipe 2>/dev/null || true",
-                    timeout=15,
-                )
-                await asyncio.sleep(2)
-
-                # Build restart command
-                p2p_args = [
-                    f"--node-id {node.name}",
-                    "--port 8770",
-                    f"--ringrift-path {node.ringrift_path}",
-                    "--kill-duplicates",
-                ]
-
-                if node.tailscale_ip:
-                    p2p_args.append(f"--advertise-host {node.tailscale_ip}")
-
-                if node.nat_blocked:
-                    relay_peers = ["vultr-a100-20gb:8770", "nebius-h100-3:8770"]
-                    p2p_args.append(f"--relay-peers {','.join(relay_peers)}")
-
-                known_peers = [
-                    "vultr-a100-20gb:8770",
-                    "nebius-h100-3:8770",
-                    "hetzner-cpu1:8770",
-                    "nebius-backbone-1:8770",
-                ]
-                p2p_args.append(f"--peers {','.join(known_peers)}")
-
-                start_cmd = (
-                    f"cd {node.ringrift_path} && {node.venv_activate} && "
-                    f"mkdir -p logs && "
-                    f"nohup python scripts/p2p_orchestrator.py {' '.join(p2p_args)} "
-                    f"> logs/p2p.log 2>&1 &"
-                )
-                await client.run_async(start_cmd, timeout=15)
-                await asyncio.sleep(3)
-
-                if await self._check_p2p_running(client, node.name):
-                    return (node.name, True, f"Updated to {current_commit}{config_sync_msg}, P2P restarted")
-                else:
-                    return (node.name, True, f"Updated to {current_commit}{config_sync_msg}, P2P restart failed")
+                running = await self._restart_p2p_process(client, node)
+                status = "P2P restarted" if running else "P2P restart failed"
+                return (node.name, True, f"Updated to {current_commit}{config_sync_msg}, {status}")
 
             return (node.name, True, f"Updated to {current_commit}{config_sync_msg}")
 
@@ -811,16 +859,7 @@ class QuorumSafeUpdateCoordinator:
 
                 # Restart P2P if it was running
                 if checkpoint.p2p_was_running.get(node.name):
-                    await client.run_async("pkill -f p2p_orchestrator", timeout=10)
-                    await asyncio.sleep(2)
-                    # Simplified restart
-                    await client.run_async(
-                        f"cd {node.ringrift_path} && {node.venv_activate} && "
-                        f"nohup python scripts/p2p_orchestrator.py "
-                        f"--node-id {node.name} --port 8770 "
-                        f"> logs/p2p.log 2>&1 &",
-                        timeout=15,
-                    )
+                    await self._restart_p2p_process(client, node)
 
             except Exception as e:
                 logger.error(f"[{node.name}] Rollback failed: {e}")
@@ -967,37 +1006,8 @@ class QuorumSafeUpdateCoordinator:
             logger.info(f"\nPhase 4: Restarting P2P on self-node ({node.name})...")
             try:
                 client = await self._create_ssh_client(node)
-                await client.run_async(
-                    "pkill -f p2p_orchestrator 2>/dev/null || true; "
-                    "screen -X -S p2p quit 2>/dev/null || true; "
-                    "screen -wipe 2>/dev/null || true",
-                    timeout=15,
-                )
-                await asyncio.sleep(2)
-                p2p_args = [
-                    f"--node-id {node.name}",
-                    "--port 8770",
-                    f"--ringrift-path {node.ringrift_path}",
-                    "--kill-duplicates",
-                ]
-                if node.tailscale_ip:
-                    p2p_args.append(f"--advertise-host {node.tailscale_ip}")
-                known_peers = [
-                    "vultr-a100-20gb:8770",
-                    "nebius-h100-3:8770",
-                    "hetzner-cpu1:8770",
-                    "nebius-backbone-1:8770",
-                ]
-                p2p_args.append(f"--peers {','.join(known_peers)}")
-                start_cmd = (
-                    f"cd {node.ringrift_path} && {node.venv_activate} && "
-                    f"mkdir -p logs && "
-                    f"nohup python scripts/p2p_orchestrator.py {' '.join(p2p_args)} "
-                    f"> logs/p2p.log 2>&1 &"
-                )
-                await client.run_async(start_cmd, timeout=15)
-                await asyncio.sleep(5)
-                if await self._check_p2p_running(client, node.name):
+                running = await self._restart_p2p_process(client, node)
+                if running:
                     logger.info(f"  [{node.name}] P2P restarted successfully")
                 else:
                     logger.warning(f"  [{node.name}] P2P restart may have failed")

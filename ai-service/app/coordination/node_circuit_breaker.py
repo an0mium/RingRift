@@ -203,7 +203,7 @@ class NodeCircuitConfig:
     )
 
     # Successes needed in half-open to close circuit
-    success_threshold: int = CircuitBreakerDefaults.HALF_OPEN_MAX_CALLS
+    success_threshold: int = 1
 
     # Enable event emission on state changes
     emit_events: bool = True

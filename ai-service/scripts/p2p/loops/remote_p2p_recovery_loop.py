@@ -868,54 +868,81 @@ class RemoteP2PRecoveryLoop(BaseLoop):
                 banner_timeout=self.config.ssh_timeout_seconds,
             )
 
-            # First kill any existing P2P process and clean up screen sessions
-            # Jan 2026: Added screen cleanup to prevent dead session accumulation
-            client.exec_command(
-                "pkill -f p2p_orchestrator 2>/dev/null || true; "
-                "screen -X -S p2p quit 2>/dev/null || true; "
-                "screen -wipe 2>/dev/null || true"
+            # Mar 2026: Detect P2P management mode to avoid duplicate processes.
+            # systemd/supervisor auto-restart on kill, so we must use the right
+            # restart mechanism.
+            _, systemd_out, _ = client.exec_command(
+                "systemctl is-enabled ringrift-p2p.service 2>/dev/null || echo disabled"
             )
-            time.sleep(2)  # Allow time for cleanup
+            systemd_status = systemd_out.read().decode().strip()
 
-            # Pull latest code and start P2P
-            # Use python3 explicitly since 'python' may not exist on all nodes
-            # January 2026: Always include --advertise-host for Tailscale nodes
-            tailscale_ip = node_info.get("tailscale_ip", "")
-            advertise_arg = f"--advertise-host {tailscale_ip} " if tailscale_ip else ""
+            _, sup_out, _ = client.exec_command("pgrep -f p2p_supervisor.py")
+            has_supervisor = bool(sup_out.read().decode().strip())
 
-            # January 13, 2026: Relay failover for NAT-blocked nodes
-            # Check relay health and use first available healthy relay
-            relay_arg = ""
-            if node_info.get("nat_blocked") or node_info.get("force_relay_mode"):
-                healthy_relays = self._get_healthy_relays_for_node(node_info)
-                configured_primary = node_info.get("relay_primary", "")
+            if systemd_status in ("enabled", "static"):
+                logger.info(f"[RemoteP2PRecovery] {node_id}: restarting via systemd")
+                client.exec_command("sudo systemctl restart ringrift-p2p.service")
+                time.sleep(5)
 
-                if healthy_relays:
-                    chosen_relay = healthy_relays[0]
-                    if chosen_relay != configured_primary:
-                        logger.info(
-                            f"[RemoteP2PRecovery] Relay FAILOVER for {node_id}: "
-                            f"{configured_primary} -> {chosen_relay}"
-                        )
-                    relay_arg = f"--relay-peers {chosen_relay} "
-                else:
-                    # No healthy relays - try with configured primary anyway
-                    if configured_primary:
-                        logger.warning(
-                            f"[RemoteP2PRecovery] No healthy relays for {node_id}, "
-                            f"using configured primary: {configured_primary}"
-                        )
+            elif has_supervisor:
+                logger.info(f"[RemoteP2PRecovery] {node_id}: restarting via supervisor")
+                client.exec_command(
+                    "pkill -f p2p_supervisor.py 2>/dev/null || true; "
+                    "sleep 1; "
+                    "pkill -f p2p_orchestrator 2>/dev/null || true"
+                )
+                time.sleep(2)
+                sup_cmd = (
+                    f"cd {ringrift_path} && "
+                    f"git pull origin main 2>/dev/null || true && "
+                    f"PYTHONPATH=. nohup python3 scripts/p2p_supervisor.py "
+                    f"--node-id {node_id} "
+                    f"</dev/null > /tmp/p2p_supervisor.log 2>&1 &"
+                )
+                stdin, stdout, stderr = client.exec_command(sup_cmd)
+                stdout.channel.recv_exit_status()
+                time.sleep(5)
+
+            else:
+                logger.info(f"[RemoteP2PRecovery] {node_id}: restarting bare orchestrator")
+                client.exec_command(
+                    "pkill -f p2p_orchestrator 2>/dev/null || true; "
+                    "screen -X -S p2p quit 2>/dev/null || true; "
+                    "screen -wipe 2>/dev/null || true"
+                )
+                time.sleep(2)
+
+                # Pull latest code and start P2P
+                tailscale_ip = node_info.get("tailscale_ip", "")
+                advertise_arg = f"--advertise-host {tailscale_ip} " if tailscale_ip else ""
+
+                # Relay failover for NAT-blocked nodes
+                relay_arg = ""
+                if node_info.get("nat_blocked") or node_info.get("force_relay_mode"):
+                    healthy_relays = self._get_healthy_relays_for_node(node_info)
+                    configured_primary = node_info.get("relay_primary", "")
+
+                    if healthy_relays:
+                        chosen_relay = healthy_relays[0]
+                        if chosen_relay != configured_primary:
+                            logger.info(
+                                f"[RemoteP2PRecovery] Relay FAILOVER for {node_id}: "
+                                f"{configured_primary} -> {chosen_relay}"
+                            )
+                        relay_arg = f"--relay-peers {chosen_relay} "
+                    elif configured_primary:
                         relay_arg = f"--relay-peers {configured_primary} "
 
-            cmd = f"""cd {ringrift_path} && \
-git pull origin main 2>/dev/null || true && \
-PYTHONPATH=. nohup python3 scripts/p2p_orchestrator.py --node-id {node_id} --port 8770 {advertise_arg}{relay_arg}> logs/p2p.log 2>&1 &"""
-
-            stdin, stdout, stderr = client.exec_command(cmd)
-            stdout.channel.recv_exit_status()  # Wait for completion
-
-            # Wait for process to start
-            time.sleep(3)  # Sync function running in thread - use time.sleep
+                cmd = (
+                    f"cd {ringrift_path} && "
+                    f"git pull origin main 2>/dev/null || true && "
+                    f"PYTHONPATH=. nohup python3 scripts/p2p_orchestrator.py "
+                    f"--node-id {node_id} --port 8770 {advertise_arg}{relay_arg}"
+                    f"> logs/p2p.log 2>&1 &"
+                )
+                stdin, stdout, stderr = client.exec_command(cmd)
+                stdout.channel.recv_exit_status()
+                time.sleep(3)
 
             # Verify it started
             _, stdout2, _ = client.exec_command("pgrep -f p2p_orchestrator")

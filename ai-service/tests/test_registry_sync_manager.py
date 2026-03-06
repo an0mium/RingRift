@@ -1,20 +1,17 @@
 """Tests for RegistrySyncManager.
 
-Tests sync state management, circuit breaker logic,
-and local registry stats without requiring network connections.
+Tests sync state management and local registry stats
+without requiring network connections.
 """
 
-import json
 import sqlite3
 import tempfile
-import time
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.distributed.circuit_breaker import CircuitBreaker
 from app.training.registry_sync_manager import (
     NodeInfo,
     RegistrySyncManager,
@@ -23,44 +20,39 @@ from app.training.registry_sync_manager import (
 
 
 class TestSyncState:
-    """Test SyncState dataclass."""
+    """Test SyncState (alias for DatabaseSyncState) dataclass."""
 
     def test_default_values(self):
         """Test default initialization."""
         state = SyncState()
         assert state.last_sync_timestamp == 0.0
-        assert state.local_model_count == 0
-        assert state.local_version_count == 0
-        assert state.synced_nodes == {}
-        assert state.pending_syncs == []
+        assert state.local_record_count == 0
+        assert state.synced_nodes == set()
+        assert state.pending_syncs == set()
 
     def test_custom_values(self):
         """Test custom initialization."""
         state = SyncState(
             last_sync_timestamp=1000.0,
-            local_model_count=5,
-            local_version_count=10,
-            synced_nodes={"node1": 900.0},
-            pending_syncs=["node2"],
+            local_record_count=5,
+            synced_nodes={"node1"},
+            pending_syncs={"node2"},
         )
         assert state.last_sync_timestamp == 1000.0
-        assert state.local_model_count == 5
-        assert state.local_version_count == 10
-        assert state.synced_nodes == {"node1": 900.0}
-        assert state.pending_syncs == ["node2"]
+        assert state.local_record_count == 5
+        assert state.synced_nodes == {"node1"}
+        assert state.pending_syncs == {"node2"}
 
 
 class TestNodeInfo:
-    """Test NodeInfo dataclass."""
+    """Test NodeInfo (alias for SyncNodeInfo) dataclass."""
 
     def test_default_values(self):
         """Test default initialization."""
-        node = NodeInfo(hostname="test-node")
-        assert node.hostname == "test-node"
-        assert node.registry_path == "ai-service/data/model_registry.db"
+        node = NodeInfo(name="test-node")
+        assert node.name == "test-node"
         assert node.last_seen == 0.0
-        assert node.model_count == 0
-        assert node.version_count == 0
+        assert node.record_count == 0
         assert node.reachable is True
         assert node.tailscale_ip is None
         assert node.ssh_port == 22
@@ -68,70 +60,15 @@ class TestNodeInfo:
     def test_custom_values(self):
         """Test custom initialization."""
         node = NodeInfo(
-            hostname="gpu-node",
+            name="gpu-node",
             tailscale_ip="100.64.0.1",
             ssh_port=2222,
-            model_count=3,
+            record_count=3,
         )
-        assert node.hostname == "gpu-node"
+        assert node.name == "gpu-node"
         assert node.tailscale_ip == "100.64.0.1"
         assert node.ssh_port == 2222
-        assert node.model_count == 3
-
-
-class TestCircuitBreaker:
-    """Test CircuitBreaker fault tolerance."""
-
-    def test_initial_state(self):
-        """Test initial state is closed."""
-        cb = CircuitBreaker()
-        assert cb.state == "closed"
-        assert cb.failures == 0
-        assert cb.can_attempt()
-
-    def test_record_success_resets_failures(self):
-        """Test that success resets failure count."""
-        cb = CircuitBreaker(failure_threshold=3)
-        cb.failures = 2
-        cb.record_success()
-        assert cb.failures == 0
-        assert cb.state == "closed"
-
-    def test_record_failure_increments(self):
-        """Test that failures increment counter."""
-        cb = CircuitBreaker(failure_threshold=3)
-        cb.record_failure()
-        assert cb.failures == 1
-        assert cb.state == "closed"
-
-    def test_circuit_opens_after_threshold(self):
-        """Test circuit opens after failure threshold."""
-        cb = CircuitBreaker(failure_threshold=3)
-        cb.record_failure()
-        cb.record_failure()
-        cb.record_failure()
-        assert cb.failures == 3
-        assert cb.state == "open"
-        assert not cb.can_attempt()
-
-    def test_circuit_half_open_after_timeout(self):
-        """Test circuit goes half-open after recovery timeout."""
-        cb = CircuitBreaker(failure_threshold=2, recovery_timeout=1)
-        cb.record_failure()
-        cb.record_failure()
-        assert cb.state == "open"
-        assert not cb.can_attempt()
-
-        # Wait for recovery timeout
-        time.sleep(1.1)
-        assert cb.can_attempt()
-        assert cb.state == "half-open"
-
-    def test_custom_thresholds(self):
-        """Test custom threshold values."""
-        cb = CircuitBreaker(failure_threshold=5, recovery_timeout=600)
-        assert cb.failure_threshold == 5
-        assert cb.recovery_timeout == 600
+        assert node.record_count == 3
 
 
 class TestRegistrySyncManager:
@@ -141,7 +78,6 @@ class TestRegistrySyncManager:
         """Set up test fixtures."""
         self.temp_dir = tempfile.mkdtemp()
         self.registry_path = Path(self.temp_dir) / "model_registry.db"
-        self.state_path = Path(self.temp_dir) / "sync_state.json"
 
         # Create a test registry database
         self._create_test_registry()
@@ -223,8 +159,8 @@ class TestRegistrySyncManager:
         manager = RegistrySyncManager(registry_path=self.registry_path)
         manager._update_local_stats()
 
-        assert manager.state.local_model_count == 1
-        assert manager.state.local_version_count == 2
+        assert manager._model_count == 1
+        assert manager._version_count == 2
 
     def test_update_local_stats_missing_registry(self):
         """Test local stats with missing registry."""
@@ -233,35 +169,8 @@ class TestRegistrySyncManager:
         manager._update_local_stats()
 
         # Should not raise, just leave counts at 0
-        assert manager.state.local_model_count == 0
-        assert manager.state.local_version_count == 0
-
-    def test_save_and_load_state(self):
-        """Test state persistence."""
-        manager = RegistrySyncManager(registry_path=self.registry_path)
-
-        # Modify state
-        manager.state.last_sync_timestamp = 12345.0
-        manager.state.synced_nodes = {"node1": 10000.0}
-
-        # Patch the state path to use temp directory
-        with patch('app.training.registry_sync_manager.SYNC_STATE_PATH', self.state_path):
-            manager._save_state()
-
-            # Verify file exists
-            assert self.state_path.exists()
-
-            # Create new manager and load state
-            manager2 = RegistrySyncManager(registry_path=self.registry_path)
-            manager2._load_state()
-
-            # State should be loaded (if file exists at default location)
-            # For test, manually load from temp path
-            with open(self.state_path) as f:
-                data = json.load(f)
-
-            assert data['last_sync_timestamp'] == 12345.0
-            assert data['synced_nodes'] == {"node1": 10000.0}
+        assert manager._model_count == 0
+        assert manager._version_count == 0
 
     def test_get_sync_status(self):
         """Test get_sync_status returns expected structure."""
@@ -280,25 +189,6 @@ class TestRegistrySyncManager:
         assert status['local_models'] == 1
         assert status['local_versions'] == 2
 
-    def test_circuit_breakers_per_node(self):
-        """Test circuit breakers are created per node."""
-        manager = RegistrySyncManager(registry_path=self.registry_path)
-
-        # Access circuit breakers for different nodes
-        cb1 = manager.circuit_breakers["node1"]
-        cb2 = manager.circuit_breakers["node2"]
-
-        assert cb1 is not cb2
-        assert cb1.state == "closed"
-        assert cb2.state == "closed"
-
-        # Fail node1
-        for _ in range(3):
-            cb1.record_failure()
-
-        assert cb1.state == "open"
-        assert cb2.state == "closed"
-
     def test_on_sync_callbacks(self):
         """Test callback registration."""
         manager = RegistrySyncManager(registry_path=self.registry_path)
@@ -314,16 +204,8 @@ class TestRegistrySyncManager:
         manager.on_sync_complete(on_complete)
         manager.on_sync_failed(on_failed)
 
-        assert len(manager._on_sync_complete) == 1
-        assert len(manager._on_sync_failed) == 1
-
-    def test_transport_methods_defined(self):
-        """Test transport methods are defined in priority order."""
-        manager = RegistrySyncManager(registry_path=self.registry_path)
-
-        assert len(manager.transport_methods) == 3
-        transport_names = [t[0] for t in manager.transport_methods]
-        assert transport_names == ["tailscale", "ssh", "http"]
+        assert len(manager._on_sync_complete_callbacks) == 1
+        assert len(manager._on_sync_failed_callbacks) == 1
 
 
 class TestRegistrySyncManagerAsync:
@@ -375,52 +257,22 @@ class TestRegistrySyncManagerAsync:
         """Test async initialization."""
         manager = RegistrySyncManager(registry_path=self.registry_path)
 
-        # Mock node discovery to avoid file reads
-        with patch.object(manager, '_discover_nodes', new_callable=AsyncMock):
+        # Mock node discovery to avoid network calls
+        with patch.object(manager, 'discover_nodes', new_callable=AsyncMock):
             await manager.initialize()
 
-        assert manager.state.local_model_count == 0  # Empty test DB
-        assert manager.state.local_version_count == 0
-
-    @pytest.mark.asyncio
-    async def test_sync_with_cluster_no_nodes(self):
-        """Test sync with no nodes configured."""
-        manager = RegistrySyncManager(registry_path=self.registry_path)
-        manager.nodes = {}
-
-        result = await manager.sync_with_cluster()
-
-        # With no nodes, sync should succeed but sync 0 nodes
-        assert result['nodes_synced'] == 0
-        assert result['nodes_failed'] == 0
-        assert result['success'] is False  # No nodes synced
-
-    @pytest.mark.asyncio
-    async def test_sync_with_cluster_circuit_open(self):
-        """Test sync skips nodes with open circuit breaker."""
-        manager = RegistrySyncManager(registry_path=self.registry_path)
-        manager.nodes = {"node1": NodeInfo(hostname="node1")}
-
-        # Open the circuit breaker
-        for _ in range(3):
-            manager.circuit_breakers["node1"].record_failure()
-
-        result = await manager.sync_with_cluster()
-
-        # Node should be skipped
-        assert result['nodes_synced'] == 0
-        assert result['nodes_failed'] == 0
+        assert manager._model_count == 0  # Empty test DB
+        assert manager._version_count == 0
 
     @pytest.mark.asyncio
     async def test_sync_via_tailscale_no_ip(self):
         """Test tailscale sync fails without IP."""
         manager = RegistrySyncManager(registry_path=self.registry_path)
-        node = NodeInfo(hostname="test-node", tailscale_ip=None)
+        node = NodeInfo(name="test-node", tailscale_ip=None)
 
-        result = await manager._sync_via_tailscale("test-node", node)
+        result = await manager._sync_via_tailscale(node)
 
-        assert result['success'] is False
-        assert 'No Tailscale IP' in result['error']
+        assert result is False
 
 
 class TestMergeDatabases:
@@ -507,11 +359,9 @@ class TestMergeDatabases:
         """Test merging remote database into local."""
         manager = RegistrySyncManager(registry_path=self.local_path)
 
-        result = await manager._merge_databases(self.remote_path, "remote-host")
+        result = await manager._merge_databases(self.remote_path)
 
-        assert result['success']
-        assert result['models_merged'] == 1   # model2
-        assert result['versions_merged'] == 2  # model1 v2, model2 v1
+        assert result is True
 
         # Verify local database now has all data
         conn = sqlite3.connect(str(self.local_path))

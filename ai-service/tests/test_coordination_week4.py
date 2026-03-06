@@ -138,6 +138,21 @@ class TestPipelineActions:
 class TestCircuitBreaker:
     """Tests for CircuitBreaker fault tolerance."""
 
+    def setup_method(self):
+        """Create temp directory for circuit breaker persistence."""
+        import tempfile
+        self._tmp_dir = tempfile.mkdtemp()
+
+    def teardown_method(self):
+        """Clean up temp directory."""
+        import shutil
+        shutil.rmtree(self._tmp_dir, ignore_errors=True)
+
+    def _tmp_db(self) -> str:
+        """Return a unique temp db path for test isolation."""
+        import os
+        return os.path.join(self._tmp_dir, f"cb_{id(self)}.db")
+
     def test_circuit_breaker_initial_state(self):
         """Test circuit breaker starts closed."""
         from app.coordination.data_pipeline_orchestrator import (
@@ -145,7 +160,7 @@ class TestCircuitBreaker:
             CircuitBreakerState,
         )
 
-        cb = CircuitBreaker()
+        cb = CircuitBreaker(db_path=self._tmp_db())
 
         assert cb.state == CircuitBreakerState.CLOSED
         assert cb.is_closed is True
@@ -159,7 +174,7 @@ class TestCircuitBreaker:
             CircuitBreakerState,
         )
 
-        cb = CircuitBreaker(failure_threshold=3)
+        cb = CircuitBreaker(failure_threshold=3, db_path=self._tmp_db())
 
         # Record failures up to threshold
         cb.record_failure("stage1", "error1")
@@ -180,15 +195,17 @@ class TestCircuitBreaker:
             CircuitBreakerState,
         )
 
-        cb = CircuitBreaker(failure_threshold=2, reset_timeout_seconds=0.1)
+        # recovery_timeout=0.1 but with consecutive_opens=1 and backoff_multiplier=2.0,
+        # actual timeout is 0.1 * 2^1 = 0.2s (+ jitter up to 0.22s)
+        cb = CircuitBreaker(failure_threshold=2, recovery_timeout=0.1, db_path=self._tmp_db())
 
         # Open the circuit
         cb.record_failure("stage1", "error1")
         cb.record_failure("stage2", "error2")
         assert cb.state == CircuitBreakerState.OPEN
 
-        # Wait for reset timeout
-        time.sleep(0.15)
+        # Wait for backoff timeout (0.2s base + jitter margin)
+        time.sleep(0.3)
 
         # Should transition to half-open
         assert cb.state == CircuitBreakerState.HALF_OPEN
@@ -206,14 +223,14 @@ class TestCircuitBreaker:
             CircuitBreakerState,
         )
 
-        cb = CircuitBreaker(failure_threshold=2, reset_timeout_seconds=0.1)
+        cb = CircuitBreaker(failure_threshold=2, recovery_timeout=0.1, db_path=self._tmp_db())
 
         # Open the circuit
         cb.record_failure("stage1", "error1")
         cb.record_failure("stage2", "error2")
 
-        # Wait for reset timeout
-        time.sleep(0.15)
+        # Wait for backoff timeout (0.2s base + jitter margin)
+        time.sleep(0.3)
         assert cb.state == CircuitBreakerState.HALF_OPEN
 
         # Record failure - should reopen
@@ -224,7 +241,7 @@ class TestCircuitBreaker:
         """Test circuit breaker tracks failures per stage."""
         from app.coordination.data_pipeline_orchestrator import CircuitBreaker
 
-        cb = CircuitBreaker(failure_threshold=10)  # High threshold
+        cb = CircuitBreaker(failure_threshold=10, db_path=self._tmp_db())
 
         cb.record_failure("training", "error1")
         cb.record_failure("training", "error2")
@@ -242,20 +259,21 @@ class TestCircuitBreaker:
 
         cb = CircuitBreaker(
             failure_threshold=1,
-            reset_timeout_seconds=0.1,
-            half_open_max_requests=1,
+            recovery_timeout=0.1,
+            half_open_max_calls=1,
+            db_path=self._tmp_db(),
         )
 
         # Open the circuit
         cb.record_failure("stage1", "error1")
-        time.sleep(0.15)
+        # With consecutive_opens=1 and backoff=2.0: timeout = 0.1 * 2 = 0.2s
+        time.sleep(0.3)
 
         # Should be half-open
         assert cb.state == CircuitBreakerState.HALF_OPEN
-        assert cb.can_execute() is True
+        assert cb.can_execute() is True  # First call consumes the half-open slot
 
-        # Simulate request in progress
-        cb._half_open_requests = 1
+        # Second call should be blocked (max 1 call in half-open)
         assert cb.can_execute() is False
 
 
@@ -491,7 +509,7 @@ class TestDaemonAdapters:
     def test_get_daemon_adapter_returns_adapter(self):
         """Test get_daemon_adapter returns correct adapter type."""
         from app.coordination.daemon_adapters import (
-            DistillationDaemonAdapter,
+            DaemonAdapter,
             get_daemon_adapter,
         )
         from app.coordination.daemon_manager import DaemonType
@@ -499,7 +517,7 @@ class TestDaemonAdapters:
         adapter = get_daemon_adapter(DaemonType.DISTILLATION)
 
         assert adapter is not None
-        assert isinstance(adapter, DistillationDaemonAdapter)
+        assert isinstance(adapter, DaemonAdapter)
         assert adapter.daemon_type == DaemonType.DISTILLATION
 
     def test_distillation_adapter_role(self):
@@ -535,8 +553,13 @@ class TestDaemonAdapters:
         assert status["healthy"] is True  # Default healthy
 
     def test_register_adapter_class(self):
-        """Test registering custom adapter class."""
+        """Test registering custom adapter class via legacy registry.
+
+        Note: ADAPTER_SPECS takes priority over _ADAPTER_CLASSES, so we
+        temporarily remove the spec to test legacy registration path.
+        """
         from app.coordination.daemon_adapters import (
+            ADAPTER_SPECS,
             DaemonAdapter,
             DaemonAdapterConfig,
             get_daemon_adapter,
@@ -555,15 +578,17 @@ class TestDaemonAdapters:
             async def _run_daemon(self, daemon):
                 pass
 
-        # Register custom adapter
-        original = type(get_daemon_adapter(DaemonType.DISTILLATION))
-        register_adapter_class(DaemonType.DISTILLATION, CustomAdapter)
+        # Temporarily remove spec so legacy path is used
+        original_spec = ADAPTER_SPECS.pop(DaemonType.DISTILLATION, None)
+        try:
+            register_adapter_class(DaemonType.DISTILLATION, CustomAdapter)
 
-        adapter = get_daemon_adapter(DaemonType.DISTILLATION)
-        assert isinstance(adapter, CustomAdapter)
-
-        # Restore original
-        register_adapter_class(DaemonType.DISTILLATION, original)
+            adapter = get_daemon_adapter(DaemonType.DISTILLATION)
+            assert isinstance(adapter, CustomAdapter)
+        finally:
+            # Restore spec
+            if original_spec is not None:
+                ADAPTER_SPECS[DaemonType.DISTILLATION] = original_spec
 
 
 # =============================================================================

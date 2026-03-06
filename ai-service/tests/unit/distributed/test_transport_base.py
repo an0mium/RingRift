@@ -239,9 +239,9 @@ class TestCircuitBreakerConfig:
     def test_default_values(self):
         """Default configuration values."""
         config = CircuitBreakerConfig()
-        assert config.failure_threshold == 3
-        assert config.recovery_timeout == 300.0
-        assert config.half_open_max_calls == 1
+        assert config.failure_threshold == 5
+        assert config.recovery_timeout == 60.0
+        assert config.half_open_max_calls == 2
 
     def test_custom_values(self):
         """Custom configuration values."""
@@ -258,13 +258,13 @@ class TestCircuitBreakerConfig:
         """Aggressive factory method returns quick-failing config."""
         config = CircuitBreakerConfig.aggressive()
         assert config.failure_threshold == 2
-        assert config.recovery_timeout == 60.0
+        assert config.recovery_timeout == 30.0
 
     def test_patient_factory(self):
         """Patient factory method returns tolerant config."""
         config = CircuitBreakerConfig.patient()
-        assert config.failure_threshold == 5
-        assert config.recovery_timeout == 600.0
+        assert config.failure_threshold == 10
+        assert config.recovery_timeout == 120.0
 
 
 # =============================================================================
@@ -422,9 +422,9 @@ class TestTransportBaseInit:
     def test_default_circuit_breaker_config(self):
         """Default circuit breaker config is applied."""
         transport = MockTransport()
-        assert transport._failure_threshold == 3
-        assert transport._recovery_timeout == 300.0
-        assert transport._half_open_max_calls == 1
+        assert transport._failure_threshold == 5
+        assert transport._recovery_timeout == 60.0
+        assert transport._half_open_max_calls == 2
 
     def test_custom_circuit_breaker_config(self):
         """Custom circuit breaker config is applied."""

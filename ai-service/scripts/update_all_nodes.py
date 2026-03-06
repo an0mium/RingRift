@@ -137,6 +137,32 @@ def get_p2p_voter_peers() -> list[str]:
         return []  # Fall back to config-based bootstrap in p2p_orchestrator
 
 
+def _build_relay_peers(hosts_config: dict | None = None) -> list[str]:
+    """Build relay peer addresses using Tailscale IPs from config.
+
+    Mar 2026: Replaces hardcoded hostname-based relay peers that couldn't
+    resolve on remote nodes. Uses Tailscale IPs for reliable connectivity.
+
+    Returns:
+        List of relay peer addresses in "IP:8770" format.
+    """
+    try:
+        nodes = get_cluster_nodes()
+        relay_candidates = []
+        # Prefer voters and non-NAT-blocked GPU nodes as relays
+        for name, node in nodes.items():
+            if node.tailscale_ip and node.status == 'ready':
+                # Skip NAT-blocked nodes and disabled nodes
+                cfg = (hosts_config or {}).get(name, {})
+                if cfg.get('nat_blocked') or not cfg.get('p2p_enabled', True):
+                    continue
+                relay_candidates.append(f"{node.tailscale_ip}:8770")
+        return relay_candidates[:3]
+    except Exception as e:
+        logger.warning(f"Failed to build relay peers: {e}")
+        return []
+
+
 async def check_p2p_running(client, node_name: str, node_path: str) -> bool:
     """Check if P2P orchestrator is running on the node."""
     result = await client.run_async("pgrep -f p2p_orchestrator", timeout=10)
@@ -144,6 +170,34 @@ async def check_p2p_running(client, node_name: str, node_path: str) -> bool:
         logger.info(f"[{node_name}] P2P orchestrator is running (PID: {result.stdout.strip()})")
         return True
     return False
+
+
+async def detect_p2p_manager(client, node_name: str) -> str:
+    """Detect how P2P is managed on a node: 'systemd', 'supervisor', or 'bare'.
+
+    Returns:
+        'systemd' if ringrift-p2p.service exists and is enabled/active
+        'supervisor' if p2p_supervisor.py is running
+        'bare' if only the orchestrator is running directly
+    """
+    # Check systemd first
+    systemd_result = await client.run_async(
+        "systemctl is-enabled ringrift-p2p.service 2>/dev/null || echo disabled",
+        timeout=10,
+    )
+    systemd_status = systemd_result.stdout.strip() if systemd_result.returncode == 0 else "disabled"
+    if systemd_status in ("enabled", "static"):
+        logger.info(f"[{node_name}] P2P managed by systemd (ringrift-p2p.service)")
+        return "systemd"
+
+    # Check for supervisor process
+    sup_result = await client.run_async("pgrep -f p2p_supervisor.py", timeout=10)
+    if sup_result.returncode == 0 and sup_result.stdout.strip():
+        logger.info(f"[{node_name}] P2P managed by p2p_supervisor.py")
+        return "supervisor"
+
+    logger.info(f"[{node_name}] P2P running bare (no systemd/supervisor)")
+    return "bare"
 
 
 async def provision_node_id(
@@ -522,6 +576,7 @@ async def update_node(
     dry_run: bool,
     include_coordinators: bool = False,
     sync_config: bool = False,
+    hosts_config: dict | None = None,
 ) -> Tuple[str, bool, str]:
     """
     Update a single node to the latest code.
@@ -662,81 +717,124 @@ async def update_node(
         if p2p_was_running and restart_p2p:
             logger.info(f"[{node_name}] Restarting P2P orchestrator...")
 
-            # Kill existing P2P and clean up screen sessions
-            # Jan 2026: Added screen cleanup to prevent dead session accumulation
-            kill_cmd = (
-                "pkill -f p2p_orchestrator 2>/dev/null || true; "
-                "screen -X -S p2p quit 2>/dev/null || true; "
-                "screen -wipe 2>/dev/null || true"
-            )
-            await client.run_async(kill_cmd, timeout=15)
+            # Mar 2026: Detect management mode to avoid duplicate processes.
+            # Previously, we always killed the orchestrator and started a new
+            # one via nohup. But if systemd or supervisor is managing the
+            # process, they auto-restart on kill → duplicate orchestrators.
+            p2p_manager = await detect_p2p_manager(client, node_name)
 
-            # Wait for graceful shutdown and cleanup
-            await asyncio.sleep(2)
-
-            # Build proper P2P start command
-            # Jan 7, 2026: Handle venv activation robustly
-            # - Use explicit config value if provided
-            # - ':' means no-op (pyenv/conda/system Python)
-            # - Default to source venv/bin/activate with existence check
-            venv_activate = node_config.get('venv_activate')
-            if venv_activate is None:
-                # Default: try to source venv, but test if it exists first
-                venv_activate = (
-                    f"if [ -f {node_path}/venv/bin/activate ]; then "
-                    f"source {node_path}/venv/bin/activate; "
-                    f"fi"
+            if p2p_manager == "systemd":
+                # Let systemd handle the full restart lifecycle
+                restart_result = await client.run_async(
+                    "sudo systemctl restart ringrift-p2p.service", timeout=30
                 )
-            elif venv_activate == ':':
-                # Explicit no-op for pyenv/conda/system Python
-                venv_activate = ':'
-
-            # Build P2P arguments
-            p2p_args = [
-                f"--node-id {node_name}",
-                "--port 8770",
-                f"--ringrift-path {node_path}",
-                "--kill-duplicates",  # Kill any stale processes
-            ]
-
-            # Add advertise-host for Tailscale nodes
-            tailscale_ip = node_config.get('tailscale_ip')
-            if tailscale_ip:
-                p2p_args.append(f"--advertise-host {tailscale_ip}")
-
-            # Add relay-peers for NAT-blocked nodes (use p2p_voters as relay)
-            if node_config.get('nat_blocked') or node_config.get('force_relay_mode'):
-                # Use non-NAT-blocked voters as relay peers
-                relay_peers = ['vultr-a100-20gb:8770', 'nebius-h100-3:8770']
-                p2p_args.append(f"--relay-peers {','.join(relay_peers)}")
-
-            # Build known peers list dynamically from config p2p_voters
-            # Jan 7, 2026: Replaces hardcoded peer list for consistency
-            known_peers = get_p2p_voter_peers()
-            if known_peers:
-                p2p_args.append(f"--peers {','.join(known_peers)}")
-            # If no peers from config, p2p_orchestrator uses its own bootstrap
-
-            p2p_args_str = ' '.join(p2p_args)
-
-            start_cmd = (
-                f"cd {node_path} && {venv_activate} && "
-                f"mkdir -p logs && "
-                f"RINGRIFT_MEMBERSHIP_MODE=http nohup python scripts/p2p_orchestrator.py {p2p_args_str} "
-                f"> logs/p2p.log 2>&1 &"
-            )
-            start_result = await client.run_async(start_cmd, timeout=15)
-
-            if start_result.returncode != 0:
-                logger.warning(f"[{node_name}] P2P restart may have failed: {start_result.stderr}")
-            else:
-                # Give it a moment to start
-                await asyncio.sleep(3)
-                # Verify it's running
-                if await check_p2p_running(client, node_name, node_path):
-                    return (node_name, True, f"Updated to {current_commit}{config_sync_msg}, P2P restarted")
+                if restart_result.returncode != 0:
+                    logger.warning(f"[{node_name}] systemctl restart failed: {restart_result.stderr}")
                 else:
-                    return (node_name, True, f"Updated to {current_commit}{config_sync_msg}, P2P restart failed")
+                    await asyncio.sleep(5)
+                    if await check_p2p_running(client, node_name, node_path):
+                        return (node_name, True, f"Updated to {current_commit}{config_sync_msg}, P2P restarted (systemd)")
+                    else:
+                        return (node_name, True, f"Updated to {current_commit}{config_sync_msg}, P2P restart failed (systemd)")
+
+            elif p2p_manager == "supervisor":
+                # Kill supervisor (which kills its child orchestrator), then restart it
+                kill_cmd = (
+                    "pkill -f p2p_supervisor.py 2>/dev/null || true; "
+                    "sleep 1; "
+                    "pkill -f p2p_orchestrator 2>/dev/null || true"
+                )
+                await client.run_async(kill_cmd, timeout=15)
+                await asyncio.sleep(2)
+
+                # Restart the supervisor (it will start the orchestrator)
+                venv_activate = node_config.get('venv_activate')
+                if venv_activate is None:
+                    venv_activate = (
+                        f"if [ -f {node_path}/venv/bin/activate ]; then "
+                        f"source {node_path}/venv/bin/activate; "
+                        f"fi"
+                    )
+                elif venv_activate == ':':
+                    venv_activate = ':'
+
+                start_cmd = (
+                    f"cd {node_path} && {venv_activate} && "
+                    f"PYTHONPATH=. nohup python scripts/p2p_supervisor.py "
+                    f"--node-id {node_name} "
+                    f"</dev/null > /tmp/p2p_supervisor.log 2>&1 &"
+                )
+                start_result = await client.run_async(start_cmd, timeout=15)
+                if start_result.returncode != 0:
+                    logger.warning(f"[{node_name}] Supervisor restart may have failed: {start_result.stderr}")
+                else:
+                    await asyncio.sleep(5)
+                    if await check_p2p_running(client, node_name, node_path):
+                        return (node_name, True, f"Updated to {current_commit}{config_sync_msg}, P2P restarted (supervisor)")
+                    else:
+                        return (node_name, True, f"Updated to {current_commit}{config_sync_msg}, P2P restart failed (supervisor)")
+
+            else:
+                # Bare mode: kill and start orchestrator directly
+                kill_cmd = (
+                    "pkill -f p2p_orchestrator 2>/dev/null || true; "
+                    "screen -X -S p2p quit 2>/dev/null || true; "
+                    "screen -wipe 2>/dev/null || true"
+                )
+                await client.run_async(kill_cmd, timeout=15)
+                await asyncio.sleep(2)
+
+                venv_activate = node_config.get('venv_activate')
+                if venv_activate is None:
+                    venv_activate = (
+                        f"if [ -f {node_path}/venv/bin/activate ]; then "
+                        f"source {node_path}/venv/bin/activate; "
+                        f"fi"
+                    )
+                elif venv_activate == ':':
+                    venv_activate = ':'
+
+                # Build P2P arguments
+                p2p_args = [
+                    f"--node-id {node_name}",
+                    "--port 8770",
+                    f"--ringrift-path {node_path}",
+                    "--kill-duplicates",
+                ]
+
+                tailscale_ip = node_config.get('tailscale_ip')
+                if tailscale_ip:
+                    p2p_args.append(f"--advertise-host {tailscale_ip}")
+
+                # Build relay peers from config (use Tailscale IPs, not hostnames)
+                if node_config.get('nat_blocked') or node_config.get('force_relay_mode'):
+                    relay_peers = _build_relay_peers(hosts_config)
+                    if relay_peers:
+                        p2p_args.append(f"--relay-peers {','.join(relay_peers)}")
+
+                known_peers = get_p2p_voter_peers()
+                if known_peers:
+                    p2p_args.append(f"--peers {','.join(known_peers)}")
+
+                p2p_args_str = ' '.join(p2p_args)
+
+                start_cmd = (
+                    f"cd {node_path} && {venv_activate} && "
+                    f"mkdir -p logs && "
+                    f"PYTHONPATH=. RINGRIFT_MEMBERSHIP_MODE=http "
+                    f"nohup python scripts/p2p_orchestrator.py {p2p_args_str} "
+                    f"> logs/p2p.log 2>&1 &"
+                )
+                start_result = await client.run_async(start_cmd, timeout=15)
+
+                if start_result.returncode != 0:
+                    logger.warning(f"[{node_name}] P2P restart may have failed: {start_result.stderr}")
+                else:
+                    await asyncio.sleep(3)
+                    if await check_p2p_running(client, node_name, node_path):
+                        return (node_name, True, f"Updated to {current_commit}{config_sync_msg}, P2P restarted")
+                    else:
+                        return (node_name, True, f"Updated to {current_commit}{config_sync_msg}, P2P restart failed")
 
         return (node_name, True, f"Updated to {current_commit}{config_sync_msg}")
 
@@ -787,6 +885,7 @@ async def update_all_nodes(
             node_name, node_config, commit_hash, restart_p2p, dry_run,
             include_coordinators=include_coordinators,
             sync_config=sync_config,
+            hosts_config=hosts,
         )
         tasks.append(task)
 
