@@ -415,10 +415,10 @@ class TestDataManagementConfig:
         config = DataManagementConfig()
 
         assert config.interval_seconds == 300.0
-        assert config.disk_warning_percent == 70.0
-        assert config.disk_critical_percent == 85.0
+        assert config.disk_warning_percent == 85.0
+        assert config.disk_critical_percent == 90.0
         assert config.db_export_threshold_mb == 100.0
-        assert config.max_concurrent_exports == 3
+        assert config.max_concurrent_exports == 1
 
     def test_validation_interval_zero(self):
         """Test validation rejects interval_seconds <= 0."""

@@ -270,8 +270,12 @@ class TestDegradationLevel:
     @patch('app.utils.resource_guard.get_memory_usage')
     @patch('app.utils.resource_guard.get_cpu_usage')
     def test_degradation_level_1_light(self, mock_cpu, mock_mem, mock_disk):
-        """Level 1 when resources at 70-85% of limit."""
-        mock_disk.return_value = (60.0, 80.0, 200.0)
+        """Level 1 when resources at 70-85% of limit.
+
+        Degradation normalizes against LIMITS (disk=95%, mem=90%, cpu=80%).
+        disk 70% → 70/95 = 0.74 (in 0.70-0.85 band → level 1).
+        """
+        mock_disk.return_value = (70.0, 50.0, 200.0)
         mock_mem.return_value = (45.0, 16.0, 32.0)
         mock_cpu.return_value = (40.0, 0.5, 8)
         assert get_degradation_level() == 1
@@ -280,8 +284,12 @@ class TestDegradationLevel:
     @patch('app.utils.resource_guard.get_memory_usage')
     @patch('app.utils.resource_guard.get_cpu_usage')
     def test_degradation_level_4_critical(self, mock_cpu, mock_mem, mock_disk):
-        """Level 4 when resources exceed limit."""
-        mock_disk.return_value = (85.0, 30.0, 200.0)
+        """Level 4 when resources exceed limit.
+
+        Degradation normalizes against LIMITS (disk=95%, mem=90%, cpu=80%).
+        disk 96% → 96/95 = 1.01 (>= 1.0 → level 4).
+        """
+        mock_disk.return_value = (96.0, 8.0, 200.0)
         mock_mem.return_value = (45.0, 16.0, 32.0)
         mock_cpu.return_value = (40.0, 0.5, 8)
         assert get_degradation_level() == 4
