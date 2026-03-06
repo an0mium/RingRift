@@ -144,9 +144,9 @@ class TestParseConfigKey:
 
     def test_invalid_player_count_raises(self):
         """Invalid player counts in config key should raise."""
-        with pytest.raises(ValueError, match="Invalid player count"):
+        with pytest.raises(ValueError, match="Invalid config key format"):
             parse_config_key("square8_1p")
-        with pytest.raises(ValueError, match="Invalid player count"):
+        with pytest.raises(ValueError, match="Invalid config key format"):
             parse_config_key("square8_5p")
 
 

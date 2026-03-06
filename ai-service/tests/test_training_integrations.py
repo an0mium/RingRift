@@ -115,8 +115,11 @@ class TestTrainingAnomalyDetector(unittest.TestCase):
             loss_window_size=100,
         )
         self.assertIsNotNone(detector)
-        self.assertEqual(detector.loss_spike_threshold, 3.0)
-        self.assertEqual(detector.gradient_norm_threshold, 100.0)
+        # Adaptive thresholds are enabled by default (Jan 2026), so epoch 0
+        # returns the early-training permissive thresholds rather than
+        # the base values passed in.
+        self.assertEqual(detector.loss_spike_threshold, 5.0)
+        self.assertEqual(detector.gradient_norm_threshold, 150.0)
 
     @unittest.skipUnless(True, "Requires TrainingAnomalyDetector")
     def test_normal_loss_not_detected(self) -> None:
@@ -406,10 +409,10 @@ class TestIntegratedEnhancements(unittest.TestCase):
 
         config = self.IntegratedEnhancementsConfig()
 
-        # Check key flags (some may default to True for production use)
-        self.assertFalse(config.auxiliary_tasks_enabled)
-        self.assertFalse(config.batch_scheduling_enabled)
-        self.assertFalse(config.background_eval_enabled)
+        # Check key flags (default to True for production use since Dec 2025)
+        self.assertTrue(config.auxiliary_tasks_enabled)
+        self.assertTrue(config.batch_scheduling_enabled)
+        self.assertTrue(config.background_eval_enabled)
         # curriculum_enabled may default to True in production config
         self.assertIsInstance(config.curriculum_enabled, bool)
         self.assertIsInstance(config.augmentation_enabled, bool)

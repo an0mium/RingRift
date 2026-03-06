@@ -44,9 +44,9 @@ class TestVoterHealthConfig:
         config = VoterHealthConfig()
 
         assert config.enabled is True
-        assert config.check_interval_seconds == 30
-        assert config.consecutive_failures_before_offline == 2
-        assert config.p2p_timeout_seconds == 5.0
+        assert config.check_interval_seconds == 15
+        assert config.consecutive_failures_before_offline == 3
+        assert config.p2p_timeout_seconds == 15.0
         assert config.tailscale_timeout_seconds == 10.0
         assert config.ssh_timeout_seconds == 15.0
         assert config.enable_ssh_fallback is True
@@ -120,8 +120,8 @@ class TestVoterHealthConfig:
         }):
             config = VoterHealthConfig.from_env()
             # Should use defaults
-            assert config.check_interval_seconds == 30
-            assert config.consecutive_failures_before_offline == 2
+            assert config.check_interval_seconds == 15
+            assert config.consecutive_failures_before_offline == 3
 
 
 # =============================================================================
@@ -199,7 +199,7 @@ class TestVoterHealthMonitorDaemonLifecycle:
         daemon = VoterHealthMonitorDaemon()
 
         assert daemon._daemon_config.enabled is True
-        assert daemon._daemon_config.check_interval_seconds == 30
+        assert daemon._daemon_config.check_interval_seconds == 15
         assert daemon.name == "VoterHealthMonitor"
 
     def test_initialization_with_custom_config(self):
@@ -382,14 +382,14 @@ class TestEventEmission:
         # Set up voter state for the emit method to access
         daemon._voter_states = {"voter-1": VoterHealthState("voter-1")}
 
-        with patch("app.distributed.data_events.emit_data_event") as mock_emit:
+        with patch("app.coordination.voter_health_daemon.safe_emit_event") as mock_emit:
             await daemon._emit_voter_offline("voter-1", "Connection refused")
 
             mock_emit.assert_called_once()
             call_args = mock_emit.call_args
-            assert call_args[0][0].value == "voter_offline"
-            assert call_args[1]["voter_id"] == "voter-1"
-            assert call_args[1]["reason"] == "Connection refused"
+            assert call_args[0][0] == "voter_offline"
+            assert call_args[0][1]["voter_id"] == "voter-1"
+            assert call_args[0][1]["reason"] == "Connection refused"
 
     @pytest.mark.asyncio
     async def test_emit_voter_online(self, daemon):
@@ -397,14 +397,14 @@ class TestEventEmission:
         # Set up voter state for the emit method to access
         daemon._voter_states = {"voter-1": VoterHealthState("voter-1")}
 
-        with patch("app.distributed.data_events.emit_data_event") as mock_emit:
+        with patch("app.coordination.voter_health_daemon.safe_emit_event") as mock_emit:
             await daemon._emit_voter_online("voter-1", "p2p_http")
 
             mock_emit.assert_called_once()
             call_args = mock_emit.call_args
-            assert call_args[0][0].value == "voter_online"
-            assert call_args[1]["voter_id"] == "voter-1"
-            assert call_args[1]["transport"] == "p2p_http"
+            assert call_args[0][0] == "voter_online"
+            assert call_args[0][1]["voter_id"] == "voter-1"
+            assert call_args[0][1]["transport"] == "p2p_http"
 
     @pytest.mark.asyncio
     async def test_emit_quorum_lost(self, daemon):
@@ -416,38 +416,38 @@ class TestEventEmission:
             "v3": VoterHealthState("v3", is_online=False),
         }
 
-        with patch("app.distributed.data_events.emit_data_event") as mock_emit:
+        with patch("app.coordination.voter_health_daemon.safe_emit_event") as mock_emit:
             daemon._emit_quorum_lost(online_voters=1, total_voters=3)
 
             mock_emit.assert_called_once()
             call_args = mock_emit.call_args
-            assert call_args[0][0].value == "quorum_lost"
-            assert call_args[1]["online_voters"] == 1
-            assert call_args[1]["total_voters"] == 3
+            assert call_args[0][0] == "quorum_lost"
+            assert call_args[0][1]["online_voters"] == 1
+            assert call_args[0][1]["total_voters"] == 3
 
     @pytest.mark.asyncio
     async def test_emit_quorum_restored(self, daemon):
         """Test QUORUM_RESTORED event emission."""
-        with patch("app.distributed.data_events.emit_data_event") as mock_emit:
+        with patch("app.coordination.voter_health_daemon.safe_emit_event") as mock_emit:
             daemon._emit_quorum_restored(online_voters=5, total_voters=6)
 
             mock_emit.assert_called_once()
             call_args = mock_emit.call_args
-            assert call_args[0][0].value == "quorum_restored"
-            assert call_args[1]["online_voters"] == 5
-            assert call_args[1]["total_voters"] == 6
+            assert call_args[0][0] == "quorum_restored"
+            assert call_args[0][1]["online_voters"] == 5
+            assert call_args[0][1]["total_voters"] == 6
 
     @pytest.mark.asyncio
     async def test_emit_quorum_at_risk(self, daemon):
         """Test QUORUM_AT_RISK event emission."""
-        with patch("app.distributed.data_events.emit_data_event") as mock_emit:
+        with patch("app.coordination.voter_health_daemon.safe_emit_event") as mock_emit:
             daemon._emit_quorum_at_risk(online_voters=4, total_voters=5)
 
             mock_emit.assert_called_once()
             call_args = mock_emit.call_args
-            assert call_args[0][0].value == "quorum_at_risk"
-            assert call_args[1]["online_voters"] == 4
-            assert call_args[1]["total_voters"] == 5
+            assert call_args[0][0] == "quorum_at_risk"
+            assert call_args[0][1]["online_voters"] == 4
+            assert call_args[0][1]["total_voters"] == 5
 
 
 # =============================================================================

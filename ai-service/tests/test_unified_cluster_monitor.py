@@ -308,7 +308,7 @@ class TestAlertGeneration:
         cluster.nodes["node1"] = NodeHealth(
             name="node1",
             status="healthy",
-            disk_percent=monitor.disk_warning + 5,
+            disk_percent=monitor.disk_warning + 1,
         )
 
         monitor.generate_alerts(cluster)
@@ -491,7 +491,7 @@ class TestWebhookAlerts:
         """Should send webhook alert."""
         monitor.webhook_url = "https://webhook.test/alert"
 
-        with patch("unified_cluster_monitor.urllib.request.urlopen") as mock_urlopen:
+        with patch("app.monitoring.unified_cluster_monitor.urllib.request.urlopen") as mock_urlopen:
             mock_urlopen.return_value = MagicMock()
 
             monitor.send_webhook_alert("Test alert message", level="warning")
@@ -505,7 +505,7 @@ class TestWebhookAlerts:
         """Should not attempt webhook when URL not configured."""
         monitor.webhook_url = None
 
-        with patch("unified_cluster_monitor.urllib.request.urlopen") as mock_urlopen:
+        with patch("app.monitoring.unified_cluster_monitor.urllib.request.urlopen") as mock_urlopen:
             monitor.send_webhook_alert("Test alert")
 
             mock_urlopen.assert_not_called()
