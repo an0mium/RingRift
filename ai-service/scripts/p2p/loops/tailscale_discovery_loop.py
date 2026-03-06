@@ -349,6 +349,9 @@ async def get_tailscale_status(timeout: float = 10.0) -> dict[str, bool]:
     This is a standalone function that can be used by the P2P orchestrator
     without the full discovery loop.
 
+    Mar 2026: Also detects NeedsLogin/NeedsMachineAuth states and logs
+    warnings, since these cause Tailscale SSH failures to Nebius nodes.
+
     Args:
         timeout: Timeout for tailscale CLI command in seconds
 
@@ -374,16 +377,36 @@ async def get_tailscale_status(timeout: float = 10.0) -> dict[str, bool]:
         )
 
         if proc.returncode != 0:
-            logger.warning(f"Tailscale status failed: {stderr.decode()}")
+            stderr_text = stderr.decode()
+            if "NeedsLogin" in stderr_text or "logged out" in stderr_text.lower():
+                logger.warning(
+                    "Tailscale NeedsLogin detected! SSH to Nebius/other nodes "
+                    "will fail. Run: tailscale login"
+                )
+            else:
+                logger.warning(f"Tailscale status failed: {stderr_text[:200]}")
             return {}
 
         data = json.loads(stdout.decode())
+
+        # Check BackendState for auth issues
+        backend_state = data.get("BackendState", "")
+        if backend_state == "NeedsLogin":
+            auth_url = data.get("AuthURL", "")
+            logger.warning(
+                f"Tailscale NeedsLogin! Auth required. "
+                f"URL: {auth_url or 'run: tailscale login'}"
+            )
+        elif backend_state == "NeedsMachineAuth":
+            logger.warning(
+                "Tailscale NeedsMachineAuth: admin approval required "
+                "in Tailscale admin console"
+            )
 
         # Extract peer IPs and online status
         result: dict[str, bool] = {}
         for peer_key, peer_data in data.get("Peer", {}).items():
             is_online = peer_data.get("Online", False)
-            # Extract Tailscale IPs
             for ip in peer_data.get("TailscaleIPs", []):
                 result[ip] = is_online
 
