@@ -962,8 +962,27 @@ class AutoExportDaemon(HandlerBase):
                 _release_export_slot = False
 
             state.export_in_progress = True
+            _governor_slot = None
 
             try:
+                # Mar 6, 2026: Cross-process resource governor.
+                # Prevents combined overload when P2P + master_loop both
+                # try to export simultaneously (kernel panic root cause).
+                try:
+                    from app.utils.coordinator_governor import get_governor, OperationType
+                    _governor_slot = get_governor().try_acquire(
+                        OperationType.EXPORT,
+                        description=f"export:{config_key}",
+                    )
+                    if _governor_slot is None:
+                        logger.info(
+                            f"[AutoExportDaemon] Skipping export for {config_key}: "
+                            "governor denied (system at capacity)"
+                        )
+                        return False
+                except Exception as _gov_err:
+                    logger.debug(f"[AutoExportDaemon] Governor unavailable: {_gov_err}")
+
                 # Mar 2026: Absolute RAM headroom check (works on all nodes).
                 # Export subprocess + workers use 11-16GB RAM.
                 from app.utils.resource_guard import check_memory, coordinator_resource_gate
@@ -1186,6 +1205,13 @@ class AutoExportDaemon(HandlerBase):
 
             finally:
                 state.export_in_progress = False
+                # Mar 6, 2026: Release governor slot
+                if _governor_slot is not None:
+                    try:
+                        from app.utils.coordinator_governor import get_governor
+                        get_governor().release(_governor_slot)
+                    except Exception:
+                        pass
                 # Feb 2026: Release cross-process export slot
                 if _release_export_slot:
                     try:
@@ -1225,7 +1251,24 @@ class AutoExportDaemon(HandlerBase):
         pipeline (called via safe_create_task from the success path of _run_export).
         """
         async with self._export_semaphore:
+            _governor_slot = None
             try:
+                # Mar 6, 2026: Cross-process governor for v5-heavy export
+                try:
+                    from app.utils.coordinator_governor import get_governor, OperationType
+                    _governor_slot = get_governor().try_acquire(
+                        OperationType.EXPORT,
+                        description=f"v5heavy_export:{config_key}",
+                    )
+                    if _governor_slot is None:
+                        logger.info(
+                            f"[AutoExportDaemon] Skipping v5-heavy export for {config_key}: "
+                            "governor denied (system at capacity)"
+                        )
+                        return False
+                except Exception as _gov_err:
+                    logger.debug(f"[AutoExportDaemon] Governor unavailable: {_gov_err}")
+
                 # Mar 2026: Block v5-heavy export when low on RAM
                 from app.utils.resource_guard import check_memory, coordinator_resource_gate
                 if not check_memory(required_gb=16.0, log_warning=True):
@@ -1359,6 +1402,13 @@ class AutoExportDaemon(HandlerBase):
                     f"{traceback.format_exc()}"
                 )
                 return False
+            finally:
+                if _governor_slot is not None:
+                    try:
+                        from app.utils.coordinator_governor import get_governor
+                        get_governor().release(_governor_slot)
+                    except Exception:
+                        pass
 
     async def _validate_export_readiness(
         self, config_key: str, state: ConfigExportState

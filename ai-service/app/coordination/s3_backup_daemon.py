@@ -366,6 +366,35 @@ class S3BackupDaemon(HandlerBase):
 
     async def _run_backup(self) -> BackupResult:
         """Execute S3 backup using s3_backup.py script."""
+        # Mar 6, 2026: Cross-process governor for S3 backup
+        _governor_slot = None
+        try:
+            from app.utils.coordinator_governor import get_governor, OperationType
+            _governor_slot = get_governor().try_acquire(
+                OperationType.S3_UPLOAD,
+                description="s3_backup",
+            )
+            if _governor_slot is None:
+                logger.info("[S3BackupDaemon] Governor denied backup: system at capacity")
+                return BackupResult(
+                    success=False, uploaded_count=0, deleted_count=0,
+                    error_message="Governor denied: system at capacity",
+                )
+        except Exception as _gov_err:
+            logger.debug(f"[S3BackupDaemon] Governor unavailable: {_gov_err}")
+
+        try:
+            return await self._run_backup_inner()
+        finally:
+            if _governor_slot is not None:
+                try:
+                    from app.utils.coordinator_governor import get_governor
+                    get_governor().release(_governor_slot)
+                except Exception:
+                    pass
+
+    async def _run_backup_inner(self) -> BackupResult:
+        """Execute S3 backup subprocess."""
         start_time = time.time()
 
         backup_script = ROOT / "scripts" / "s3_backup.py"

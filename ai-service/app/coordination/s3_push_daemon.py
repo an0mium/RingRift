@@ -147,6 +147,23 @@ class S3PushDaemon(HandlerBase):
             logger.warning("[S3PushDaemon] AWS credentials not configured, skipping")
             return
 
+        # Mar 6, 2026: Cross-process governor for S3 uploads.
+        # Prevents S3 I/O from saturating disk while exports/evaluations run.
+        _governor_slot = None
+        try:
+            from app.utils.coordinator_governor import get_governor, OperationType
+            _governor_slot = get_governor().try_acquire(
+                OperationType.S3_UPLOAD,
+                description="s3_push_cycle",
+            )
+            if _governor_slot is None:
+                logger.info(
+                    "[S3PushDaemon] Governor denied S3 push: system at capacity"
+                )
+                return
+        except Exception as _gov_err:
+            logger.debug(f"[S3PushDaemon] Governor unavailable: {_gov_err}")
+
         try:
             # Push canonical databases
             await self._push_canonical_databases()
@@ -168,6 +185,13 @@ class S3PushDaemon(HandlerBase):
             self._push_stats.push_errors += 1
             self._push_stats.last_error = str(e)
             logger.error(f"[S3PushDaemon] Push cycle failed: {e}")
+        finally:
+            if _governor_slot is not None:
+                try:
+                    from app.utils.coordinator_governor import get_governor
+                    get_governor().release(_governor_slot)
+                except Exception:
+                    pass
 
     def _check_aws_credentials(self) -> bool:
         """Check if AWS credentials are available."""

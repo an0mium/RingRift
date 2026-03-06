@@ -1218,3 +1218,20 @@ class StatusHandlersMixin:
             response["summary"] = {"error": str(e)}
 
         return web.json_response(response)
+
+    async def handle_governor_status(self, request: web.Request) -> web.Response:
+        """GET /governor/status - Resource governor status.
+
+        Mar 6, 2026: Cross-process resource budget monitoring.
+        Shows active slots, RAM usage, and per-type limits.
+        """
+        try:
+            from app.utils.coordinator_governor import get_governor
+            gov = get_governor()
+            status = gov.get_status()
+            status["node_id"] = self.node_id
+            return web.json_response(status)
+        except Exception as e:
+            return web.json_response(
+                {"error": str(e), "node_id": self.node_id}, status=500
+            )

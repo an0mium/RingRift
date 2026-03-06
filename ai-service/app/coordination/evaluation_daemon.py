@@ -1494,6 +1494,27 @@ class EvaluationDaemon(HandlerBase):
         start_time = time.time()
         config_key = make_config_key(board_type, num_players)
         run_id = str(uuid.uuid4())
+
+        # Mar 6, 2026: Cross-process resource governor.
+        # Prevents evaluation + export from running simultaneously and
+        # exhausting RAM (kernel panic root cause on mac-studio).
+        _governor_slot = None
+        try:
+            from app.utils.coordinator_governor import get_governor, OperationType
+            _governor_slot = get_governor().try_acquire(
+                OperationType.EVALUATION,
+                description=f"gauntlet:{config_key}:{Path(model_path).name}",
+            )
+            if _governor_slot is None:
+                logger.info(
+                    f"[EvaluationDaemon] Governor denied evaluation for {model_path}: "
+                    "system at capacity, re-queuing"
+                )
+                await self._evaluation_queue.put(request)
+                return
+        except Exception as _gov_err:
+            logger.debug(f"[EvaluationDaemon] Governor unavailable: {_gov_err}")
+
         logger.info(f"[EvaluationDaemon] Starting evaluation: {model_path}")
 
         # December 30, 2025: Record gauntlet run start for observability
@@ -1688,6 +1709,14 @@ class EvaluationDaemon(HandlerBase):
                 sibling_ids = request.get("_sibling_request_ids", [])
                 if sibling_ids:
                     self._persistent_queue.fail_batch(sibling_ids, str(e))
+        finally:
+            # Mar 6, 2026: Release governor slot
+            if _governor_slot is not None:
+                try:
+                    from app.utils.coordinator_governor import get_governor
+                    get_governor().release(_governor_slot)
+                except Exception:
+                    pass
 
     async def _run_gauntlet(
         self,

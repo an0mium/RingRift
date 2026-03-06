@@ -2907,6 +2907,24 @@ class TrainingTriggerDaemon(HandlerBase):
                 name="v5", enabled=True, configs=["*"], priority=1.0
             )
 
+        # Mar 6, 2026: Cross-process governor for training.
+        # Prevents training + evaluation/export from overloading the node.
+        _governor_slot = None
+        try:
+            from app.utils.coordinator_governor import get_governor, OperationType
+            _governor_slot = get_governor().try_acquire(
+                OperationType.TRAINING,
+                description=f"training:{config_key}",
+            )
+            if _governor_slot is None:
+                logger.info(
+                    f"[TrainingTriggerDaemon] Governor denied training for "
+                    f"{config_key}: system at capacity"
+                )
+                return False
+        except Exception as _gov_err:
+            logger.debug(f"[TrainingTriggerDaemon] Governor unavailable: {_gov_err}")
+
         async with self._training_semaphore:
             state.training_in_progress = True
             state.training_start_time = time.time()  # Phase 2: Timeout watchdog
@@ -3085,6 +3103,13 @@ class TrainingTriggerDaemon(HandlerBase):
                 self._active_training_tasks.pop(task_key, None)
                 arch_key = (config_key, arch.name)
                 self._active_architecture_training.pop(arch_key, None)
+                # Mar 6, 2026: Release governor slot
+                if _governor_slot is not None:
+                    try:
+                        from app.utils.coordinator_governor import get_governor
+                        get_governor().release(_governor_slot)
+                    except Exception:
+                        pass
 
     def _on_training_task_done(
         self, task: asyncio.Task, config_key: str, arch_name: str | None = None

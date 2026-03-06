@@ -473,6 +473,15 @@ CIRCUIT_BREAKER_ROUTES = [
 ]
 
 # ===========================================================================
+# Resource Governor Routes (March 2026)
+# Cross-process resource budget monitoring
+# ===========================================================================
+
+GOVERNOR_ROUTES = [
+    Route("GET", "/governor/status", "handle_governor_status"),
+]
+
+# ===========================================================================
 # All Route Groups
 # ===========================================================================
 
@@ -508,6 +517,7 @@ ALL_ROUTE_GROUPS = {
     "jobs_api": JOBS_API_ROUTES,
     "loop_management": LOOP_MANAGEMENT_ROUTES,
     "circuit_breaker": CIRCUIT_BREAKER_ROUTES,
+    "governor": GOVERNOR_ROUTES,
 }
 
 
