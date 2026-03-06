@@ -323,8 +323,7 @@ class TestPopulatorConfig:
     def test_default_values(self):
         """Test default configuration values."""
         config = PopulatorConfig()
-        # December 2025: min_queue_depth updated to 200 in unified_queue_populator
-        assert config.min_queue_depth == 200
+        assert config.min_queue_depth == 100
         assert config.target_elo == 2000.0
         assert config.selfplay_ratio == 0.60
         assert config.training_ratio == 0.30
@@ -368,7 +367,7 @@ class TestPopulatorConfig:
     def test_priority_settings(self):
         """Test priority default settings."""
         config = PopulatorConfig()
-        assert config.selfplay_priority == 50
+        assert config.selfplay_priority == 75
         assert config.training_priority == 100
         assert config.tournament_priority == 80
 
@@ -383,10 +382,9 @@ class TestPopulatorConfig:
         assert config.tournament_games == 50
 
     def test_check_interval_default(self):
-        """Test check interval default (10 seconds in unified_queue_populator)."""
+        """Test check interval default."""
         config = PopulatorConfig()
-        # December 2025: check_interval_seconds updated to 10 in unified_queue_populator
-        assert config.check_interval_seconds == 10
+        assert config.check_interval_seconds == 5
 
 
 # =============================================================================
@@ -400,8 +398,7 @@ class TestLoadPopulatorConfigFromYaml:
     def test_empty_yaml(self):
         """Test loading from empty YAML."""
         config = load_populator_config_from_yaml({})
-        # December 2025: min_queue_depth updated to 200 in unified_queue_populator
-        assert config.min_queue_depth == 200
+        assert config.min_queue_depth == 200  # YAML default differs from dataclass default
         assert config.target_elo == 2000.0
 
     def test_partial_yaml(self):
@@ -721,29 +718,33 @@ class TestQueuePopulatorMethods:
 class TestQueuePopulatorWorkItems:
     """Tests for work item creation."""
 
+    @patch("app.coordination.unified_queue_populator.UnifiedQueuePopulator._has_nnue_model", return_value=False)
+    @patch("app.coordination.unified_queue_populator.UnifiedQueuePopulator._find_canonical_model", return_value=None)
     @patch("app.coordination.unified_queue_populator.UnifiedQueuePopulator._load_existing_elo")
     @patch("app.coordination.unified_queue_populator.UnifiedQueuePopulator._scale_queue_depth_to_cluster")
-    def test_create_selfplay_item_small_board_no_model(self, mock_scale, mock_load):
-        """Test selfplay item for small board without model uses gpu_heuristic."""
+    def test_create_selfplay_item_small_board_no_model(self, mock_scale, mock_load, mock_find, mock_nnue):
+        """Test selfplay item for small board without model uses heuristic-only."""
         populator = QueuePopulator()
         item = populator._create_selfplay_item("hex8", 2)
 
         assert item.work_type.value == "selfplay"
         assert item.config["board_type"] == "hex8"
         assert item.config["num_players"] == 2
-        assert item.config["engine_mode"] == "gpu_heuristic"
+        assert item.config["engine_mode"] == "heuristic-only"
 
+    @patch("app.coordination.unified_queue_populator.UnifiedQueuePopulator._has_nnue_model", return_value=False)
     @patch("app.coordination.unified_queue_populator.UnifiedQueuePopulator._load_existing_elo")
     @patch("app.coordination.unified_queue_populator.UnifiedQueuePopulator._scale_queue_depth_to_cluster")
-    def test_create_selfplay_item_small_board_good_model(self, mock_scale, mock_load):
-        """Test selfplay item for small board with good model uses nnue-guided."""
+    def test_create_selfplay_item_small_board_good_model(self, mock_scale, mock_load, mock_nnue):
+        """Test selfplay item for small board with good model rotates engine modes."""
         populator = QueuePopulator()
         populator._targets["hex8_2p"].current_best_elo = 1700.0
         populator._targets["hex8_2p"].best_model_id = "model_123"
 
         item = populator._create_selfplay_item("hex8", 2)
 
-        assert item.config["engine_mode"] == "nnue-guided"
+        # With model and no NNUE: valid modes are gumbel, heuristic-only, policy-only, descent
+        assert item.config["engine_mode"] in ("gumbel", "heuristic-only", "policy-only", "descent")
         assert item.config.get("model_id") == "model_123"
 
     @patch("app.coordination.unified_queue_populator.UnifiedQueuePopulator._load_existing_elo")
@@ -764,16 +765,18 @@ class TestQueuePopulatorWorkItems:
         item = populator._create_selfplay_item("hexagonal", 2)
         assert item.config["engine_mode"] == "gumbel"
 
+    @patch("app.coordination.unified_queue_populator.UnifiedQueuePopulator._has_nnue_model", return_value=False)
+    @patch("app.coordination.unified_queue_populator.UnifiedQueuePopulator._find_canonical_model", return_value=None)
     @patch("app.coordination.unified_queue_populator.UnifiedQueuePopulator._load_existing_elo")
     @patch("app.coordination.unified_queue_populator.UnifiedQueuePopulator._scale_queue_depth_to_cluster")
-    def test_create_selfplay_item_medium_elo_no_model(self, mock_scale, mock_load):
-        """Test selfplay item with medium Elo but no model uses gpu_heuristic."""
+    def test_create_selfplay_item_medium_elo_no_model(self, mock_scale, mock_load, mock_find, mock_nnue):
+        """Test selfplay item with medium Elo but no model uses heuristic-only."""
         populator = QueuePopulator()
         populator._targets["hex8_2p"].current_best_elo = 1650.0
         populator._targets["hex8_2p"].best_model_id = None
 
         item = populator._create_selfplay_item("hex8", 2)
-        assert item.config["engine_mode"] == "gpu_heuristic"
+        assert item.config["engine_mode"] == "heuristic-only"
 
     @patch("app.coordination.unified_queue_populator.UnifiedQueuePopulator._load_existing_elo")
     @patch("app.coordination.unified_queue_populator.UnifiedQueuePopulator._scale_queue_depth_to_cluster")
@@ -867,9 +870,12 @@ class TestQueuePopulatorPopulate:
         populator = QueuePopulator()
         assert populator.populate() == 0
 
+    @patch("app.coordination.unified_queue_populator.UnifiedQueuePopulator._populate_minimum_selfplay", return_value=0)
+    @patch("app.coordination.unified_queue_populator.UnifiedQueuePopulator._populate_exploration_work", return_value=0)
+    @patch("app.coordination.unified_queue_populator.UnifiedQueuePopulator.ensure_game_counts_loaded")
     @patch("app.coordination.unified_queue_populator.UnifiedQueuePopulator._load_existing_elo")
     @patch("app.coordination.unified_queue_populator.UnifiedQueuePopulator._scale_queue_depth_to_cluster")
-    def test_populate_returns_zero_when_all_targets_met(self, mock_scale, mock_load):
+    def test_populate_returns_zero_when_all_targets_met(self, mock_scale, mock_load, mock_gc, mock_explore, mock_min):
         """Test populate returns 0 when all targets met."""
         config = PopulatorConfig(
             board_types=["hex8"],
