@@ -14167,10 +14167,10 @@ def main():
     def _event_loop_watchdog(port: int) -> None:
         import urllib.request
         import os as _os
-        _STARTUP_GRACE = 180   # seconds before watchdog activates
+        _STARTUP_GRACE = 300   # seconds before watchdog activates (was 180, increased to survive init)
         _CHECK_INTERVAL = 30   # seconds between health checks
         _TIMEOUT = 20          # seconds per HTTP check
-        _MAX_FAILURES = 3      # consecutive failures before exit
+        _MAX_FAILURES = 5      # consecutive failures before exit (was 3, increased for coordinator stability)
         import time as _time
         _time.sleep(_STARTUP_GRACE)
         consecutive_failures = 0
@@ -14199,7 +14199,7 @@ def main():
         name="EventLoopWatchdog",
     )
     _watchdog_thread.start()
-    logger.info(f"[Watchdog] Started event loop watchdog (grace={180}s, interval={30}s, max_failures={3})")
+    logger.info(f"[Watchdog] Started event loop watchdog (grace={300}s, interval={30}s, max_failures={5})")
 
     # Run with exception logging
     try:

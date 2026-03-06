@@ -3728,16 +3728,26 @@ class JobManager(EventSubscriptionMixin):
         """Get available workers for tournament matches.
 
         Dec 29, 2025: Filter out NAT-blocked workers since direct HTTP won't work.
+        Mar 6, 2026: Exclude coordinator — tournament subprocesses block event loop.
 
         Returns:
-            List of worker node info objects (only non-NAT-blocked)
+            List of worker node info objects (only non-NAT-blocked, non-coordinator)
         """
+        from app.config.env import env
+
         # Mar 2026: Lock-free read — list() snapshot of dict.values()
         workers = []
         for peer in list(self.peers.values()):
             if hasattr(peer, "is_healthy") and peer.is_healthy():
                 # Skip NAT-blocked workers - can't reach them directly
                 if getattr(peer, "nat_blocked", False):
+                    continue
+                # Mar 6, 2026: Skip coordinator — tournament matches spawn
+                # ~100 subprocesses that overwhelm the event loop and trigger
+                # the watchdog restart (os._exit). Coordinator should only
+                # coordinate, not execute games.
+                peer_id = getattr(peer, "node_id", "")
+                if peer_id == env.node_id or (env.is_coordinator and peer_id in ("mac-studio", "local-mac")):
                     continue
                 # Prefer GPU nodes for neural net matches
                 if hasattr(peer, "has_gpu") and peer.has_gpu:
