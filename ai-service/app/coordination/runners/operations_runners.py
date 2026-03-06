@@ -380,16 +380,13 @@ async def create_distillation() -> None:
 
 
 async def create_external_drive_sync() -> None:
-    """Create and run external drive sync daemon."""
-    try:
-        from app.coordination.external_drive_sync import ExternalDriveSyncDaemon
+    """Deprecated: replaced by OWC_SYNC_MANAGER (create_owc_sync_manager).
 
-        daemon = ExternalDriveSyncDaemon()
-        await daemon.start()
-        await _wait_for_daemon(daemon)
-    except ImportError as e:
-        logger.error(f"ExternalDriveSyncDaemon not available: {e}")
-        raise
+    Mar 2026: No-op to prevent duplicate rsync operations. OWC_SYNC_MANAGER
+    handles all bidirectional sync (push+pull) that this daemon used to do.
+    """
+    logger.info("EXTERNAL_DRIVE_SYNC is deprecated, replaced by OWC_SYNC_MANAGER. Sleeping.")
+    await asyncio.sleep(float("inf"))
 
 
 async def create_vast_cpu_pipeline() -> None:
