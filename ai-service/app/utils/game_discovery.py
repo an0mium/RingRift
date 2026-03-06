@@ -42,6 +42,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator
@@ -726,12 +727,30 @@ class GameDiscovery:
         if not db_path.exists():
             return {}
 
+        # Mar 2026: Skip large evaluation databases that aren't training data.
+        # Gauntlet/tournament DBs can be 18GB+ and full table scans take 60-120s,
+        # causing queue_populator timeouts. These are evaluation data, not training data.
+        db_name = db_path.name.lower()
+        if db_name.startswith(("gauntlet_", "baseline_calibration_")):
+            logger.debug(f"Skipping evaluation DB for game counts: {db_path.name}")
+            return {}
+
         try:
             with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5.0) as conn:
                 # Phase 5.3: Validate schema before querying
                 if not self._validate_schema(conn):
                     logger.debug(f"Schema validation failed for {db_path}")
                     return {}
+
+                # Mar 2026: Add query timeout (10s) to prevent blocking on large DBs.
+                # sqlite3 progress_handler is called every N VM instructions; interrupt
+                # raises OperationalError if query exceeds wall-clock limit.
+                _query_start = time.time()
+                _query_timeout = 10.0
+                conn.set_progress_handler(
+                    lambda: 1 if (time.time() - _query_start) > _query_timeout else 0,
+                    10000,  # Check every 10K VM instructions
+                )
 
                 cursor = conn.execute(
                     "SELECT board_type, num_players, COUNT(*) "
@@ -744,6 +763,12 @@ class GameDiscovery:
                     if board_type and num_players:
                         results[(board_type, num_players)] = count
                 return results
+        except sqlite3.OperationalError as e:
+            if "interrupt" in str(e).lower():
+                logger.warning(f"Query timeout ({_query_timeout}s) on {db_path.name}")
+            else:
+                logger.debug(f"Error getting config counts from {db_path}: {e}")
+            return {}
         except (sqlite3.Error, OSError) as e:
             logger.debug(f"Error getting config counts from {db_path}: {e}")
             return {}
