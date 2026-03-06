@@ -663,6 +663,15 @@ class OWCSyncManager(HandlerBase):
         if not self._storage_config:
             return 0
 
+        # Mar 2026: Memory guard — rsync pulls can spike RAM
+        try:
+            from app.utils.resource_guard import check_memory
+            if not check_memory(required_gb=4.0, log_warning=True):
+                logger.info("[OWCSyncManager] Skipping games pull: insufficient memory")
+                return 0
+        except ImportError:
+            pass
+
         logger.info("[OWCSyncManager] Starting games pull from cluster")
 
         nodes = self._get_sync_source_nodes()
