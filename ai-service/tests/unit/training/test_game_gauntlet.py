@@ -356,48 +356,51 @@ class TestGauntletEvaluationFlow:
     def test_evaluate_single_opponent_emits_events(self):
         """_evaluate_single_opponent emits progress events."""
         from types import SimpleNamespace
-        import app.coordination.event_router as event_router
         from app.training import game_gauntlet
 
-        class StubBus:
-            def __init__(self):
-                self.events = []
+        captured_events = []
 
+        class InterceptBus:
+            def __init__(self, real_bus=None):
+                self._real = real_bus
             def publish_sync(self, event):
-                self.events.append(event)
+                captured_events.append(event)
                 return event
+            def __getattr__(self, name):
+                if self._real:
+                    return getattr(self._real, name)
+                return MagicMock()
 
-        stub_bus = StubBus()
+        intercept = InterceptBus()
 
-        with patch.object(event_router, "get_event_bus", return_value=stub_bus):
-            with patch.object(game_gauntlet, "create_neural_ai", return_value=MagicMock()):
-                with patch.object(game_gauntlet, "create_baseline_ai", return_value=MagicMock()):
-                    with patch.object(game_gauntlet, "play_single_game") as mock_play:
-                        mock_play.return_value = SimpleNamespace(
-                            candidate_won=True,
-                            winner=1,
-                            victory_reason="test",
-                            move_count=10,
-                        )
+        with patch("app.coordination.event_router.get_event_bus", return_value=intercept), \
+             patch("app.coordination.event_router.get_data_event_bus", return_value=intercept), \
+             patch.object(game_gauntlet, "create_neural_ai", return_value=MagicMock()), \
+             patch.object(game_gauntlet, "create_baseline_ai", return_value=MagicMock()), \
+             patch.object(game_gauntlet, "play_single_game") as mock_play:
+                mock_play.return_value = SimpleNamespace(
+                    candidate_won=True,
+                    winner=1,
+                    victory_reason="test",
+                    move_count=10,
+                )
 
-                        # Jan 2026: Force sequential execution (parallel_games=1) to test
-                        # the sequential code path which emits EVALUATION_PROGRESS events
-                        game_gauntlet._evaluate_single_opponent(
-                            baseline=BaselineOpponent.RANDOM,
-                            model_path="dummy.pth",
-                            board_type=BoardType.SQUARE8,
-                            games_per_opponent=3,
-                            num_players=2,
-                            verbose=False,
-                            model_getter=None,
-                            model_type="cnn",
-                            early_stopping=False,
-                            early_stopping_confidence=0.95,
-                            early_stopping_min_games=1,
-                            parallel_games=1,  # Force sequential to test event emission
-                        )
+                game_gauntlet._evaluate_single_opponent(
+                    baseline=BaselineOpponent.RANDOM,
+                    model_path="dummy.pth",
+                    board_type=BoardType.SQUARE8,
+                    games_per_opponent=3,
+                    num_players=2,
+                    verbose=False,
+                    model_getter=None,
+                    model_type="cnn",
+                    early_stopping=False,
+                    early_stopping_confidence=0.95,
+                    early_stopping_min_games=1,
+                    parallel_games=1,
+                )
 
-        assert len(stub_bus.events) > 0
+        assert len(captured_events) > 0
 
     def test_gauntlet_result_structure(self):
         """GauntletResult has expected structure after evaluation."""

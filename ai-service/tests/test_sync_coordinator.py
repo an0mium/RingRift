@@ -32,6 +32,17 @@ from app.distributed.sync_coordinator import (
 # ============================================================================
 
 
+@pytest.fixture(autouse=True)
+def _patch_init_manifest():
+    """Patch _init_manifest to avoid sqlite3 errors in test environment.
+
+    The DataManifest DB init requires a writable filesystem path that may not
+    exist in CI or isolated test runs.
+    """
+    with patch.object(SyncCoordinator, '_init_manifest'):
+        yield
+
+
 @pytest.fixture
 def mock_storage_provider():
     """Mock storage provider for testing."""
@@ -76,7 +87,8 @@ async def coordinator(mock_storage_provider, mock_transport_config):
 
     yield coordinator
 
-    # Cleanup
+    # Cleanup: reset mock data_server_process to avoid await-on-MagicMock errors
+    coordinator._data_server_process = None
     try:
         await coordinator.shutdown()
     except (asyncio.CancelledError, RuntimeError):
@@ -240,7 +252,8 @@ class TestSyncCoordinatorInit:
 
     def test_coordinator_singleton_pattern(self):
         """Test get_instance returns same instance."""
-        SyncCoordinator.reset_instance()
+        # Force-clear singleton without asyncio.create_task (no event loop in sync test)
+        SyncCoordinator._instance = None
 
         c1 = SyncCoordinator.get_instance()
         c2 = SyncCoordinator.get_instance()
@@ -268,6 +281,7 @@ class TestSyncCoordinatorInit:
 
     def test_coordinator_initializes_with_provider(self, mock_storage_provider, mock_transport_config):
         """Test coordinator initializes with provider."""
+        SyncCoordinator._instance = None
         coordinator = SyncCoordinator(
             provider=mock_storage_provider,
             config=mock_transport_config,

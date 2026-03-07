@@ -488,7 +488,7 @@ class TestAutoPromoter:
         """Should initialize with defaults."""
         promoter = AutoPromoter(registry)
         assert promoter.min_elo_improvement == 25.0
-        assert promoter.min_games == 50
+        assert promoter.min_games == 100
 
     def test_initialization_custom(self, registry):
         """Should accept custom thresholds."""

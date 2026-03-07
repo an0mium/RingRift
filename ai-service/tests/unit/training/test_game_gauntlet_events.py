@@ -1,22 +1,38 @@
 from types import SimpleNamespace
+from unittest.mock import patch, MagicMock
 
-import app.coordination.event_router as event_router
 from app.models import BoardType
 from app.training import game_gauntlet
 
 
-class _StubBus:
-    def __init__(self) -> None:
-        self.events = []
-
-    def publish_sync(self, event):
-        self.events.append(event)
-        return event
-
-
 def test_evaluation_progress_payload_includes_config_key_and_board_type(monkeypatch):
-    stub_bus = _StubBus()
-    monkeypatch.setattr(event_router, "get_event_bus", lambda: stub_bus)
+    captured_events = []
+
+    class _InterceptBus:
+        """Wraps real bus but captures publish_sync calls."""
+        def __init__(self, real_bus):
+            self._real = real_bus
+        def publish_sync(self, event):
+            captured_events.append(event)
+            return event
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+    # Wrap whatever bus get_event_bus returns (real or mock) with our interceptor
+    import app.coordination.event_router as event_router
+    original_get = event_router.get_event_bus
+    intercept_bus = None
+
+    def intercepting_get():
+        nonlocal intercept_bus
+        real = original_get()
+        if real is None:
+            real = MagicMock()
+        if intercept_bus is None:
+            intercept_bus = _InterceptBus(real)
+        return intercept_bus
+
+    monkeypatch.setattr(event_router, "get_event_bus", intercepting_get)
 
     monkeypatch.setattr(game_gauntlet, "create_neural_ai", lambda *args, **kwargs: object())
     monkeypatch.setattr(game_gauntlet, "create_baseline_ai", lambda *args, **kwargs: object())
@@ -43,9 +59,10 @@ def test_evaluation_progress_payload_includes_config_key_and_board_type(monkeypa
         early_stopping=False,
         early_stopping_confidence=0.95,
         early_stopping_min_games=1,
+        parallel_games=1,
     )
 
-    assert stub_bus.events, "Expected evaluation progress events to be published"
-    payload = stub_bus.events[0].payload
+    assert captured_events, "Expected evaluation progress events to be published"
+    payload = captured_events[0].payload
     assert payload["config_key"] == "square19_2p"
     assert payload["board_type"] == "square19"

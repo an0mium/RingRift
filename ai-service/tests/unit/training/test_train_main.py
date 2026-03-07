@@ -60,9 +60,9 @@ class TestTrainConfigDefaults:
             assert config.batch_size >= 32
 
     def test_default_weight_decay(self):
-        """Default weight decay is 1e-4."""
+        """Default weight decay is 1e-3."""
         config = TrainConfig()
-        assert config.weight_decay == 1e-4
+        assert config.weight_decay == 1e-3
 
     def test_default_seed(self):
         """Default seed is 42."""
@@ -90,9 +90,9 @@ class TestTrainConfigDefaults:
         assert config.lr_scheduler == "cosine"
 
     def test_default_early_stopping(self):
-        """Default early stopping patience is 25 (increased from 5 for stability)."""
+        """Default early stopping patience is 5."""
         config = TrainConfig()
-        assert config.early_stopping_patience == 25
+        assert config.early_stopping_patience == 5
 
     def test_default_allow_empty_policies(self):
         """Default allows empty policies."""

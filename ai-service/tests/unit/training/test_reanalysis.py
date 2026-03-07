@@ -205,11 +205,12 @@ class TestReanalysisEngine:
 
     def test_init(self, mock_model):
         """Test engine initialization."""
-        engine = ReanalysisEngine(model=mock_model)
+        config = ReanalysisConfig()
+        engine = ReanalysisEngine(model=mock_model, config=config)
 
         assert engine.model is mock_model
         assert engine.config is not None
-        assert engine.stats["positions_reanalyzed"] == 0
+        assert engine.positions_reanalyzed == 0
 
     def test_init_with_config(self, mock_model):
         """Test initialization with custom config."""
@@ -240,21 +241,20 @@ class TestReanalysisEngine:
 
     def test_get_stats(self, mock_model):
         """Test getting engine statistics."""
-        engine = ReanalysisEngine(model=mock_model)
+        engine = ReanalysisEngine(model=mock_model, config=ReanalysisConfig())
 
         stats = engine.get_stats()
 
         assert "positions_reanalyzed" in stats
-        assert "games_processed" in stats
-        assert "total_reanalysis_time" in stats
-        assert "avg_value_delta" in stats
+        assert "games_reanalyzed" in stats
+        assert "last_reanalysis_time" in stats
 
     @pytest.mark.skipif(not HAS_TORCH, reason="PyTorch not available")
     def test_reanalyze_npz_basic(self, mock_model, sample_npz, tmp_path):
         """Test basic NPZ reanalysis."""
         # This is a complex test that requires PyTorch
         # For now, just verify the function signature works
-        engine = ReanalysisEngine(model=mock_model)
+        engine = ReanalysisEngine(model=mock_model, config=ReanalysisConfig())
 
         # The actual reanalysis requires proper model mocking
         # which is complex due to torch dependencies
@@ -345,7 +345,6 @@ class TestFactoryFunctions:
         """Test creating engine with basic params."""
         engine = create_reanalysis_engine(
             model=mock_model,
-            board_type="hex8",
         )
 
         assert isinstance(engine, ReanalysisEngine)
@@ -354,13 +353,12 @@ class TestFactoryFunctions:
         """Test creating engine with custom config."""
         engine = create_reanalysis_engine(
             model=mock_model,
-            board_type="hex8",
             batch_size=128,
-            use_mcts=True,
+            value_blend=0.5,
         )
 
         assert engine.config.batch_size == 128
-        assert engine.config.use_mcts is True
+        assert engine.config.value_blend_ratio == 0.5
 
 
 # =============================================================================

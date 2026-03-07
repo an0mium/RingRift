@@ -366,7 +366,7 @@ class TestPolicySizeDetermination:
         config = ModelConfig(board_type=BoardType.HEX8)
         initializer = ModelInitializer(config, mock_device)
         size = initializer._determine_policy_size(None, 9, True)
-        assert size == 61 * 62  # hex8 default
+        assert size == 4500  # POLICY_SIZE_HEX8
 
 
 class TestWeightLoading:

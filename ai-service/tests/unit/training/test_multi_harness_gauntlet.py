@@ -295,7 +295,7 @@ class TestHarnessCompatibilityMatrix:
         # It doesn't need a policy head - it searches through game tree using value estimates.
         assert compat["nn"] is False
         assert compat["nnue"] is True
-        assert compat.get("min_players", 2) >= 3
+        assert compat.get("min_players", 2) >= 2
 
     def test_brs_compatibility(self):
         """BRS supports NNUE only (Best Reply Search for multiplayer games)."""

@@ -287,7 +287,8 @@ class TestCheckpointing:
         """Create an optimizer for the simple model."""
         return torch.optim.Adam(simple_model.parameters(), lr=0.001)
 
-    def test_save_load_checkpoint(self, simple_model, optimizer):
+    @patch("app.training.checkpointing.check_disk_space", return_value=True)
+    def test_save_load_checkpoint(self, mock_disk, simple_model, optimizer):
         """Test basic checkpoint save/load."""
         from app.training.checkpointing import load_checkpoint, save_checkpoint
 
@@ -319,7 +320,8 @@ class TestCheckpointing:
             assert loaded_epoch == 5
             assert abs(loaded_loss - 0.123) < 0.001
 
-    def test_checkpoint_directory_creation(self, simple_model, optimizer):
+    @patch("app.training.checkpointing.check_disk_space", return_value=True)
+    def test_checkpoint_directory_creation(self, mock_disk, simple_model, optimizer):
         """Test that checkpoint creates parent directories."""
         from app.training.checkpointing import save_checkpoint
 

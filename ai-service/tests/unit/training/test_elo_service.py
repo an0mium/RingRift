@@ -645,12 +645,12 @@ class TestEdgeCases:
         service.get_rating("p1", "square8", 2)
 
         rows = service.execute_query(
-            "SELECT * FROM participants WHERE id = ?",
+            "SELECT * FROM participants WHERE participant_id = ?",
             ("p1",)
         )
 
         assert len(rows) == 1
-        assert rows[0]["id"] == "p1"
+        assert rows[0]["participant_id"] == "p1"
 
     def test_check_write_permission_no_coordinator(self, service):
         """Test check_write_permission without coordinator."""

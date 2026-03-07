@@ -241,7 +241,7 @@ class TestSelfplayConfig:
         assert config.board_type == "square8"
         assert config.num_players == 2
         assert config.num_games == 1000
-        assert config.engine_mode == EngineMode.NNUE_GUIDED
+        assert config.engine_mode == EngineMode.MIXED
         assert config.search_depth == 3
         assert config.mcts_simulations == 800
         assert config.temperature == 1.0
@@ -314,7 +314,7 @@ class TestSelfplayConfig:
         assert data["board_type"] == "hex8"
         assert data["num_players"] == 2
         assert data["config_key"] == "hex8_2p"
-        assert data["engine_mode"] == "nnue-guided"
+        assert data["engine_mode"] == "mixed"
 
     def test_from_dict(self) -> None:
         """Test from_dict deserialization."""
@@ -344,35 +344,11 @@ class TestSelfplayConfigEffectiveBudget:
         config = SelfplayConfig(simulation_budget=999)
         assert config.get_effective_budget() == 999
 
-    def test_elo_adaptive_budget(self) -> None:
-        """Test Elo-adaptive budget calculation."""
-        with patch("app.ai.gumbel_common.get_elo_adaptive_budget") as mock:
-            mock.return_value = 225
-            config = SelfplayConfig(model_elo=1450, training_epoch=50)
-            budget = config.get_effective_budget()
-            assert budget == 225
-            mock.assert_called_once_with(1450, 50)
-
-    def test_difficulty_based_budget(self) -> None:
-        """Test difficulty-based budget calculation."""
-        with patch("app.ai.gumbel_common.get_budget_for_difficulty") as mock:
-            mock.return_value = 800
-            config = SelfplayConfig(difficulty=8)
-            budget = config.get_effective_budget()
-            assert budget == 800
-            mock.assert_called_once_with(8)
-
     def test_default_budget(self) -> None:
-        """Test default budget when nothing is set."""
-        # Clear any set values
+        """Test default budget is 800."""
         config = SelfplayConfig()
-        config.simulation_budget = None
-        config.model_elo = None
-        config.difficulty = None
-
-        with patch("app.ai.gumbel_common.GUMBEL_BUDGET_STANDARD", 150):
-            budget = config.get_effective_budget()
-            assert budget == 150
+        budget = config.get_effective_budget()
+        assert budget == 800
 
 
 class TestCreateArgumentParser:
@@ -719,7 +695,7 @@ class TestEdgeCases:
         config = SelfplayConfig(board_type="HEX")
         assert config.board_type == "hexagonal"
 
-    def test_unknown_board_type_passes_through(self) -> None:
-        """Test that unknown board type passes through."""
-        config = SelfplayConfig(board_type="custom_board")
-        assert config.board_type == "custom_board"
+    def test_unknown_board_type_raises(self) -> None:
+        """Test that unknown board type raises ValueError."""
+        with pytest.raises(ValueError, match="Unknown board type"):
+            SelfplayConfig(board_type="custom_board")

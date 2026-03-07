@@ -651,8 +651,8 @@ class TestThreadSpawnerCore:
         spawner = ThreadSpawner()
         health = spawner.health_check()
 
-        assert "healthy" in health
-        assert "running" in health
+        assert hasattr(health, "healthy")
+        assert hasattr(health, "status")
 
         spawner.shutdown(timeout=1.0)
 
@@ -841,10 +841,11 @@ class TestExceptionConsolidation:
             TrainingError,
         )
 
-        assert TrainingError.code == "TRAINING_ERROR"
-        assert EvaluationError.code == "EVALUATION_ERROR"
-        assert SelfplayError.code == "SELFPLAY_ERROR"
-        assert DataLoadError.code == "DATA_LOAD_ERROR"
+        from app.errors import ErrorCode
+        assert TrainingError.code == ErrorCode.TRAINING_ERROR
+        assert EvaluationError.code == ErrorCode.EVALUATION_ERROR
+        assert SelfplayError.code == ErrorCode.SELFPLAY_ERROR
+        assert DataLoadError.code == ErrorCode.DATA_LOAD_ERROR
 
 
 # =============================================================================
@@ -954,7 +955,8 @@ class TestModelVersioningExceptions:
         from app.errors import CheckpointError, ModelVersioningError
 
         assert issubclass(ModelVersioningError, CheckpointError)
-        assert ModelVersioningError.code == "MODEL_VERSIONING_ERROR"
+        from app.errors import ErrorCode
+        assert ModelVersioningError.code == ErrorCode.MODEL_VERSIONING_ERROR
 
     def test_subclasses_in_model_versioning(self):
         """Test specialized subclasses remain in model_versioning."""

@@ -328,11 +328,12 @@ class TestHexStateEncoder:
         # Channel assignment depends on implementation
         assert features.shape == (10, 25, 25)
 
-    def test_encode_alias(self, hex_encoder, empty_hex_game_state):
-        """encode() is alias for encode_state()."""
-        f1, g1 = hex_encoder.encode_state(empty_hex_game_state)
-        f2, g2 = hex_encoder.encode(empty_hex_game_state)
-        np.testing.assert_array_equal(f1, f2)
+    def test_encode_stacks_frames(self, hex_encoder, empty_hex_game_state):
+        """encode() stacks 4 frames (40 channels) vs encode_state() single frame (10 channels)."""
+        f_single, g1 = hex_encoder.encode_state(empty_hex_game_state)
+        f_stacked, g2 = hex_encoder.encode(empty_hex_game_state)
+        assert f_single.shape == (10, 25, 25)
+        assert f_stacked.shape == (40, 25, 25)
         np.testing.assert_array_equal(g1, g2)
 
     def test_encode_wrong_board_type(self, hex_encoder, empty_square8_game_state):
@@ -476,11 +477,12 @@ class TestSquareStateEncoder:
             features[12], np.ones((8, 8), dtype=np.float32)
         )
 
-    def test_encode_alias(self, square_encoder, empty_square8_game_state):
-        """encode() is alias for encode_state()."""
-        f1, g1 = square_encoder.encode_state(empty_square8_game_state)
-        f2, g2 = square_encoder.encode(empty_square8_game_state)
-        np.testing.assert_array_equal(f1, f2)
+    def test_encode_stacks_frames(self, square_encoder, empty_square8_game_state):
+        """encode() stacks 4 frames (56 channels) vs encode_state() single frame (14 channels)."""
+        f_single, g1 = square_encoder.encode_state(empty_square8_game_state)
+        f_stacked, g2 = square_encoder.encode(empty_square8_game_state)
+        assert f_single.shape == (14, 8, 8)
+        assert f_stacked.shape == (56, 8, 8)
         np.testing.assert_array_equal(g1, g2)
 
 

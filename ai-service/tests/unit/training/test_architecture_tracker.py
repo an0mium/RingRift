@@ -730,6 +730,10 @@ class TestConvenienceFunctions:
 
     def setup_method(self):
         ArchitectureTracker.reset_instance()
+        # Use temp path to avoid loading real state from data/architecture_stats.json
+        self.temp_dir = tempfile.mkdtemp()
+        tracker = ArchitectureTracker(state_path=Path(self.temp_dir) / "test.json")
+        ArchitectureTracker._instance = tracker
 
     def teardown_method(self):
         ArchitectureTracker.reset_instance()

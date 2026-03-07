@@ -252,6 +252,9 @@ class TestValidateModelValueHead:
         """Test matching num_players attribute passes."""
         mock_model = mock.MagicMock()
         mock_model.num_players = 4
+        mock_model.value_fc3.out_features = 4
+        # value_head also checked; configure it to match
+        mock_model.value_head.out_features = 4
 
         # Should not raise
         validate_model_value_head(mock_model, expected_players=4)
@@ -266,10 +269,9 @@ class TestValidateModelValueHead:
 
     def test_value_fc2_mismatch_raises(self):
         """Test value_fc2 output mismatch raises."""
-        mock_model = mock.MagicMock()
-        del mock_model.num_players  # Remove num_players attribute
+        mock_model = mock.MagicMock(spec=[])
+        mock_model.value_fc2 = mock.MagicMock()
         mock_model.value_fc2.out_features = 2
-        del mock_model.value_fc3  # Remove value_fc3
 
         with pytest.raises(ValueError, match="value_fc2 output mismatch"):
             validate_model_value_head(mock_model, expected_players=4)
@@ -308,7 +310,7 @@ class TestValidateArchitectureDataCompatibility:
         """Test missing encoder config skips validation gracefully."""
         # Mock the import to fail
         with mock.patch(
-            "app.training.parameter_validation.get_encoder_config",
+            "app.training.encoder_registry.get_encoder_config",
             side_effect=ValueError("Not found"),
         ):
             # Should not raise

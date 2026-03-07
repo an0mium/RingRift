@@ -50,6 +50,7 @@ def mock_resolved():
         num_players=2,
         distributed=False,
         local_rank=-1,
+        skip_freshness_check=True,
     )
 
 

@@ -112,7 +112,7 @@ class TestParseArgs:
     def test_augmentation_flag(self):
         """Test --augment-hex-symmetry flag."""
         args = parse_args(["--augment-hex-symmetry"])
-        assert args.augment_hex_symmetry is True
+        assert args.augment_hex_symmetry == "always"
 
     def test_sampling_weights(self):
         """Test --sampling-weights argument."""

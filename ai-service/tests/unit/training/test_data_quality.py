@@ -493,7 +493,7 @@ class TestValidateDatabaseForExport:
                 id INTEGER PRIMARY KEY,
                 game_id TEXT NOT NULL,
                 move_number INTEGER NOT NULL,
-                move_data TEXT NOT NULL,
+                move_json TEXT NOT NULL,
                 FOREIGN KEY (game_id) REFERENCES games(game_id)
             )
         """)
@@ -506,7 +506,7 @@ class TestValidateDatabaseForExport:
             )
             for j in range(5):
                 cursor.execute(
-                    "INSERT INTO game_moves (game_id, move_number, move_data) VALUES (?, ?, ?)",
+                    "INSERT INTO game_moves (game_id, move_number, move_json) VALUES (?, ?, ?)",
                     (game_id, j, '{"type": "PLACE_RING", "to": [0, 0]}'),
                 )
         conn.commit()
@@ -534,7 +534,7 @@ class TestValidateDatabaseForExport:
                 id INTEGER PRIMARY KEY,
                 game_id TEXT NOT NULL,
                 move_number INTEGER NOT NULL,
-                move_data TEXT NOT NULL
+                move_json TEXT NOT NULL
             )
         """)
         # Insert games WITHOUT moves

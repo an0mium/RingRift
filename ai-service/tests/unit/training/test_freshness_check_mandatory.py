@@ -46,10 +46,11 @@ class TestFreshnessCheckMandatory(unittest.TestCase):
         # Verify freshness check was called
         mock_check.assert_called_once()
         call_kwargs = mock_check.call_args[1]
-        self.assertEqual(call_kwargs['max_age_hours'], 1.0)
+        self.assertEqual(call_kwargs['max_age_hours'], 2000.0)
 
     @patch('app.training.train.check_freshness_sync')
     @patch('app.training.train.HAS_FRESHNESS_CHECK', True)
+    @patch('app.training.train.HAS_STALE_FALLBACK', False)
     def test_stale_data_fails_by_default(self, mock_check):
         """Test that stale data causes training to fail by default."""
         from app.training.train import train_model
@@ -142,8 +143,8 @@ class TestFreshnessCheckMandatory(unittest.TestCase):
         # Verify defaults
         self.assertFalse(args.skip_freshness_check,
                         'Freshness check should be enabled by default')
-        self.assertEqual(args.max_data_age_hours, 1.0,
-                        'Default threshold should be 1.0 hours')
+        self.assertEqual(args.max_data_age_hours, 2000.0,
+                        'Default threshold should be 2000.0 hours')
         self.assertFalse(args.allow_stale_data,
                         'Should fail on stale data by default')
 

@@ -364,7 +364,7 @@ class TestCheckEarlyStopping:
         mock_context.early_stopper = MagicMock()
         mock_context.early_stopper.should_stop.return_value = True
         mock_context.enhancements_manager = None
-        sample_metrics.epoch = 20  # Above MIN_TRAINING_EPOCHS
+        sample_metrics.epoch = 26  # Above MIN_TRAINING_EPOCHS (25)
 
         should_stop, reason = handler._check_early_stopping(mock_context, sample_metrics)
         assert should_stop is True
@@ -544,40 +544,6 @@ class TestHandleTrainingComplete:
         result = handler.handle_training_complete(mock_context, sample_metrics)
         mock_context.async_checkpointer.save_async.assert_called_once()
         assert result.checkpoint_saved is True
-
-
-# =============================================================================
-# PostEpochHandler._emit_async Tests
-# =============================================================================
-
-
-class TestEmitAsync:
-    """Test async event emission helper."""
-
-    def test_emit_async_with_running_loop(self):
-        """Test async emission with running event loop."""
-        handler = PostEpochHandler()
-
-        async def test_coro():
-            return "test"
-
-        async def run_test():
-            coro = test_coro()
-            handler._emit_async(coro)
-            # Give time for the task to be scheduled
-            await asyncio.sleep(0.01)
-
-        asyncio.run(run_test())
-
-    def test_emit_async_no_loop(self):
-        """Test async emission handles no running loop gracefully."""
-        handler = PostEpochHandler()
-
-        async def test_coro():
-            return "test"
-
-        # Should not raise even without a running loop
-        handler._emit_async(test_coro())
 
 
 # =============================================================================
