@@ -527,6 +527,10 @@ class UnifiedQueuePopulator:
             with sqlite3.connect(str(db_path), timeout=10.0) as conn:
                 cursor = conn.cursor()
 
+                # Exclude baseline participants (random, heuristic) and
+                # heuristic-harness variants of real models which have inflated Elo
+                # from playing as heuristic against weak baselines.
+                # Real model participants use gumbel_mcts or similar neural harnesses.
                 cursor.execute("""
                     SELECT e.board_type, e.num_players, e.rating as best_elo,
                            e.participant_id, e.games_played
@@ -535,6 +539,10 @@ class UnifiedQueuePopulator:
                         SELECT board_type, num_players, MAX(rating) as max_rating
                         FROM elo_ratings
                         WHERE archived_at IS NULL
+                          AND participant_id NOT LIKE '%:heuristic:%'
+                          AND participant_id NOT IN ('random', 'heuristic')
+                          AND participant_id NOT LIKE 'none:%'
+                          AND participant_id NOT LIKE 'baseline_%'
                         GROUP BY board_type, num_players
                     ) m ON e.board_type = m.board_type
                        AND e.num_players = m.num_players
