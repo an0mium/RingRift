@@ -5281,6 +5281,11 @@ class NeuralNetAI(BaseAI):
                         raise RuntimeError(msg)
 
                 self.model.load_state_dict(state_dict)
+                # Mar 2026: Re-apply device after load_state_dict — PyTorch MPS
+                # doesn't reliably preserve device placement during load, causing
+                # "Input type (MPSFloatType) and weight type (torch.FloatTensor)"
+                # errors that silently degrade all evaluations to random play.
+                self.model.to(self.device)
                 self.model.eval()
                 logger.info(f"Loaded versioned model from {model_path} " f"(version: {metadata.architecture_version})")
                 return
@@ -5298,6 +5303,7 @@ class NeuralNetAI(BaseAI):
                     device=self.device,
                 )
                 self.model.load_state_dict(state_dict)
+                self.model.to(self.device)
                 self.model.eval()
                 return
 
@@ -5349,6 +5355,7 @@ class NeuralNetAI(BaseAI):
                         if isinstance(state_dict, dict):
                             state_dict = _strip_module_prefix(state_dict)
                         self.model.load_state_dict(state_dict)
+                        self.model.to(self.device)
                         self.model.eval()
                         logger.info(
                             "Successfully rebuilt and loaded V3 flat model "
@@ -5418,6 +5425,7 @@ class NeuralNetAI(BaseAI):
                 state_dict = _strip_module_prefix(state_dict)
 
             self.model.load_state_dict(state_dict)
+            self.model.to(self.device)
             self.model.eval()
             logger.info(f"Loaded legacy model from {model_path}")
 
