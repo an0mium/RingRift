@@ -153,6 +153,19 @@ _ESTIMATED_RAM: dict[OperationType, float] = {
     OperationType.SELFPLAY: 2.0,
 }
 
+# Maximum slot age (seconds) before TTL cleanup releases it.
+# These are generous upper bounds — normal operations finish well within these.
+# The TTL exists to catch leaked slots from unexecuted finally blocks.
+_DEFAULT_MAX_SLOT_AGE = 7200  # 2 hours
+_MAX_SLOT_AGE: dict[str, float] = {
+    OperationType.EVALUATION.value: 14400,  # 4 hours (large board gauntlets)
+    OperationType.EXPORT.value: 7200,  # 2 hours
+    OperationType.S3_UPLOAD.value: 3600,  # 1 hour
+    OperationType.TOURNAMENT.value: 7200,  # 2 hours
+    OperationType.TRAINING.value: 18000,  # 5 hours
+    OperationType.SELFPLAY.value: 14400,  # 4 hours
+}
+
 
 @dataclass
 class Slot:
@@ -221,14 +234,39 @@ class CoordinatorGovernor:
             logger.warning(f"[Governor] Failed to create schema: {e}")
 
     def _cleanup_stale(self, conn: sqlite3.Connection) -> int:
-        """Remove slots held by dead processes. Returns count removed."""
+        """Remove slots held by dead processes OR exceeding TTL.
+
+        Two cleanup mechanisms:
+        1. Dead PID: process no longer exists -> slot leaked at process death
+        2. TTL expired: slot held longer than max age -> finally block never ran
+           (e.g. async cancellation, unhandled error in long-lived process)
+
+        The TTL fix is critical for master_loop (PID stays alive for days)
+        where daemon cycle methods can leak slots without killing the process.
+        """
+        now = time.time()
         rows = conn.execute(
-            "SELECT id, pid FROM active_slots"
+            "SELECT id, pid, operation, acquired_at, description "
+            "FROM active_slots"
         ).fetchall()
         stale_ids = []
-        for slot_id, pid in rows:
+        for slot_id, pid, operation, acquired_at, description in rows:
+            age_seconds = now - acquired_at
+            max_age = _MAX_SLOT_AGE.get(operation, _DEFAULT_MAX_SLOT_AGE)
+
             if not _is_pid_alive(pid):
                 stale_ids.append(slot_id)
+                logger.info(
+                    f"[Governor] Cleaning dead-PID slot {slot_id}: "
+                    f"{operation} pid={pid} desc={description}"
+                )
+            elif age_seconds > max_age:
+                stale_ids.append(slot_id)
+                logger.warning(
+                    f"[Governor] Cleaning TTL-expired slot {slot_id}: "
+                    f"{operation} held for {age_seconds:.0f}s "
+                    f"(max {max_age:.0f}s) pid={pid} desc={description}"
+                )
 
         if stale_ids:
             placeholders = ",".join("?" * len(stale_ids))
@@ -238,8 +276,7 @@ class CoordinatorGovernor:
             )
             conn.commit()
             logger.info(
-                f"[Governor] Cleaned {len(stale_ids)} stale slots "
-                f"from dead PIDs"
+                f"[Governor] Cleaned {len(stale_ids)} stale slots"
             )
         return len(stale_ids)
 
@@ -457,13 +494,17 @@ class CoordinatorGovernor:
             by_type: dict[str, int] = {}
             total_ram = 0.0
             active = []
+            now = time.time()
             for op, pid, acquired, ram, desc in slots:
                 by_type[op] = by_type.get(op, 0) + 1
                 total_ram += ram
+                max_age = _MAX_SLOT_AGE.get(op, _DEFAULT_MAX_SLOT_AGE)
+                age = now - acquired
                 active.append({
                     "operation": op,
                     "pid": pid,
-                    "running_seconds": int(time.time() - acquired),
+                    "running_seconds": int(age),
+                    "ttl_remaining_seconds": int(max_age - age),
                     "estimated_ram_gb": ram,
                     "description": desc,
                 })
