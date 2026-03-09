@@ -1854,7 +1854,7 @@ class EvaluationDaemon(HandlerBase):
                 early_stopping_min_games=self.config.early_stopping_min_games,
                 parallel_games=parallel_games,  # Jan 2026: Adaptive, reduced on OOM
                 parallel_opponents=False,  # Feb 2026: Prevents nested ThreadPool deadlock (0-game bug)
-                use_search=False,  # Feb 2026: Baseline eval uses policy-only (faster, no torch.compile)
+                use_search=True,  # Mar 2026: Re-enabled after MPS device fix; policy-only path lacks history stacking
                 game_count=game_count,  # Dec 30: Graduated thresholds
                 harness_type="gumbel_mcts",  # Jan 11, 2026: Track harness in Elo
                 recording_config=recording_config,  # Jan 13, 2026: Record gauntlet games
@@ -2600,8 +2600,8 @@ class EvaluationDaemon(HandlerBase):
                     early_stopping=False,
                     parallel_games=1 if is_large_board else (2 if num_players >= 3 else 4),
                     parallel_opponents=False,
-                    use_search=False,
-                    harness_type="policy_only",  # Mar 3: Track harness for per-harness Elo
+                    use_search=True,  # Mar 2026: Re-enabled after MPS device fix
+                    harness_type="gumbel_mcts",  # Mar 9: Use search for proper encoding
                 ),
                 timeout=timeout_s,
             )
