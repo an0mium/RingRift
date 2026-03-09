@@ -616,10 +616,11 @@ class ProcessSpawnerOrchestrator(BaseOrchestrator):
                 "engine_mode": gpu_engine_mode,
             })
 
-        # Monitor GPU selfplay
+        # Monitor GPU selfplay (guard: method removed in refactoring)
         job_coord_manager = getattr(self._p2p, "job_coordination_manager", None)
-        if job_coord_manager is not None:
-            safe_create_task(job_coord_manager.monitor_gpu_selfplay_and_validate(
+        monitor_fn = getattr(job_coord_manager, "monitor_gpu_selfplay_and_validate", None)
+        if monitor_fn is not None:
+            safe_create_task(monitor_fn(
                 job_id, proc, output_dir, board_type, num_players
             ), name=f"spawner-monitor-gpu-selfplay-{job_id[:8]}")
 
