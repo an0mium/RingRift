@@ -585,7 +585,7 @@ class ProcessWatchdog:
     Does nothing if psutil is unavailable.
 
     Usage:
-        watchdog = ProcessWatchdog(max_processes=60)
+        watchdog = ProcessWatchdog()  # Uses _COORDINATOR_MAX_DESCENDANTS (120)
         watchdog.start()  # Runs as daemon thread, dies with parent
     """
 

@@ -14215,7 +14215,7 @@ def main():
     if os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() in ("true", "1", "yes"):
         try:
             from app.utils.coordinator_governor import ProcessWatchdog
-            _proc_watchdog = ProcessWatchdog(max_processes=60)
+            _proc_watchdog = ProcessWatchdog()  # Uses _COORDINATOR_MAX_DESCENDANTS (120)
             _proc_watchdog.start()
         except Exception as _wd_err:
             logger.warning(f"[P2P] Failed to start ProcessWatchdog: {_wd_err}")

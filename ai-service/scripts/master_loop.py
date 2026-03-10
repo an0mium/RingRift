@@ -3213,7 +3213,7 @@ async def main() -> None:
     if os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() in ("true", "1", "yes"):
         try:
             from app.utils.coordinator_governor import ProcessWatchdog
-            _process_watchdog = ProcessWatchdog(max_processes=60)
+            _process_watchdog = ProcessWatchdog()  # Uses _COORDINATOR_MAX_DESCENDANTS (120)
             _process_watchdog.start()
         except Exception as _wd_err:
             logger.warning(f"[MasterLoop] Failed to start ProcessWatchdog: {_wd_err}")
