@@ -19,7 +19,7 @@ Configuration:
         LAMBDA_API_KEY: Required for API access
         LAMBDA_MAX_HOURLY_BUDGET: Max $/hr to spend (default: 100.0)
         LAMBDA_RESTART_GPU_TYPES: Comma-separated GPU types to restart (default: gh200,h100)
-        LAMBDA_SSH_KEY_NAME: SSH key name in Lambda account (default: ringrift-cluster)
+        LAMBDA_SSH_KEY_NAME: SSH key name in Lambda account (default: cluster-automation-local)
 
 Events Emitted:
     - CLUSTER_CAPACITY_CHANGED: When instances are started/stopped
@@ -54,7 +54,7 @@ class LambdaWatchdog:
         self,
         max_hourly_budget: float = 100.0,
         restart_gpu_types: list[str] | None = None,
-        ssh_key_name: str = "ringrift-cluster",
+        ssh_key_name: str = "cluster-automation-local",
     ):
         """Initialize watchdog.
 

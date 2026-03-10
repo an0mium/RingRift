@@ -305,7 +305,7 @@ class LambdaScaleAdapter:
                 payload = {
                     "region_name": "us-west-1",
                     "instance_type_name": instance_type,
-                    "ssh_key_names": [],  # Would need to be configured
+                    "ssh_key_names": ["cluster-automation-local"],
                     "quantity": 1,
                 }
                 async with session.post(

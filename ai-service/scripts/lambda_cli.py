@@ -13,7 +13,7 @@ Environment:
     LAMBDA_API_KEY - Your Lambda Labs API key (or uses default from config)
 
 Examples:
-    python scripts/lambda_cli.py launch gpu_1x_gh200 us-east-3 ringrift-cluster ringrift-gh200-10
+    python scripts/lambda_cli.py launch gpu_1x_gh200 us-east-3 cluster-automation-local ringrift-gh200-10
 """
 import subprocess
 import json
@@ -115,7 +115,7 @@ def main():
     elif cmd == "launch":
         if len(sys.argv) < 5:
             print("Usage: lambda_cli.py launch <type> <region> <ssh_key> [name] [quantity]")
-            print("\nExample: lambda_cli.py launch gpu_1x_gh200 us-east-3 ringrift-cluster my-instance")
+            print("\nExample: lambda_cli.py launch gpu_1x_gh200 us-east-3 cluster-automation-local my-instance")
             sys.exit(1)
         inst_type = sys.argv[2]
         region = sys.argv[3]

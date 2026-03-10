@@ -333,6 +333,7 @@ class LambdaProvider(CloudProvider):
                     "instance_type_name": instance_type,
                     "region_name": region,
                     "quantity": count,
+                    "ssh_key_names": ["cluster-automation-local"],
                     "name": f"{name_prefix}-{gpu_type.value}-{datetime.now().strftime('%Y%m%d%H%M%S')}",
                     "file_system_names": [],
                 },

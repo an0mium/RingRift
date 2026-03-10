@@ -318,7 +318,7 @@ class LambdaManager(ProviderManager):
         launch_data = {
             "instance_type_name": config.get("instance_type_name", "gpu_1x_gh200"),
             "region_name": config.get("region_name", "us-west-1"),
-            "ssh_key_names": config.get("ssh_key_names", []),
+            "ssh_key_names": config.get("ssh_key_names", ["cluster-automation-local"]),
         }
 
         if name := config.get("name"):
