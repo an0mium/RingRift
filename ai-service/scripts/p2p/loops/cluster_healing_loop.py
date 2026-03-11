@@ -275,8 +275,12 @@ class ClusterHealingLoop(BaseLoop):
                 if not name or not isinstance(host_data, dict):
                     continue
 
-                # Skip disabled hosts
+                # Skip disabled or stopped hosts
                 if not host_data.get("enabled", True):
+                    continue
+                if host_data.get("status", "ready") in ("stopped", "terminated", "disabled"):
+                    continue
+                if not host_data.get("p2p_enabled", True):
                     continue
 
                 # Extract SSH info
@@ -554,7 +558,7 @@ fi
         self._stats_heal_attempts += 1
         logger.info(f"[ClusterHealing] Attempting to heal {host.name}")
 
-        # First check if P2P is already running
+        # First check if P2P is already running via SSH + curl
         status = await self._check_p2p_status(host)
         if status:
             # P2P is running but not connected to us - might be in another partition
@@ -562,21 +566,38 @@ fi
             peers = status.get("alive_peers", 0)
 
             # Jan 23, 2026: Don't restart nodes that have healthy P2P
-            # A node is considered healthy if it has:
-            # - A leader (any leader) OR
-            # - At least 2 alive peers (could be in election)
-            # Only restart truly isolated nodes (0-1 peers, no leader)
             if leader or peers >= 2:
                 logger.info(
                     f"[ClusterHealing] {host.name} has healthy P2P "
                     f"(leader={leader}, peers={peers}), skipping restart - not isolated"
                 )
-                return True  # Consider it "healed" - it's in a partition but not dead
+                return True
 
             logger.info(
                 f"[ClusterHealing] {host.name} has isolated P2P "
                 f"(leader={leader}, peers={peers}), restarting with correct bootstrap"
             )
+        else:
+            # Mar 2026: SSH+curl returned None — could be slow (GPU load), not dead.
+            # Check if the P2P process is at least running before restarting.
+            proc_check = f"pgrep -f p2p_orchestrator"
+            ssh_cmd = self._build_ssh_command(host, proc_check)
+            try:
+                proc = await asyncio.create_subprocess_shell(
+                    ssh_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+                if proc.returncode == 0 and stdout.strip():
+                    logger.info(
+                        f"[ClusterHealing] {host.name} P2P process is running but HTTP "
+                        f"unresponsive (likely GPU-loaded), skipping restart"
+                    )
+                    self._record_heal_failure(host.name, "http_slow_but_alive")
+                    return False
+            except (asyncio.TimeoutError, Exception):
+                pass  # SSH failed too — node may truly be down
 
         # Restart P2P with our bootstrap peers
         success = await self._restart_p2p(host, bootstrap_peers)
@@ -642,9 +663,25 @@ fi
             )
 
     async def _run_once(self) -> None:
-        """Execute one healing cycle."""
+        """Execute one healing cycle.
+
+        Mar 2026: Only the coordinator/leader should heal other nodes.
+        Worker nodes were SSH-ing into peers and restarting their P2P when
+        the target's HTTP server was slow (due to GPU load), causing a
+        cascading restart loop that kept the entire cluster offline.
+        """
         if not self.config.enabled:
             return
+
+        # Only coordinator should heal — worker nodes must not restart peers
+        try:
+            from app.config.env import env
+            if not env.is_coordinator:
+                return
+        except Exception:
+            # If we can't determine role, check IS_COORDINATOR env var
+            if os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() not in {"1", "true", "yes"}:
+                return
 
         # Get missing nodes
         missing = self._get_missing_nodes()
