@@ -26,9 +26,11 @@ event subscription, health checks, and fire-and-forget helpers.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
 from app.config.coordination_defaults import PromotionGameDefaults
@@ -40,6 +42,19 @@ from app.utils.game_discovery import count_games_for_config
 from app.utils.retry import RetryConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _file_sha256(path: Path, chunk_size: int = 65536) -> str:
+    """Compute SHA256 hex digest of a file."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
+
 
 # January 26, 2026 (P4): Elo velocity gate - import Elo trend function
 try:
@@ -260,13 +275,15 @@ class AutoPromotionDaemon(HandlerBase):
                 config_key = parts[1]  # "square8_2p"
 
                 # Skip if candidate is identical to canonical (already promoted)
+                # Mar 2026: Use SHA256 hash instead of file size — different models
+                # can have the same size (same architecture, different weights)
                 canonical_path = models_dir / f"canonical_{config_key}.pth"
                 if canonical_path.exists():
                     try:
-                        cand_stat = candidate_path.stat()
-                        canon_stat = canonical_path.stat()
-                        if cand_stat.st_size == canon_stat.st_size and canon_stat.st_mtime >= cand_stat.st_mtime:
-                            continue  # Same size and canonical is newer → already promoted
+                        cand_hash = _file_sha256(candidate_path)
+                        canon_hash = _file_sha256(canonical_path)
+                        if cand_hash == canon_hash:
+                            continue  # Identical content → already promoted
                     except OSError:
                         pass
 
@@ -380,10 +397,16 @@ class AutoPromotionDaemon(HandlerBase):
             logger.error(f"[AutoPromotion] Elo scan failed: {e}")
 
     async def _fetch_candidates_from_s3(self, models_dir: "Path") -> int:
-        """Download candidate models from S3 that don't exist locally.
+        """Download candidate models from S3, replacing stale local copies.
 
         Mar 2026: Workers push candidates to S3 after training. The coordinator
         polls S3 here to discover and download them for evaluation/promotion.
+
+        Mar 10 2026: Fixed to re-download when S3 has a different version than
+        local (different file size). Previously skipped if local existed at all,
+        so new candidates from training were never fetched. Also archives stale
+        Elo entries when the candidate model changes, preventing old terrible
+        candidates from permanently dragging down the Elo rating.
         """
         import os
         import subprocess
@@ -411,9 +434,28 @@ class AutoPromotionDaemon(HandlerBase):
                 filename = parts[-1]
                 if not filename.startswith("candidate_") or not filename.endswith(".pth"):
                     continue
+
+                # Parse S3 file size from listing (format: "date time size filename")
+                try:
+                    s3_size = int(parts[2])
+                except (ValueError, IndexError):
+                    s3_size = -1
+
                 local_path = models_dir / filename
+
+                # Skip download if local exists with same size (same version)
                 if local_path.exists():
-                    continue
+                    try:
+                        local_size = local_path.stat().st_size
+                        if local_size == s3_size:
+                            continue  # Same version already local
+                    except OSError:
+                        pass
+                    # Different size = new candidate from training → re-download
+                    old_hash = _file_sha256(local_path)
+                else:
+                    old_hash = None
+
                 # Download from S3
                 s3_uri = f"{s3_prefix}{filename}"
                 dl = await asyncio.to_thread(
@@ -422,16 +464,117 @@ class AutoPromotionDaemon(HandlerBase):
                     capture_output=True, text=True, timeout=600,
                 )
                 if dl.returncode == 0 and local_path.exists():
+                    new_hash = _file_sha256(local_path)
+                    if old_hash and old_hash != new_hash:
+                        # Model content changed — archive old Elo entries so the
+                        # new candidate starts fresh instead of being dragged down
+                        # by old terrible candidate versions
+                        stem = local_path.stem  # e.g. "candidate_square8_4p"
+                        await self._archive_candidate_elo(stem)
+                        logger.info(
+                            f"[AutoPromotion] Candidate updated from S3: {filename} "
+                            f"(hash {old_hash[:12]}→{new_hash[:12]}, old Elo archived)"
+                        )
+                    else:
+                        size_mb = local_path.stat().st_size / 1e6
+                        logger.info(
+                            f"[AutoPromotion] Fetched new candidate from S3: "
+                            f"{filename} ({size_mb:.1f}MB)"
+                        )
+
+                    # Queue new candidate for gauntlet evaluation
+                    await self._queue_candidate_evaluation(local_path)
                     fetched += 1
-                    size_mb = local_path.stat().st_size / 1e6
-                    logger.info(
-                        f"[AutoPromotion] Fetched candidate from S3: "
-                        f"{filename} ({size_mb:.1f}MB)"
-                    )
             return fetched
         except Exception as e:
             logger.debug(f"[AutoPromotion] S3 candidate fetch error: {e}")
             return 0
+
+    async def _archive_candidate_elo(self, candidate_stem: str) -> None:
+        """Archive Elo entries for a candidate whose model file has changed.
+
+        Sets archived_at on all elo_ratings rows matching this candidate prefix,
+        so the new candidate version starts with a clean Elo slate.
+        """
+        import sqlite3
+
+        db_path = Path("data/unified_elo.db")
+        if not db_path.exists():
+            return
+
+        try:
+            def _do_archive():
+                conn = sqlite3.connect(str(db_path), timeout=5)
+                try:
+                    cursor = conn.execute(
+                        """UPDATE elo_ratings
+                           SET archived_at = ?, archive_reason = ?
+                           WHERE participant_id LIKE ? AND archived_at IS NULL""",
+                        (
+                            time.time(),
+                            f"candidate_model_replaced",
+                            f"{candidate_stem}%",
+                        ),
+                    )
+                    conn.commit()
+                    return cursor.rowcount
+                finally:
+                    conn.close()
+
+            archived = await asyncio.to_thread(_do_archive)
+            if archived > 0:
+                logger.info(
+                    f"[AutoPromotion] Archived {archived} stale Elo entries for "
+                    f"{candidate_stem} (model content changed)"
+                )
+        except Exception as e:
+            logger.debug(f"[AutoPromotion] Elo archive failed for {candidate_stem}: {e}")
+
+    async def _queue_candidate_evaluation(self, candidate_path: Path) -> None:
+        """Queue a newly fetched candidate for gauntlet evaluation.
+
+        Parses board_type and num_players from the filename (e.g. candidate_square8_4p.pth)
+        and submits to the evaluation persistent queue.
+        """
+        try:
+            from app.coordination.evaluation_queue import get_evaluation_queue
+
+            stem = candidate_path.stem  # "candidate_square8_4p"
+            parts = stem.split("_", 1)
+            if len(parts) < 2:
+                return
+
+            config_key = parts[1]  # "square8_4p"
+            # Parse board_type and num_players from config_key
+            # e.g. "square8_4p" → board_type="square8", num_players=4
+            if config_key.endswith("p"):
+                last_underscore = config_key.rfind("_")
+                if last_underscore > 0:
+                    board_type = config_key[:last_underscore]
+                    try:
+                        num_players = int(config_key[last_underscore + 1:-1])
+                    except ValueError:
+                        return
+                else:
+                    return
+            else:
+                return
+
+            queue = get_evaluation_queue()
+            request_id = queue.add_request(
+                model_path=str(candidate_path),
+                board_type=board_type,
+                num_players=num_players,
+                priority=90,  # High priority — fresh from training
+                source="s3_candidate_fetch",
+            )
+            if request_id:
+                logger.info(
+                    f"[AutoPromotion] Queued evaluation for {stem} "
+                    f"(board={board_type}, players={num_players})"
+                )
+        except Exception as e:
+            logger.debug(f"[AutoPromotion] Failed to queue evaluation: {e}")
 
     def _get_best_elo_for_model(self, model_stem: str) -> tuple[float | None, int]:
         """Get the best Elo rating for a model across all harness types.
