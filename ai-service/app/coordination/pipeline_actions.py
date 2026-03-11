@@ -622,6 +622,16 @@ async def trigger_npz_export(
         # generate selfplay data in databases not registered in TRAINING_DATA_REGISTRY.md
         cmd.append("--allow-noncanonical")
 
+        # Cap max samples on coordinator to prevent OOM (42GB+ without cap)
+        import os
+        env_cap = os.environ.get("RINGRIFT_MAX_EXPORT_SAMPLES")
+        if env_cap:
+            cmd.extend(["--max-samples", env_cap])
+        else:
+            from app.config.env import env as _env
+            if _env.is_coordinator:
+                cmd.extend(["--max-samples", "500000"])
+
         # December 29, 2025: Enable pending_gate bypass for cluster nodes without npx
         # This ensures training data is exported even when parity gates are pending
         exit_code, stdout, stderr = await _run_subprocess(

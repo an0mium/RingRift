@@ -373,6 +373,16 @@ class TrainingDataRecoveryDaemon(SingletonMixin, HandlerBase):
             "--overwrite",  # Overwrite existing corrupt file
         ]
 
+        # Cap max samples on coordinator to prevent OOM
+        import os
+        env_cap = os.environ.get("RINGRIFT_MAX_EXPORT_SAMPLES")
+        if env_cap:
+            cmd.extend(["--max-samples", env_cap])
+        else:
+            from app.config.env import env
+            if env.is_coordinator:
+                cmd.extend(["--max-samples", "500000"])
+
         logger.info(f"[DataRecovery] Running: {' '.join(cmd)}")
 
         try:
