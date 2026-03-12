@@ -636,9 +636,9 @@ class JobOrchestrator(BaseOrchestrator):
         if hasattr(self._p2p, "ClusterJob"):
             ClusterJob = self._p2p.ClusterJob
         else:
-            # Import from scripts.p2p if available
+            # Import from scripts.p2p.models (canonical location)
             try:
-                from scripts.p2p.job_types import ClusterJob
+                from scripts.p2p.models import ClusterJob
             except ImportError:
                 # Fallback: create a simple namedtuple-like dict
                 pass

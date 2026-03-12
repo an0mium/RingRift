@@ -284,13 +284,22 @@ class JobsApiHandlersMixin(BaseP2PHandler):
                         {"success": False, "error": "Failed to start local job"},
                         status=500,
                     )
+                # Handle both ClusterJob objects and dict fallback
+                if hasattr(job, "job_id"):
+                    jid = job.job_id
+                    jtype = job.job_type.value if hasattr(job.job_type, "value") else str(job.job_type)
+                    jstatus = job.status
+                else:
+                    jid = job.get("job_id", "")
+                    jtype = job.get("job_type", "")
+                    jstatus = job.get("status", "")
                 return web.json_response(
                     {
                         "success": True,
-                        "job_id": job.job_id,
-                        "job_type": job.job_type.value,
-                        "status": job.status,
-                        "message": f"Job {job.job_id} started",
+                        "job_id": jid,
+                        "job_type": jtype,
+                        "status": jstatus,
+                        "message": f"Job {jid} started",
                     }
                 )
 
@@ -592,7 +601,8 @@ class JobsApiHandlersMixin(BaseP2PHandler):
             )
 
             if job:
-                return web.json_response({"success": True, "job": job.to_dict()})
+                job_dict = job.to_dict() if hasattr(job, "to_dict") else job
+                return web.json_response({"success": True, "job": job_dict})
             else:
                 return web.json_response(
                     {"success": False, "error": "Failed to start job"},
